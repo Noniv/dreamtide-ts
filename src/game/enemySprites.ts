@@ -634,7 +634,15 @@ export function buildAtlas(): Atlas {
   tiles.sort((a, b) => b.px - a.px);
   const totalArea = tiles.reduce((s, t) => s + t.px * t.px, 0);
   let size = 256;
-  while (size * size < totalArea * 1.35) size *= 2; // headroom for shelf waste
+  // Initial size GUESS only — the pack loop below grows `size` if tiles don't
+  // fit, so this just needs to be a rough lower bound, not a safe upper one.
+  // The headroom factor covers shelf-packing waste (rows leave gaps under short
+  // tiles). It was 1.35, but for the current sprite set that overshot 4096² by
+  // ~2% and forced the guess to 8192 — quadrupling atlas memory (256MB→ vs
+  // 64MB per copy) even though the tiles pack fine into 4096². 1.2 still clears
+  // the real waste while letting 4096 be tried first; the loop remains the
+  // actual safety net if a future sprite set genuinely needs more.
+  while (size * size < totalArea * 1.2) size *= 2;
   // try to place; grow if a shelf run overflows
   const entries = new Map<string, AtlasEntry>();
   const GAP = 2;
