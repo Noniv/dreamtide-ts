@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dreamtide: Reverie of the Last Magus</title>
+    <!-- fonts are self-hosted via @font-face in styles.css (public/fonts) -->
+    <link rel="preload" href="/fonts/roboto-var.woff2" as="font" type="font/woff2" crossorigin />
+    <!-- Boot veil: painted on the very first frame (inline, before any module
+         loads) so the initial font swap, React mount and first canvas frame all
+         happen hidden. main.tsx fades it out once the app is ready. -->
+    <style>
+      #boot {
+        position: fixed; inset: 0; z-index: 9999;
+        background:
+          radial-gradient(120% 90% at 50% 40%, #17103a 0%, #0b0a1e 55%, #050310 100%);
+        opacity: 1; pointer-events: none;
+        transition: opacity 600ms ease;
+      }
+      #boot.hide { opacity: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <div id="boot"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
