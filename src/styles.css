@@ -105,16 +105,11 @@ body {
   pointer-events: none;
 }
 
-.pause-overlay {
-  position: absolute; inset: 0;
-  display: flex; align-items: center; justify-content: center;
-  font-family: 'Roboto', sans-serif; font-size: 60px; font-weight: 500;
-  letter-spacing: 0.42em; text-indent: 0.42em; text-transform: uppercase;
-  color: rgba(205,216,255,0.75);
+/* The pause menu reuses the standard .overlay backdrop; this just lifts it
+   above the HUD. Its buttons live in a .title-block like the main menu. */
+.pause-overlay { z-index: 10; }
+.pause-title {
   text-shadow: 0 0 40px rgba(127,245,255,0.4);
-  background: rgba(11,10,30,0.4);
-  pointer-events: none;
-  z-index: 10;
 }
 
 /* ---------------- overlays ---------------- */

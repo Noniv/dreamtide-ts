@@ -5,6 +5,7 @@ import { SPELLS, BOONS, GENERIC, EVOLVE } from './game/spells';
 import { SpellIcon, SpellIconInner, HAS_ICON } from './game/spellIcons';
 import { audio } from './game/audio';
 import { settings, RESOLUTION_OPTIONS, type Preset, type PerfPresets, type ResolutionScale } from './game/settings';
+import { isNative, exitApp } from './game/nativeWindow';
 import {
   TREE_NODES, TREE_EDGES, NODE_MAP, CLUSTER_INFO, loadMeta, saveMeta,
   canBuy, buyNode, canRefund, refundNode, refundValue, isReachable,
@@ -92,6 +93,18 @@ export default function App() {
     set({ screen: 'playing', result: null });
   };
 
+  const resume = () => {
+    engineRef.current!.paused = false;
+    engineRef.current!.pushHud(true);
+  };
+
+  // Abandon the current run and return to the main menu. The engine stays paused
+  // there; the next "Fall asleep" calls reset() to start a fresh dream.
+  const returnToMenu = () => {
+    engineRef.current!.paused = true;
+    set({ screen: 'menu', result: null });
+  };
+
   const pickChoice = (c: Choice) => {
     const more = engineRef.current!.chooseUpgrade(c);
     if (!more) set({ screen: 'playing' });
@@ -127,7 +140,9 @@ export default function App() {
       <canvas ref={canvasRef} className="game-canvas" />
 
       {screen === 'playing' && hud && <Hud hud={hud} />}
-      {screen === 'playing' && hud && hud.paused && <div className="pause-overlay">PAUSED</div>}
+      {screen === 'playing' && hud && hud.paused && (
+        <PauseMenu onResume={resume} onReturnToMenu={returnToMenu} />
+      )}
 
       {screen === 'levelup' && (
         <LevelUp
@@ -192,6 +207,22 @@ function Hud({ hud }: { hud: HudState }) {
   );
 }
 
+function PauseMenu({ onResume, onReturnToMenu }: { onResume: () => void; onReturnToMenu: () => void }) {
+  return (
+    <div className="overlay pause-overlay">
+      <div className="title-block">
+        <div className="eyebrow">The dream holds still</div>
+        <h1 className="pause-title">Paused</h1>
+        <div className="menu-buttons">
+          <button className="btn-primary" onClick={onResume}>Resume</button>
+          <button className="btn-secondary" onClick={onReturnToMenu}>Return to main menu</button>
+        </div>
+        <div className="controls-hint">Press Esc to resume · returning to the menu ends this dream</div>
+      </div>
+    </div>
+  );
+}
+
 function Menu({ onStart, onTree, onSettings, meta }: {
   onStart: () => void; onTree: () => void; onSettings: () => void; meta: Meta;
 }) {
@@ -212,6 +243,9 @@ function Menu({ onStart, onTree, onSettings, meta }: {
             <span className="dust-chip">✦ {meta.dust}{(meta.shards || 0) > 0 ? ` · ❖ ${meta.shards}` : ''}</span>
           </button>
           <button className="btn-secondary" onClick={onSettings}>⚙ Settings</button>
+          {isNative && (
+            <button className="btn-secondary" onClick={exitApp}>Exit</button>
+          )}
         </div>
         <div className="controls-hint">Move with WASD or arrow keys · spells are cast automatically · choose wisely when you level</div>
       </div>

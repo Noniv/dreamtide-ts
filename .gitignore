@@ -42,3 +42,20 @@ Thumbs.db
 
 # Tooling
 .kilo/
+
+# Tauri / Rust build artifacts
+src-tauri/target/
+src-tauri/gen/
+
+# Tauri icons: keep only the desktop set referenced by tauri.conf.json.
+# The `tauri icon` command regenerates the mobile/store variants on demand.
+src-tauri/icons/android/
+src-tauri/icons/ios/
+src-tauri/icons/Square*Logo.png
+src-tauri/icons/StoreLogo.png
+# Keep only the desktop icons referenced by tauri.conf.json.
+src-tauri/icons/64x64.png
+src-tauri/icons/icon.icns
+src-tauri/icons/icon.png
+# Generated source icon (re-runnable via `tauri icon`).
+src-tauri/app-icon.png

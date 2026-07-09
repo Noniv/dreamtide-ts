@@ -1,6 +1,10 @@
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import './styles.css';
+import { initNativeWindow } from './game/nativeWindow';
+
+// Desktop (Tauri) window integration; a no-op in the browser build.
+initNativeWindow();
 
 // no StrictMode: the engine owns canvases/RAF and dev double-mount would
 // create a second engine instance
