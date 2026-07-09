@@ -403,6 +403,19 @@ function emitEnemy(q: QuadList, eng: Engine, e: Enemy, alpha: number) {
   const half = entry.half * sc;
   const [tr, tg, tb] = TINT_RGB[tintKind];
   const mix = tintKind === 'normal' ? 0 : 1;
+  // eye tentacle crown: emitted UNDER the body as one live, continuously-rotating
+  // quad (see 'tentacles' sprite). Smooth at any scale, unlike a baked morph —
+  // this is what fixes the boss's magnified choppiness. Normal-tint crown keeps
+  // its baked pink; flash/frozen tint via the per-instance mix like the body.
+  if (e.type === 'eye') {
+    const tentE = q.uv('tentacles');
+    if (tentE) {
+      const hover = Math.sin(e.animT * 3 + e.seed) * 3 * sc;
+      const spin = e.animT * 0.4 + e.seed;   // slow continuous sway
+      q.push(false, tentE, x, y + bob * sc + hover, tentE.half * sc, spin, 1, tr, tg, tb, mix);
+      drawStats.enemyLiveOps++;
+    }
+  }
   q.push(false, entry, x, y + bob * sc, half, 0, 1, tr, tg, tb, mix);
   drawStats.enemyBlits++;
 
@@ -534,11 +547,13 @@ function emitProjectile(q: QuadList, eng: Engine, pr: Projectile, alpha: number)
     const e = q.uv('proj:fang')!;
     q.push(false, e, x, y, e.half, Math.atan2(pr.vy, pr.vx), 1);
   } else if (pr.kind === 'glaive') {
+    // Keep the halo small + faint so the blade shape reads as a glaive, not a
+    // glowing orb. The big soft halo used to swamp the silhouette.
     const glowE = q.uv('glow')!;
-    q.push(true, glowE, x, y, 44, 0, 0.6, 0.62, 0.85, 1); // icy-blue halo, hitbox-sized
+    q.push(true, glowE, x, y, 26, 0, 0.28, 0.62, 0.85, 1); // subtle icy-blue halo
     const e = q.uv('proj:glaive')!; // baked twin-bladed star-blade, spinning
     q.push(false, e, x, y, e.half, pr.spin, 1);
-    q.push(true, e, x, y, e.half, pr.spin, 0.4); // additive pass = glinting edge
+    q.push(true, e, x, y, e.half, pr.spin, 0.18); // faint additive glint on the edge
   }
 }
 
@@ -1004,10 +1019,10 @@ function drawProjectile(eng: Engine, ctx: CanvasRenderingContext2D, pr: Projecti
     ctx.fillStyle = cachedLinear(ctx, -56, 0, 0, 0, 'rgba(159,216,255,0)', 'rgba(232,246,255,0.55)');
     ctx.fillRect(-56, -3, 56, 6);
     ctx.restore();
-    // icy halo roughly matching the hitbox
-    ctx.fillStyle = centeredRadial(ctx, 46, [[0, 'rgba(159,216,255,0.5)'], [1, 'rgba(159,216,255,0)']]);
+    // tight, faint icy halo so the blade silhouette reads as a glaive, not an orb
+    ctx.fillStyle = centeredRadial(ctx, 24, [[0, 'rgba(159,216,255,0.28)'], [1, 'rgba(159,216,255,0)']]);
     ctx.beginPath();
-    ctx.arc(0, 0, 46, 0, TAU);
+    ctx.arc(0, 0, 24, 0, TAU);
     ctx.fill();
     ctx.rotate(pr.spin);
     ctx.shadowColor = '#9fd8ff';
@@ -1107,23 +1122,35 @@ function drawBeam(ctx: CanvasRenderingContext2D, cam: Engine['cam'], b: Beam, al
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(a);
+  const tc = Math.max(0, t);
   ctx.globalCompositeOperation = 'lighter';
-  const wNow = b.w * (0.4 + 0.6 * Math.sin(Math.max(0, t) * Math.PI));
+  const wNow = b.w * (0.4 + 0.6 * Math.sin(tc * Math.PI));
+  // The beam covers a long strip, so keep it clearly translucent — the body
+  // glow and the thin core are both roughly halved vs. before so enemies and
+  // pickups under the lance stay readable.
   const g = ctx.createLinearGradient(0, -wNow, 0, wNow);
   g.addColorStop(0, 'rgba(255,243,184,0)');
-  g.addColorStop(0.5, `rgba(255,250,225,${0.85 * Math.max(0, t) + 0.1})`);
+  g.addColorStop(0.5, `rgba(255,250,225,${0.4 * tc + 0.05})`);
   g.addColorStop(1, 'rgba(188,217,255,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, -wNow, b.len, wNow * 2);
-  ctx.fillStyle = `rgba(255,255,255,${0.9 * Math.max(0, t)})`;
-  ctx.fillRect(0, -wNow * 0.18, b.len, wNow * 0.36);
+  ctx.fillStyle = `rgba(255,255,255,${0.45 * tc})`;
+  ctx.fillRect(0, -wNow * 0.16, b.len, wNow * 0.32);
+  // origin crescent: fade + expand as the lance dissipates so it eases out
+  // instead of blinking off at end-of-life. Alpha tracks remaining life; the
+  // arc widens and thins slightly as it fades, reading as a swing trailing off.
+  const cf = tc;                         // 1 at spawn → 0 at death
+  ctx.globalAlpha = cf;
   ctx.strokeStyle = '#fff3b8';
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 3 * (0.4 + 0.6 * cf);
   ctx.shadowColor = '#fff3b8';
-  ctx.shadowBlur = 18;
+  ctx.shadowBlur = 18 * cf;
+  const cr = 18 + (1 - cf) * 10;         // expands outward as it fades
+  const gap = 0.6 + (1 - cf) * 0.5;      // crescent opens up while dissipating
   ctx.beginPath();
-  ctx.arc(0, 0, 18, 0.6, TAU - 0.6);
+  ctx.arc(0, 0, cr, gap, TAU - gap);
   ctx.stroke();
+  ctx.globalAlpha = 1;
   ctx.restore();
 }
 
@@ -1376,7 +1403,8 @@ interface EnemyAnim { rate: number; bob: (animT: number) => number }
 const ENEMY_ANIM: Record<string, EnemyAnim> = {
   wisp: { rate: 9, bob: () => 0 },
   bat: { rate: 14, bob: (t) => Math.sin(t * 5) * 2 },
-  eye: { rate: 1, bob: (t) => Math.sin(t * 3) * 3 },      // seed folded via phase
+  eye: { rate: 1, bob: (t) => Math.sin(t * 3) * 3 },      // body baked static
+  // (eyeball+veins only); tentacles + iris are drawn live, so any rate is fine
   shade: { rate: 5, bob: () => 0 },
   golem: { rate: 2, bob: () => 0 },
   siren: { rate: 4, bob: (t) => Math.sin(t * 4) * 3 },
@@ -1525,6 +1553,9 @@ function drawEnemy(eng: Engine, ctx: CanvasRenderingContext2D, e: Enemy, alpha: 
     }
     ctx.restore();
   }
+  // eye tentacle crown: live continuous rotation, drawn UNDER the baked eyeball
+  // (mirrors the GPU path; keeps the boss smooth at scale). Baked body is arms-less.
+  if (e.type === 'eye') { drawEyeTentacles(ctx, e); drawStats.enemyLiveOps++; }
   blitEnemy(ctx, e.type, ph, tintKind);
   drawStats.enemyBlits++;
   // eye's iris tracks the player → drawn live over the baked (irisless) eyeball
@@ -1583,6 +1614,29 @@ function drawEnemy(eng: Engine, ctx: CanvasRenderingContext2D, e: Enemy, alpha: 
   ctx.restore();
   // health bars are drawn in a unified overlay pass (drawHealthBars) so they
   // appear on both the GPU and Canvas2D entity paths and stay crisp at full res
+}
+
+// live tentacle crown under the baked eyeball. Continuous rotation → smooth at
+// any scale (the baked body no longer contains the arms). ctx is at the enemy
+// centre + scaled; drawn before the body so the arms sit behind the eyeball.
+function drawEyeTentacles(ctx: CanvasRenderingContext2D, e: Enemy) {
+  const hover = Math.sin(e.animT * 3 + e.seed) * 3;
+  ctx.save();
+  ctx.translate(0, hover);
+  ctx.rotate(e.animT * 0.4 + e.seed);
+  ctx.strokeStyle = '#c76ba3';
+  ctx.lineWidth = 2.2;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 7; i++) {
+    const ta = (i / 7) * TAU;
+    const cs = Math.cos(ta), sn = Math.sin(ta);
+    const px = -sn, py = cs, curl = 3;
+    ctx.beginPath();
+    ctx.moveTo(cs * 14, sn * 14);
+    ctx.quadraticCurveTo(cs * 22 + px * curl, sn * 22 + py * curl, cs * 27, sn * 27 - 2);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // live iris over the baked eyeball. ctx is already at the enemy centre + scaled.

@@ -3,13 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Match the boot veil so any browser/native chrome that samples this
+         (address bar, first paint before CSS) is dark, never white. -->
+    <meta name="theme-color" content="#0b0a1e" />
     <title>Dreamtide: Reverie of the Last Magus</title>
     <!-- fonts are self-hosted via @font-face in styles.css (public/fonts) -->
     <link rel="preload" href="/fonts/roboto-var.woff2" as="font" type="font/woff2" crossorigin />
     <!-- Boot veil: painted on the very first frame (inline, before any module
          loads) so the initial font swap, React mount and first canvas frame all
-         happen hidden. main.tsx fades it out once the app is ready. -->
+         happen hidden. main.tsx fades it out once the app is ready.
+         The html/body background below is what kills the initial WHITE flash:
+         it's applied by the browser's very first paint (inline, no JS/CSS module
+         needed), so there is never a frame of default-white before #boot lays
+         out. styles.css later restyles these but the colour is identical. -->
     <style>
+      html, body {
+        margin: 0;
+        background: #0b0a1e;
+      }
       #boot {
         position: fixed; inset: 0; z-index: 9999;
         background:

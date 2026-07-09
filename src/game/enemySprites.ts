@@ -120,25 +120,13 @@ const PAINTERS: Record<string, Painter> = {
 
   // eye: bake the eyeball WITHOUT the iris (iris tracks the player → drawn live
   // as a tiny quad by the caller). Tentacle wiggle + blink lid are baked.
-  eye(ctx, ph, tint) {
-    const a = ph * TAU;
-    // tentacles: slow whole-loop rotation only (the old high-frequency wiggle
-    // baked too coarsely at 24 frames and read as choppy — a single smooth
-    // rotation loops cleanly). Blink removed entirely (kept iris always open).
-    ctx.strokeStyle = tint || '#c76ba3';
-    ctx.lineWidth = 2.2;
-    ctx.lineCap = 'round';
-    // gentle back-and-forth sway over a small arc (not a full spin) so 24 baked
-    // frames stay dense = smooth, and the loop is seamless
-    const sway = Math.sin(a) * 0.22;
-    for (let i = 0; i < 7; i++) {
-      const ta = (i / 7) * TAU + sway;
-      const wig = Math.sin(a + i * 2) * 4;
-      ctx.beginPath();
-      ctx.moveTo(Math.cos(ta) * 14, Math.sin(ta) * 14);
-      ctx.quadraticCurveTo(Math.cos(ta) * 22 + wig, Math.sin(ta) * 22, Math.cos(ta) * 27 + wig, Math.sin(ta) * 27 - 2);
-      ctx.stroke();
-    }
+  eye(ctx, _ph, tint) {
+    // Tentacles are NOT baked here anymore. Baking them into FRAMES samples of a
+    // slow loop always read as choppy — and the boss magnifies it because it's
+    // scaled up (every per-frame pixel-jump grows with it). Instead the crown of
+    // tentacles is a static, radially-symmetric sprite ('tentacles') emitted as a
+    // single LIVE quad that rotates continuously — smooth at any scale, like the
+    // boss shard crown. So the baked eye body is just the eyeball + veins.
     ctx.fillStyle = tint || '#fdeef6';
     ctx.beginPath(); ctx.arc(0, 0, 15, 0, TAU); ctx.fill();
     // veins (static)
@@ -458,11 +446,12 @@ function extraSprites(): ExtraSprite[] {
   // tip; the mirror blade points -x. Icy-blue palette.
   out.push({
     id: 'proj:glaive', half: 30, paint(ctx) {
-      // faint icy aura so the blade never reads as a hard cutout
+      // faint icy aura so the blade never reads as a hard cutout — kept tight
+      // and low-alpha so it hugs the blade rather than blooming into an orb
       ctx.globalCompositeOperation = 'lighter';
-      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 28);
-      g.addColorStop(0, 'rgba(159,216,255,0.5)'); g.addColorStop(1, 'rgba(159,216,255,0)');
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 28, 0, TAU); ctx.fill();
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 20);
+      g.addColorStop(0, 'rgba(159,216,255,0.28)'); g.addColorStop(1, 'rgba(159,216,255,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 20, 0, TAU); ctx.fill();
       ctx.globalCompositeOperation = 'source-over';
       for (const side of [0, Math.PI]) {
         ctx.save();
@@ -524,6 +513,28 @@ function extraSprites(): ExtraSprite[] {
       ctx.fillStyle = '#1a0a14'; ctx.beginPath(); ctx.arc(off, 0, 3.4, 0, TAU); ctx.fill();
       ctx.fillStyle = 'rgba(255,255,255,0.9)';
       ctx.beginPath(); ctx.arc(off - 2, -2.4, 1.4, 0, TAU); ctx.fill();
+    },
+  });
+  // eye tentacle crown: 7 arms radiating from the eyeball, baked once as a
+  // static radially-symmetric sprite. Emitted as a single live quad that spins
+  // slowly, so the motion is continuous at any scale (no baked frame-stepping).
+  // Drawn UNDER the eyeball body by the caller. Half-extent matches the eye art.
+  out.push({
+    id: 'tentacles', half: 34, paint(ctx) {
+      ctx.strokeStyle = '#c76ba3';
+      ctx.lineWidth = 2.2;
+      ctx.lineCap = 'round';
+      for (let i = 0; i < 7; i++) {
+        const ta = (i / 7) * TAU;
+        const cs = Math.cos(ta), sn = Math.sin(ta);
+        // a gentle fixed curl gives each arm an organic hook; because the whole
+        // sprite rotates live, the hooks sweep smoothly around the eye
+        const px = -sn, py = cs, curl = 3;
+        ctx.beginPath();
+        ctx.moveTo(cs * 14, sn * 14);
+        ctx.quadraticCurveTo(cs * 22 + px * curl, sn * 22 + py * curl, cs * 27, sn * 27 - 2);
+        ctx.stroke();
+      }
     },
   });
   // boss crown shard: a small violet diamond, drawn as several rotated quads
