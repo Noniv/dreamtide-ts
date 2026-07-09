@@ -255,7 +255,7 @@ export const BOONS: Record<string, BoonDef> = {
   vitality: { id: 'vitality', name: 'Heartbloom', icon: '❤', desc: '+25 max life, and 25 life blooms back at once.', max: 5 },
   swift: { id: 'swift', name: 'Zephyr Step', icon: '➳', desc: 'The wind carries you 10% faster.', max: 4 },
   magnet: { id: 'magnet', name: 'Dream Lure', icon: '◉', desc: 'Essence drifts to you from 45% farther away.', max: 4 },
-  regen: { id: 'regen', name: 'Moonmilk', icon: '☽', desc: 'Mend 1 life every 2 seconds, always.', max: 3 },
+  regen: { id: 'regen', name: 'Moonmilk', icon: '☽', desc: 'Mend 1 life every 2 seconds.', max: 3 },
 };
 
 export const GENERIC: Record<string, BoonDef> = {

@@ -163,19 +163,23 @@ export default function App() {
         <PauseMenu onResume={resume} onReturnToMenu={returnToMenu} />
       )}
 
-      {screen === 'levelup' && (
-        <LevelUp
-          choices={choices}
-          level={newLevel}
-          banishes={banishes}
-          rerolls={rerolls}
-          showBanish={computeBonuses(meta).banish > 0}
-          showReroll={computeBonuses(meta).reroll > 0}
-          onPick={pickChoice}
-          onBanish={(c) => engineRef.current!.banish(c)}
-          onReroll={() => engineRef.current!.reroll()}
-        />
-      )}
+      {screen === 'levelup' && (() => {
+        const bon = computeBonuses(meta);
+        return (
+          <LevelUp
+            choices={choices}
+            level={newLevel}
+            banishes={banishes}
+            rerolls={rerolls}
+            showBanish={bon.banish > 0}
+            showReroll={bon.reroll > 0}
+            masteryPer={8 + (bon.masteryPlus || 0)}
+            onPick={pickChoice}
+            onBanish={(c) => engineRef.current!.banish(c)}
+            onReroll={() => engineRef.current!.reroll()}
+          />
+        );
+      })()}
       {/* rendered outside renderOverlay so the same element survives the
           screen flip to 'playing' — the opacity transition needs that */}
       {(screen === 'menu' || menuFading) && (
@@ -433,9 +437,9 @@ function Settings({ onClose }: { onClose: () => void }) {
   );
 }
 
-function LevelUp({ choices, level, banishes, rerolls, showBanish, showReroll, onPick, onBanish, onReroll }: {
+function LevelUp({ choices, level, banishes, rerolls, showBanish, showReroll, masteryPer, onPick, onBanish, onReroll }: {
   choices: Choice[]; level: number; banishes: number; rerolls: number;
-  showBanish: boolean; showReroll: boolean;
+  showBanish: boolean; showReroll: boolean; masteryPer: number;
   onPick: (c: Choice) => void; onBanish: (c: Choice) => void; onReroll: () => void;
 }) {
   const [banishing, setBanishing] = useState<number | null>(null);
@@ -501,7 +505,7 @@ function LevelUp({ choices, level, banishes, rerolls, showBanish, showReroll, on
                 <div className="card-school">{school}</div>
                 <div className="card-line" aria-hidden="true" />
                 <div className="card-desc">
-                  {isEvolve ? EVOLVE[c.id].desc : c.kind === 'generic' ? def.desc : (isSpell ? (c.isNew ? spellDef!.desc : c.mastery ? 'Pure damage — the dream deepens beyond its limits.' : spellDef!.levelText(c.level!)) : def.desc)}
+                  {isEvolve ? EVOLVE[c.id].desc : c.kind === 'generic' ? def.desc : (isSpell ? (c.isNew ? spellDef!.desc : c.mastery ? `Power beyond its final form — +${masteryPer}% damage, diminishing with each rank.` : spellDef!.levelText(c.level!)) : def.desc)}
                 </div>
               </button>
               {showBanish && (
