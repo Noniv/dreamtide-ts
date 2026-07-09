@@ -15,7 +15,7 @@ import {
 
 type Screen = 'menu' | 'playing' | 'levelup' | 'dead' | 'tree' | 'settings';
 
-interface RunResult { time: number; kills: number; level: number; bonusDust: number; shards: number }
+interface RunResult { time: number; kills: number; level: number; bonusDust: number; shards: number; record?: boolean }
 
 interface GameStore {
   screen: Screen;
@@ -51,6 +51,13 @@ function fmtTime(t: number) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+// The night-sky layers (rising motes, twinkling stars) are CSS animations, and
+// every screen mounts its own copy — a fresh mount would restart them from
+// frame zero, visibly "resetting" the sky when switching menu ↔ settings ↔ tree.
+// A negative animation-delay equal to the app's age makes each mount resume
+// mid-cycle exactly where a continuously-running sky would be.
+const skyState = () => ({ '--sky-delay': `-${(performance.now() / 1000).toFixed(2)}s` } as React.CSSProperties);
+
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
@@ -69,6 +76,8 @@ export default function App() {
         const st = useGame.getState();
         const bonuses = computeBonuses(st.meta);
         const earned = dustForRun(r, bonuses);
+        // a personal record only counts once a previous best exists to beat
+        const record = (st.meta.best || 0) > 0 && Math.floor(r.time) > (st.meta.best || 0);
         const next = {
           ...st.meta,
           dust: st.meta.dust + earned,
@@ -77,7 +86,7 @@ export default function App() {
         };
         saveMeta(next);
         engineRef.current!.inRun = false;
-        set({ screen: 'dead', result: r, dustEarned: earned, meta: next });
+        set({ screen: 'dead', result: { ...r, record }, dustEarned: earned, meta: next });
       },
       getMeta: () => computeBonuses(useGame.getState().meta),
     });
@@ -131,7 +140,7 @@ export default function App() {
 
   const renderOverlay = (s: Screen) => {
     if (s === 'settings') return <Settings key="settings" onClose={() => set({ screen: 'menu' })} />;
-    if (s === 'dead' && result) return <GameOver key="dead" result={result} dustEarned={dustEarned} onRetry={begin} onTree={() => set({ screen: 'tree' })} />;
+    if (s === 'dead' && result) return <GameOver key="dead" result={result} dustEarned={dustEarned} onRetry={begin} onTree={() => set({ screen: 'tree' })} onMenu={() => set({ screen: 'menu', result: null })} />;
     if (s === 'tree') return (
       <SkillTree
         key="tree"
@@ -185,46 +194,62 @@ export default function App() {
 }
 
 function Hud({ hud }: { hud: HudState }) {
+  const boons = Object.entries(hud.boons);
+  // The opening whisper appears only while it's useful: on the first dream
+  // (no recorded best yet), and only for the first moments of it.
+  const [firstDream] = useState(() => (useGame.getState().meta.best || 0) === 0);
+  const coachGone = hud.time > 11 || hud.level > 1;
   return (
     <>
+      <div className="xp-strip" title={`Reverie ${hud.level}`}>
+        <div className="fill" style={{ width: `${(100 * hud.xp) / hud.xpNext}%` }} />
+      </div>
       <div className="hud-top">
-        <div className="bar-wrap">
-          <div className="bar hp">
-            <div className="fill" style={{ width: `${(100 * hud.hp) / hud.maxHp}%` }} />
-            <span>{Math.ceil(hud.hp)} / {hud.maxHp}</span>
+        <div className="hud-left">
+          <div className="level-gem" title={`Reverie ${hud.level} — the strip above fills toward the next`}>
+            <span>{hud.level}</span>
           </div>
-          <div className="bar xp">
-            <div className="fill" style={{ width: `${(100 * hud.xp) / hud.xpNext}%` }} />
-            <span>Reverie {hud.level}</span>
+          <div className="hud-bars">
+            <div className="bar hp">
+              <div className="fill" style={{ width: `${(100 * hud.hp) / hud.maxHp}%` }} />
+              <span>{Math.ceil(hud.hp)} / {hud.maxHp}</span>
+            </div>
           </div>
         </div>
         <div className="hud-center">
           <div className="clock">{fmtTime(hud.time)}</div>
           <div className="kills">{hud.kills} banished</div>
-          <div className="dust-live">✦ {hud.dust}</div>
-          {hud.shards > 0 && <div className="dust-live shards">❖ {hud.shards}</div>}
+        </div>
+        <div className="hud-right">
+          <div className="currency">✦ {hud.dust}</div>
+          {hud.shards > 0 && <div className="currency shards">❖ {hud.shards}</div>}
         </div>
       </div>
       <div className="hud-spells">
         {hud.spells.map((s) => (
           <div key={s.id} className={`spell-chip ${s.evolved ? 'evolved' : ''}`} style={{ '--c': SPELLS[s.id].color } as React.CSSProperties}>
-            <span className="glyph"><SpellIcon id={s.id} size={19} /></span>
+            <span className="glyph"><SpellIcon id={s.id} size={22} /></span>
             <span className="lv">{s.evolved ? '★' : s.level}</span>
           </div>
         ))}
         {Array.from({ length: Math.max(0, (hud.spellCap || 6) - hud.spells.length) }).map((_, i) => (
-          <div key={`empty-${i}`} className="spell-chip empty" title="Empty spell slot">
+          <div key={`empty-${i}`} className="spell-chip empty" title="An empty spell slot, waiting to be filled">
             <span className="glyph">+</span>
           </div>
         ))}
-        {Object.entries(hud.boons).map(([id, lv]) => (
-          <div key={id} className="spell-chip boon">
+        {boons.length > 0 && <div className="dock-divider" />}
+        {boons.map(([id, lv]) => (
+          <div key={id} className="spell-chip boon" title={BOONS[id].name}>
             <span className="glyph">{BOONS[id].icon}</span>
             <span className="lv">{lv}</span>
           </div>
         ))}
       </div>
-      <div className="hint">WASD / arrows to drift — your spells cast themselves</div>
+      {firstDream && (
+        <div className={`coach${coachGone ? ' gone' : ''}`}>
+          Drift with WASD — your spells cast themselves
+        </div>
+      )}
     </>
   );
 }
@@ -232,14 +257,15 @@ function Hud({ hud }: { hud: HudState }) {
 function PauseMenu({ onResume, onReturnToMenu }: { onResume: () => void; onReturnToMenu: () => void }) {
   return (
     <div className="overlay pause-overlay">
-      <div className="title-block">
-        <div className="eyebrow">The dream holds still</div>
-        <h1 className="pause-title">Paused</h1>
+      <div className="pause-panel panel">
+        <div className="eyebrow">the dream holds still</div>
+        <h2>Paused</h2>
+        <div className="orn" aria-hidden="true">✦</div>
         <div className="menu-buttons">
-          <button className="btn-primary" onClick={onResume}>Resume</button>
-          <button className="btn-secondary" onClick={onReturnToMenu}>Return to main menu</button>
+          <button className="btn-primary" onClick={onResume}>Return to the dream</button>
+          <button className="btn-secondary" onClick={onReturnToMenu}>Abandon this dream</button>
         </div>
-        <div className="controls-hint">Press Esc to resume · returning to the menu ends this dream</div>
+        <div className="controls-hint">Esc resumes · an abandoned dream yields no stardust</div>
       </div>
     </div>
   );
@@ -251,27 +277,25 @@ function Menu({ onStart, onTree, onSettings, meta, closing }: {
 }) {
   return (
     <div className={`overlay menu${closing ? ' closing' : ''}`}>
-      <div className="menu-bg" aria-hidden="true" />
+      <div className="menu-bg" aria-hidden="true" style={skyState()} />
       <div className="title-block">
-        <div className="eyebrow">A reverie survival</div>
-        <h1>DREAMTIDE</h1>
-        <p className="sub">
-          You are the last magus awake inside a drowning dream. The tide brings
-          wisps, shades and worse. Drift, survive, and let fourteen schools of
-          magic bloom around you.
-        </p>
+        <h1>Dreamtide</h1>
+        <div className="menu-subtitle">Reverie of the Last Magus</div>
         <div className="menu-buttons">
           <button className="btn-primary" onClick={onStart}>Fall asleep</button>
           <button className="btn-secondary" onClick={onTree}>
-            ✦ Constellation
+            The Constellation
             <span className="dust-chip">✦ {meta.dust}{(meta.shards || 0) > 0 ? ` · ❖ ${meta.shards}` : ''}</span>
           </button>
-          <button className="btn-secondary" onClick={onSettings}>⚙ Settings</button>
+          <button className="btn-secondary" onClick={onSettings}>Tune the dream</button>
           {isNative && (
-            <button className="btn-secondary" onClick={exitApp}>Exit</button>
+            <button className="btn-secondary" onClick={exitApp}>Leave the dream</button>
           )}
         </div>
-        <div className="controls-hint">Move with WASD or arrow keys · spells are cast automatically · choose wisely when you level</div>
+        <div className="menu-foot">
+          {(meta.best || 0) > 0 && <div className="best-run">Deepest dream — {fmtTime(meta.best)}</div>}
+          <div className="controls-hint">Drift with WASD or the arrow keys · your spells cast themselves</div>
+        </div>
       </div>
     </div>
   );
@@ -315,6 +339,7 @@ function VolumeRow({ label, value, onChange }: { label: string; value: number; o
           className="vol-slider"
           type="range" min={0} max={100} step={1}
           value={Math.round(value * 100)}
+          style={{ '--val': `${Math.round(value * 100)}%` } as React.CSSProperties}
           onChange={(e) => onChange(Number(e.target.value) / 100)}
         />
         <span className="vol-num">{Math.round(value * 100)}%</span>
@@ -350,35 +375,36 @@ function Settings({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="overlay settings-overlay">
-      <div className="settings-panel">
+      <div className="menu-bg" aria-hidden="true" style={skyState()} />
+      <div className="settings-panel panel">
         <div className="settings-head">
           <div>
-            <div className="eyebrow">Settings</div>
+            <div className="eyebrow">the waking world</div>
             <h2 className="settings-title">Tune the dream</h2>
           </div>
           <div className="settings-head-actions">
-            <button className="btn-secondary" onClick={resetDefaults}>Reset to defaults</button>
+            <button className="btn-secondary" onClick={resetDefaults}>Restore defaults</button>
             <button className="btn-secondary" onClick={onClose}>Return</button>
           </div>
         </div>
 
         <div className="settings-scroll">
           <section className="set-section">
-            <h3 className="set-heading">Audio</h3>
+            <h3 className="set-heading">Sound</h3>
             <VolumeRow label="Music" value={music} onChange={changeMusic} />
             <VolumeRow label="Sounds" value={sfx} onChange={changeSfx} />
           </section>
 
           <section className="set-section">
             <h3 className="set-heading">Performance</h3>
-            <p className="set-note">Lower settings ease strain in the late-game swarm. Medium is the default.</p>
-            <PresetRow label="Particles" hint="Density of the cosmetic dream-motes" value={perf.particles} onPick={(p) => changePerf('particles', p)} />
-            <PresetRow label="Damage numbers" hint="How many floating numbers show at once" value={perf.dmgText} onPick={(p) => changePerf('dmgText', p)} />
-            <PresetRow label="Enemy health bars" hint="How many bars draw at once" value={perf.hpBars} onPick={(p) => changePerf('hpBars', p)} />
+            <p className="set-note">The late tide is heavy with bodies — ease these if the dream stutters. Medium is the default.</p>
+            <PresetRow label="Particles" hint="Density of the drifting dream-motes" value={perf.particles} onPick={(p) => changePerf('particles', p)} />
+            <PresetRow label="Damage numbers" hint="How many numbers bloom from your strikes at once" value={perf.dmgText} onPick={(p) => changePerf('dmgText', p)} />
+            <PresetRow label="Enemy health bars" hint="How many bars the horde may wear at once" value={perf.hpBars} onPick={(p) => changePerf('hpBars', p)} />
             <div className="set-row">
               <div className="set-label">
                 <span className="set-name">Resolution</span>
-                <span className="set-hint">Render scale of the world layer</span>
+                <span className="set-hint">Sharpness of the dream itself — lower renders lighter</span>
               </div>
               <div className="preset-group">
                 {RESOLUTION_OPTIONS.map((v) => (
@@ -435,16 +461,32 @@ function LevelUp({ choices, level, banishes, rerolls, showBanish, showReroll, on
     setRolling(true);
     setTimeout(() => { onReroll(); setDeal((d) => d + 1); setRolling(false); }, 420);
   };
+
+  // number keys pick a card without reaching for the mouse
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const i = e.key.charCodeAt(0) - 49; // '1' → 0
+      if (i >= 0 && i < choices.length && !e.repeat) pick(choices[i]);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   return (
     <div className="overlay levelup">
-      <div className="eyebrow">Reverie deepens</div>
-      <h2>Level {level}</h2>
+      <div className="eyebrow">the reverie deepens</div>
+      <h2>Reverie {level}</h2>
+      <div className="orn" aria-hidden="true">✦</div>
       <div className={`cards ${rolling ? 'rolling' : ''}`} key={deal}>
         {choices.map((c, i) => {
           const isEvolve = c.kind === 'evolve';
           const isSpell = c.kind === 'spell' || isEvolve;
           const def = isSpell ? SPELLS[c.id] : c.kind === 'boon' ? BOONS[c.id] : GENERIC[c.id];
           const spellDef = isSpell ? SPELLS[c.id] : null;
+          const rank = isEvolve ? 'Evolution'
+            : isSpell ? (c.isNew ? 'New spell' : c.mastery ? `Mastery ${c.level}` : `Level ${c.level}`)
+            : `Rank ${c.level}`;
+          const school = isEvolve || isSpell ? spellDef!.school : c.kind === 'generic' ? 'Amplify' : 'Boon';
           return (
             <div key={`${c.kind}-${c.id}-${i}`} className={`card-slot ${banishing === i ? 'banishing' : ''}`}>
               <button
@@ -452,12 +494,12 @@ function LevelUp({ choices, level, banishes, rerolls, showBanish, showReroll, on
                 style={(isSpell && spellDef ? { '--c': spellDef.color, '--c2': spellDef.color2 } : { '--c': '#ffd27a', '--c2': '#fff2cc' }) as React.CSSProperties}
                 onClick={() => pick(c)}
               >
+                <span className="card-key" aria-hidden="true"><i>{i + 1}</i></span>
+                <div className="card-rank">{rank}</div>
                 <div className="card-glyph">{isSpell && HAS_ICON(c.id) ? <SpellIcon id={c.id} size={40} /> : def.icon}</div>
                 <div className="card-name">{isEvolve ? EVOLVE[c.id].name : def.name}</div>
-                <div className="card-school">
-                  <span>{isEvolve ? spellDef!.school : isSpell ? spellDef!.school : c.kind === 'generic' ? 'Amplify' : 'Boon'}</span>
-                  <span>{isEvolve ? 'Evolution' : isSpell ? (c.isNew ? 'New spell' : c.mastery ? `Mastery ${c.level}` : `Level ${c.level}`) : `Rank ${c.level}`}</span>
-                </div>
+                <div className="card-school">{school}</div>
+                <div className="card-line" aria-hidden="true" />
                 <div className="card-desc">
                   {isEvolve ? EVOLVE[c.id].desc : c.kind === 'generic' ? def.desc : (isSpell ? (c.isNew ? spellDef!.desc : c.mastery ? 'Pure damage — the dream deepens beyond its limits.' : spellDef!.levelText(c.level!)) : def.desc)}
                 </div>
@@ -466,7 +508,7 @@ function LevelUp({ choices, level, banishes, rerolls, showBanish, showReroll, on
                 <button
                   className="banish-btn"
                   disabled={banishes <= 0 || banishing != null}
-                  title="Banish: never see this again this dream"
+                  title="Banish this offer — it will not return this dream"
                   onClick={() => doBanish(c, i)}
                 >
                   ✕ banish
@@ -482,7 +524,7 @@ function LevelUp({ choices, level, banishes, rerolls, showBanish, showReroll, on
             <button
               className="reroll-btn"
               disabled={rerolls <= 0 || busy}
-              title="Reroll: scatter these choices and dream up new ones"
+              title="Scatter these choices and dream up new ones"
               onClick={doReroll}
             >
               ⟳ reroll the dream
@@ -500,23 +542,26 @@ function LevelUp({ choices, level, banishes, rerolls, showBanish, showReroll, on
   );
 }
 
-function GameOver({ result, dustEarned, onRetry, onTree }: {
-  result: RunResult; dustEarned: number; onRetry: () => void; onTree: () => void;
+function GameOver({ result, dustEarned, onRetry, onTree, onMenu }: {
+  result: RunResult; dustEarned: number; onRetry: () => void; onTree: () => void; onMenu: () => void;
 }) {
   return (
     <div className="overlay dead">
-      <div className="eyebrow">The dream closes over you</div>
+      <div className="eyebrow">the dream closes over you</div>
       <h2>You wake</h2>
+      {result.record && <div className="record-tag">✦ your deepest dream yet ✦</div>}
+      <div className="orn" aria-hidden="true">✦</div>
       <div className="result-row">
-        <div><span className="num">{fmtTime(result.time)}</span><span className="lbl">survived</span></div>
-        <div><span className="num">{result.kills}</span><span className="lbl">banished</span></div>
-        <div><span className="num">{result.level}</span><span className="lbl">reverie</span></div>
-        <div><span className="num dust">+{dustEarned}</span><span className="lbl">stardust</span></div>
-        {(result.shards || 0) > 0 && <div><span className="num shards">+{result.shards}</span><span className="lbl">shards</span></div>}
+        <div className="stat"><span className="num">{fmtTime(result.time)}</span><span className="lbl">endured</span></div>
+        <div className="stat"><span className="num">{result.kills}</span><span className="lbl">banished</span></div>
+        <div className="stat"><span className="num">{result.level}</span><span className="lbl">reverie</span></div>
+        <div className="stat"><span className="num dust">+{dustEarned}</span><span className="lbl">stardust</span></div>
+        {(result.shards || 0) > 0 && <div className="stat"><span className="num shards">+{result.shards}</span><span className="lbl">shards</span></div>}
       </div>
       <div className="menu-buttons">
         <button className="btn-primary" onClick={onRetry}>Sleep again</button>
-        <button className="btn-secondary" onClick={onTree}>✦ Constellation</button>
+        <button className="btn-secondary" onClick={onTree}>The Constellation</button>
+        <button className="btn-secondary" onClick={onMenu}>Return to the menu</button>
       </div>
     </div>
   );
@@ -563,6 +608,11 @@ function nodeIcon(n: TreeNode): string {
 }
 
 const TREE_VIEW = 2480;
+
+// current UI zoom (see --ui-scale in styles.css). Fixed-position elements inside
+// a zoomed layer have their px coordinates multiplied by it, so JS-placed
+// positions taken from getBoundingClientRect must be divided back.
+const uiScale = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')) || 1;
 
 interface EdgeGeom { a: string; b: string; dark: boolean; d: string | null; line: { x1: number; y1: number; x2: number; y2: number } | null }
 
@@ -671,7 +721,8 @@ function SkillTree({ meta, onBuy, onRefund, onLoadout, onClose }: {
       d.moved = true;
     }
     if (!d.moved) return;
-    const k = TREE_VIEW / (e.currentTarget as SVGSVGElement).clientWidth;
+    // rect width is in visual px (zoom-aware), matching the mouse deltas
+    const k = TREE_VIEW / (e.currentTarget as SVGSVGElement).getBoundingClientRect().width;
     const next = { x: d.ox + dx * k, y: d.oy + dy * k, z: viewRef.current.z };
     viewRef.current = next;
     applyTransform();
@@ -685,14 +736,14 @@ function SkillTree({ meta, onBuy, onRefund, onLoadout, onClose }: {
 
   return (
     <div className="overlay tree-overlay">
-      <div className="tree-bg" aria-hidden="true" />
+      <div className="tree-bg" aria-hidden="true" style={skyState()} />
       <div className="tree-head">
         <div>
-          <div className="eyebrow">The Constellation</div>
-          <div className="tree-sub">Drag to pan, scroll to zoom. Hover a star to read it; click to awaken it — or click an awakened star to release it for half its stardust.</div>
+          <div className="tree-title">The Constellation</div>
+          <div className="tree-sub">Drag to wander, scroll to draw near. Hover a star to read it; click to awaken it — or release an awakened star for half its stardust.</div>
         </div>
-        <div className="tree-progress">{meta.owned.length - 1}/{TREE_NODES.length - 1}</div>
-        <div className="dust-big">✦ {meta.dust}</div>
+        <div className="tree-progress" title="Stars awakened">{meta.owned.length - 1} / {TREE_NODES.length - 1} stars</div>
+        <div className="dust-big" title="Stardust — earned each time you wake">✦ {meta.dust}</div>
         <div className="dust-big shards" title="Nightmare shards — torn from slain bosses, they feed the Dark Bargain">❖ {meta.shards || 0}</div>
         <button className="btn-secondary" onClick={onClose}>Return</button>
       </div>
@@ -765,7 +816,7 @@ function SkillTree({ meta, onBuy, onRefund, onLoadout, onClose }: {
         </svg>
 
         {node && tip && (
-          <div className="node-tip" style={{ left: tip.x, top: tip.y }}>
+          <div className="node-tip" style={{ left: tip.x / uiScale(), top: tip.y / uiScale() }}>
             <div className="tip-name">
               {node.name}
               <span className={`tip-kind ${node.kind}`}>{node.kind === 'core' ? 'origin' : node.kind}</span>
@@ -788,8 +839,8 @@ function SkillTree({ meta, onBuy, onRefund, onLoadout, onClose }: {
                 ) : (
                   <span className="tip-locked">
                     {isReachable(meta, node.id)
-                      ? (node.currency === 'shards' ? 'not enough nightmare shards — bosses drop them' : 'not enough stardust')
-                      : 'connect the path first'}
+                      ? (node.currency === 'shards' ? 'not enough nightmare shards — bosses drop them' : 'not enough stardust — wake with more')
+                      : 'no lit path reaches this star yet'}
                   </span>
                 )}
               </div>
@@ -829,7 +880,7 @@ function LoadoutBar({ meta, onLoadout }: { meta: Meta; onLoadout: (l: string[]) 
 
   return (
     <div className="loadout">
-      <div className="loadout-label">Loadout <span className="loadout-hint">— spells you begin every dream with</span></div>
+      <div className="loadout-label">Loadout <span className="loadout-hint">— the spells you carry into sleep</span></div>
       <div className="loadout-slots">
         {Array.from({ length: slots }, (_, i) => {
           const id = loadout[i];
@@ -841,14 +892,14 @@ function LoadoutBar({ meta, onLoadout }: { meta: Meta; onLoadout: (l: string[]) 
                 className={`loadout-slot ${sp ? 'filled' : 'empty'}`}
                 style={sp ? ({ '--c': sp.color } as React.CSSProperties) : undefined}
                 onClick={() => setOpen(open === i ? null : i)}
-                title={sp ? sp.name : 'empty slot — click to choose a spell'}
+                title={sp ? sp.name : 'An empty slot — click to choose a spell'}
               >
-                <span className="ls-glyph">{sp ? <SpellIcon id={id} size={26} /> : '+'}</span>
+                <span className="ls-glyph">{sp ? <SpellIcon id={id} size={28} /> : '+'}</span>
               </button>
               {open === i && (
                 <div className="loadout-menu">
                   {canClear && (
-                    <button className="lm-item empty" onClick={() => choose(i, null)}>✕ empty</button>
+                    <button className="lm-item empty" onClick={() => choose(i, null)}>✕ leave empty</button>
                   )}
                   {unlocked
                     // only spells not already placed in another slot (the one in
@@ -871,7 +922,7 @@ function LoadoutBar({ meta, onLoadout }: { meta: Meta; onLoadout: (l: string[]) 
           );
         })}
         {slots < 4 && (
-          <div className="loadout-locked" title="Awaken +1 spell slot notables to widen your loadout">
+          <div className="loadout-locked" title="Awaken a +1 spell slot star to widen your loadout">
             {Array.from({ length: 4 - slots }, (_, i) => <span key={i} className="ls-lock">🔒</span>)}
           </div>
         )}

@@ -300,18 +300,25 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
     octx.restore();
   }
 
-  // event banner
+  // event banner — sits BELOW the HUD's clock/kill-counter block, and follows
+  // the DOM UI's --ui-scale so it stays clear of the (zoomed) HUD and keeps
+  // its proportions on high-res displays (the canvas itself is never zoomed)
   if (eng.banner) {
     const b = eng.banner;
     const a = Math.min(1, b.life, (b.maxLife - b.life) * 3);
+    const uiS = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')) || 1;
+    const bSize = (b.size || 24) * uiS;
     octx.save();
     octx.globalAlpha = a;
     octx.textAlign = 'center';
-    octx.font = `700 ${b.size || 24}px Roboto, sans-serif`;
+    // event banners speak in the UI's engraved display face
+    octx.font = `700 ${bSize}px Cinzel, 'Palatino Linotype', serif`;
+    // tracked capitals, where the engine supports it (reset by restore())
+    try { (octx as unknown as { letterSpacing: string }).letterSpacing = '0.12em'; } catch { /* older engines */ }
     octx.fillStyle = b.color;
     octx.shadowColor = b.color;
-    octx.shadowBlur = 18 + (b.size > 24 ? 14 : 0);
-    octx.fillText(b.str, w / 2, 118 + ((b.size || 24) - 24) * 0.6);
+    octx.shadowBlur = (18 + (b.size > 24 ? 14 : 0)) * uiS;
+    octx.fillText(b.str, w / 2, (176 + ((b.size || 24) - 24) * 0.6) * uiS);
     octx.restore();
   }
 

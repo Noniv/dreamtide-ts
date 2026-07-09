@@ -250,16 +250,16 @@ export const EVOLVE: Record<string, { name: string; desc: string }> = {
 export interface BoonDef { id: string; name: string; icon: string; desc: string; max: number }
 
 export const BOONS: Record<string, BoonDef> = {
-  power: { id: 'power', name: 'Lucid Focus', icon: '✦', desc: '+12% spell damage', max: 5 },
-  haste: { id: 'haste', name: 'Quickened Reverie', icon: '≋', desc: '+10% spell haste (diminishing)', max: 5 },
-  vitality: { id: 'vitality', name: 'Heartbloom', icon: '❤', desc: '+25 max life, heal 25', max: 5 },
-  swift: { id: 'swift', name: 'Zephyr Step', icon: '➳', desc: '+10% move speed', max: 4 },
-  magnet: { id: 'magnet', name: 'Dream Lure', icon: '◉', desc: '+45% essence pickup radius', max: 4 },
-  regen: { id: 'regen', name: 'Moonmilk', icon: '☽', desc: 'Regenerate 1 life / 2s', max: 3 },
+  power: { id: 'power', name: 'Lucid Focus', icon: '✦', desc: 'Your will sharpens — spells strike 12% harder.', max: 5 },
+  haste: { id: 'haste', name: 'Quickened Reverie', icon: '≋', desc: 'The dream hurries — spells cast 10% faster (diminishing).', max: 5 },
+  vitality: { id: 'vitality', name: 'Heartbloom', icon: '❤', desc: '+25 max life, and 25 life blooms back at once.', max: 5 },
+  swift: { id: 'swift', name: 'Zephyr Step', icon: '➳', desc: 'The wind carries you 10% faster.', max: 4 },
+  magnet: { id: 'magnet', name: 'Dream Lure', icon: '◉', desc: 'Essence drifts to you from 45% farther away.', max: 4 },
+  regen: { id: 'regen', name: 'Moonmilk', icon: '☽', desc: 'Mend 1 life every 2 seconds, always.', max: 3 },
 };
 
 export const GENERIC: Record<string, BoonDef> = {
-  power: { id: 'power', name: 'Arcane Amplification', icon: '✴', desc: '+10% spell damage', max: Infinity },
-  aoe: { id: 'aoe', name: 'Expanding Reverie', icon: '◎', desc: '+10% area effect size', max: Infinity },
-  vital: { id: 'vital', name: 'Dream Fortitude', icon: '⬡', desc: '+15 max life, heal 15', max: Infinity },
+  power: { id: 'power', name: 'Arcane Amplification', icon: '✴', desc: 'Every spell you hold strikes 10% harder.', max: Infinity },
+  aoe: { id: 'aoe', name: 'Expanding Reverie', icon: '◎', desc: 'Every area of effect widens by 10%.', max: Infinity },
+  vital: { id: 'vital', name: 'Dream Fortitude', icon: '⬡', desc: '+15 max life, and 15 life restored now.', max: Infinity },
 };
