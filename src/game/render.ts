@@ -320,34 +320,6 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
     octx.fillRect(0, 0, w, h);
   }
 
-  // dream-in: the world condenses out of pale moonlight when a run begins
-  if (eng.wake > 0) {
-    const f = Math.pow(eng.wake / 1.8, 1.35);
-    octx.save();
-    const g = octx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.75);
-    g.addColorStop(0, `rgba(238,230,255,${0.95 * f})`);
-    g.addColorStop(0.45, `rgba(180,150,240,${0.8 * f})`);
-    g.addColorStop(1, `rgba(28,17,64,${0.9 * f})`);
-    octx.fillStyle = g;
-    octx.fillRect(0, 0, w, h);
-    octx.globalCompositeOperation = 'lighter';
-    octx.globalAlpha = f * 0.8;
-    octx.strokeStyle = '#e6d1ff';
-    octx.lineWidth = 3;
-    octx.shadowColor = '#b48cff';
-    octx.shadowBlur = 30;
-    octx.beginPath();
-    octx.arc(w / 2, h / 2, (1 - eng.wake / 1.8) * Math.max(w, h) * 0.7 + 30, 0, TAU);
-    octx.stroke();
-    octx.globalAlpha = Math.min(1, f * 1.6);
-    octx.textAlign = 'center';
-    octx.font = '700 22px Roboto, sans-serif';
-    octx.fillStyle = '#e6d1ff';
-    octx.shadowBlur = 16;
-    octx.fillText('the dream begins…', w / 2, h / 2 - 90);
-    octx.restore();
-  }
-
   // perf overlay always sits on the topmost 2D layer
   eng.perf.draw(octx, w);
 }
@@ -388,7 +360,12 @@ function emitEnemy(q: QuadList, eng: Engine, e: Enemy, alpha: number) {
   const vt = eng.vt;
   const ix = lerp(e.px, e.x, alpha), iy = lerp(e.py, e.y, alpha);
   const x = ix - cam.x, y = iy - cam.y;
-  if (x < -90 || y < -90 || x > cam.w + 90 || y > cam.h + 90) return;
+  // cull margin scales with the sprite: art extends to roughly 2× the collision
+  // radius (e.g. eye radius 18 → art half-extent 34), so a boss (radius ~61,
+  // art ~116px + corona) needs far more than the old fixed 90px or it pops
+  // in/out while still partially on-screen.
+  const cullM = Math.max(90, e.radius * 2 + 40);
+  if (x < -cullM || y < -cullM || x > cam.w + cullM || y > cam.h + cullM) return;
 
   const tintKind: TintKind = e.hitFlash > 0 ? 'flash' : e.slowT > 0 ? 'frozen' : 'normal';
   const anim = ENEMY_ANIM[e.type];
@@ -1461,7 +1438,10 @@ function drawEnemy(eng: Engine, ctx: CanvasRenderingContext2D, e: Enemy, alpha: 
   const vt = eng.vt;
   const ix = lerp(e.px, e.x, alpha), iy = lerp(e.py, e.y, alpha);
   const x = ix - cam.x, y = iy - cam.y;
-  if (x < -80 || y < -80 || x > cam.w + 80 || y > cam.h + 80) return;
+  // sprite-scaled cull margin — same rationale as emitEnemy (boss art far
+  // exceeds the old fixed margin and popped at screen edges)
+  const cullM = Math.max(80, e.radius * 2 + 40);
+  if (x < -cullM || y < -cullM || x > cam.w + cullM || y > cam.h + cullM) return;
   const p = eng.player;
   ctx.save();
   ctx.translate(x, y);

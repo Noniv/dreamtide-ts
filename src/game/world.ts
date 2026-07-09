@@ -59,6 +59,10 @@ export interface Projectile {
   speed: number; dmg: number; life: number; r: number;
   // arcane
   turn: number; target: Enemy | null; splinter: boolean; pierce: number;
+  // uid of `target` when it was picked: pooled Enemy objects are recycled for
+  // fresh spawns (dead flips back to false), so the reference alone can't
+  // prove the target is still the same creature.
+  targetUid: number;
   struckA: number; struckB: number; // uids already pierced (-1 = none)
   // ember / comet
   sx: number; sy: number; tx: number; ty: number;
@@ -159,7 +163,7 @@ export function makeProjectile(): Projectile {
   return {
     kind: 'arcane', dead: false, x: 0, y: 0, px: 0, py: 0, vx: 0, vy: 0,
     speed: 0, dmg: 0, life: 0, r: 5,
-    turn: 0, target: null, splinter: false, pierce: 0, struckA: -1, struckB: -1,
+    turn: 0, target: null, targetUid: 0, splinter: false, pierce: 0, struckA: -1, struckB: -1,
     sx: 0, sy: 0, tx: 0, ty: 0, t: 0, dur: 1, arc: 0,
     x0: 0, y0: 0, hasX0: false, stun: false,
     burnDps: 0, burnC1: '', burnC2: '', hasBurn: false,

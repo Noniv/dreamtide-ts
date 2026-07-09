@@ -321,9 +321,60 @@ body {
     radial-gradient(110% 80% at 85% 110%, rgba(28, 92, 110, 0.3), transparent 55%),
     radial-gradient(ellipse at center, #100c2c 0%, #070516 100%);
 }
-/* star-field + drifting nebulae behind the tree */
-.tree-bg { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.tree-bg::before {
+
+/* ---- main menu backdrop: a bridge between the constellation and gameplay ----
+   Base sky is the EXACT gradient the in-game renderer paints (render.ts
+   skyLayer: #0b0a1e → #141031 → #1c1140), so the 0.5s dissolve into the run
+   barely changes the backdrop — only stars/motes/title cross-fade. On top:
+   the tree's twinkling star-field (shared rule below) plus rising dream-motes
+   in the game's mote palette, unique to this screen. */
+.overlay.menu {
+  overflow: hidden;
+  transition: opacity 0.5s ease;
+  background: linear-gradient(180deg, #0b0a1e 0%, #141031 50%, #1c1140 100%);
+}
+/* menu → run cross-fade: the run is already live underneath, so the menu's
+   night-sky simply dissolves into the dream's. Clicks pass through while fading. */
+.overlay.menu.closing { opacity: 0; pointer-events: none; }
+/* keep the menu's content above the star-field/mote layers */
+.overlay.menu .title-block { position: relative; z-index: 1; }
+
+/* rising dream-motes — echo the in-game drifting motes. Two tiled layers at
+   different speeds for parallax; each loop scrolls exactly one tile height,
+   so the drift is seamless. Far layer (small, dim) on the element itself,
+   near layer (large, soft-blurred) on ::after — the shared ::before holds
+   the star-field between them. */
+.menu-bg {
+  background-image:
+    radial-gradient(9px 9px at 22% 12%, rgba(127, 245, 255, 0.3), transparent 70%),
+    radial-gradient(7px 7px at 68% 38%, rgba(180, 140, 255, 0.28), transparent 70%),
+    radial-gradient(10px 10px at 45% 64%, rgba(255, 154, 213, 0.22), transparent 70%),
+    radial-gradient(6px 6px at 86% 82%, rgba(125, 255, 176, 0.22), transparent 70%),
+    radial-gradient(8px 8px at 10% 90%, rgba(255, 210, 122, 0.18), transparent 70%);
+  background-size: 460px 640px;
+  background-repeat: repeat;
+  animation: motesRiseFar 95s linear infinite;
+}
+.menu-bg::after {
+  content: '';
+  position: absolute; inset: 0;
+  filter: blur(2px);
+  background-image:
+    radial-gradient(26px 26px at 15% 25%, rgba(180, 140, 255, 0.26), transparent 70%),
+    radial-gradient(20px 20px at 62% 74%, rgba(127, 245, 255, 0.22), transparent 70%),
+    radial-gradient(30px 30px at 84% 18%, rgba(255, 154, 213, 0.18), transparent 70%),
+    radial-gradient(18px 18px at 38% 92%, rgba(125, 255, 176, 0.16), transparent 70%),
+    radial-gradient(22px 22px at 50% 48%, rgba(255, 210, 122, 0.13), transparent 70%);
+  background-size: 640px 920px;
+  background-repeat: repeat;
+  animation: motesRiseNear 55s linear infinite;
+}
+@keyframes motesRiseFar { to { background-position: 0 -640px; } }
+@keyframes motesRiseNear { to { background-position: 0 -920px; } }
+
+/* star-field + drifting nebulae behind the tree (star layer shared with .menu-bg) */
+.tree-bg, .menu-bg { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.tree-bg::before, .menu-bg::before {
   content: '';
   position: absolute; inset: -60px;
   background-image:

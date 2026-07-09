@@ -55,6 +55,11 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
   const { screen, hud, choices, newLevel, banishes, rerolls, result, dustEarned, meta, set } = useGame();
+  // menu → run cross-fade: the run starts immediately, but the menu stays
+  // mounted with a `closing` class so its night-sky dissolves into the live
+  // world instead of hard-cutting.
+  const [menuFading, setMenuFading] = useState(false);
+  const fadeTimer = useRef(0);
 
   useEffect(() => {
     const engine = new Engine(canvasRef.current!, {
@@ -71,6 +76,7 @@ export default function App() {
           best: Math.max(st.meta.best || 0, Math.floor(r.time)),
         };
         saveMeta(next);
+        engineRef.current!.inRun = false;
         set({ screen: 'dead', result: r, dustEarned: earned, meta: next });
       },
       getMeta: () => computeBonuses(useGame.getState().meta),
@@ -81,16 +87,28 @@ export default function App() {
     audio.sfxVol = settings.sfxVol;
     engine.paused = true;
     engine.start();
-    return () => engine.stop();
+    return () => {
+      window.clearTimeout(fadeTimer.current);
+      engine.stop();
+    };
   }, [set]);
 
   const begin = () => {
+    if (menuFading) return;
+    const fromMenu = useGame.getState().screen === 'menu';
     audio.resume();
     engineRef.current!.reset();
     if (settings.devEndgame) engineRef.current!.devEndgame();
+    engineRef.current!.inRun = true;
     engineRef.current!.paused = false;
     engineRef.current!.pushHud(true);
     set({ screen: 'playing', result: null });
+    // only the main menu dissolves (retry from the death screen cuts straight in)
+    if (fromMenu) {
+      setMenuFading(true);
+      window.clearTimeout(fadeTimer.current);
+      fadeTimer.current = window.setTimeout(() => setMenuFading(false), 550);
+    }
   };
 
   const resume = () => {
@@ -102,6 +120,7 @@ export default function App() {
   // there; the next "Fall asleep" calls reset() to start a fresh dream.
   const returnToMenu = () => {
     engineRef.current!.paused = true;
+    engineRef.current!.inRun = false;
     set({ screen: 'menu', result: null });
   };
 
@@ -111,15 +130,6 @@ export default function App() {
   };
 
   const renderOverlay = (s: Screen) => {
-    if (s === 'menu') return (
-      <Menu
-        key="menu"
-        onStart={begin}
-        meta={meta}
-        onTree={() => set({ screen: 'tree' })}
-        onSettings={() => set({ screen: 'settings' })}
-      />
-    );
     if (s === 'settings') return <Settings key="settings" onClose={() => set({ screen: 'menu' })} />;
     if (s === 'dead' && result) return <GameOver key="dead" result={result} dustEarned={dustEarned} onRetry={begin} onTree={() => set({ screen: 'tree' })} />;
     if (s === 'tree') return (
@@ -155,6 +165,18 @@ export default function App() {
           onPick={pickChoice}
           onBanish={(c) => engineRef.current!.banish(c)}
           onReroll={() => engineRef.current!.reroll()}
+        />
+      )}
+      {/* rendered outside renderOverlay so the same element survives the
+          screen flip to 'playing' — the opacity transition needs that */}
+      {(screen === 'menu' || menuFading) && (
+        <Menu
+          key="menu"
+          closing={menuFading}
+          onStart={begin}
+          meta={meta}
+          onTree={() => set({ screen: 'tree' })}
+          onSettings={() => set({ screen: 'settings' })}
         />
       )}
       {renderOverlay(screen)}
@@ -223,11 +245,13 @@ function PauseMenu({ onResume, onReturnToMenu }: { onResume: () => void; onRetur
   );
 }
 
-function Menu({ onStart, onTree, onSettings, meta }: {
+function Menu({ onStart, onTree, onSettings, meta, closing }: {
   onStart: () => void; onTree: () => void; onSettings: () => void; meta: Meta;
+  closing?: boolean;
 }) {
   return (
-    <div className="overlay menu">
+    <div className={`overlay menu${closing ? ' closing' : ''}`}>
+      <div className="menu-bg" aria-hidden="true" />
       <div className="title-block">
         <div className="eyebrow">A reverie survival</div>
         <h1>DREAMTIDE</h1>

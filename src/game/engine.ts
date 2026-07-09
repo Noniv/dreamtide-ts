@@ -190,12 +190,15 @@ export class Engine {
   renderScale = 1;
   running = false;
   paused = false;
+  // true only while an actual run is live (set by the UI on start/return-to-menu)
+  // — gates the Escape pause toggle so it can't unpause the sim behind the
+  // menu/settings/tree overlays, where the engine idles paused.
+  inRun = false;
   disposed = false;
 
   // sim state
   t = 0;
   vt = 0; // visual clock: t + interpolation remainder (cosmetic animation)
-  wake = 0;
   meta: Bonuses = {} as Bonuses;
   player!: Player;
   enemies: Enemy[] = [];
@@ -299,7 +302,6 @@ export class Engine {
     }
     this.makeOverlay();
     this.reset();
-    this.wake = 0; // no dream-in behind the main menu; begin() re-arms it
     this.bindInput();
     this.resize();
     window.addEventListener('resize', this.onResize);
@@ -344,7 +346,6 @@ export class Engine {
     this.t = 0;
     this.vt = 0;
     this.acc = 0;
-    this.wake = 1.8;
     this.cheated = false;
     this.banished.clear();
     this.banishCharges = this.meta.banish || 0;
@@ -417,17 +418,6 @@ export class Engine {
     }
     this.rebuildOrbitals();
     prebakeEnemies(); // one-time sprite bake so the first endgame frame doesn't stall
-    // stardust condenses inward around the sleeper as the dream forms
-    for (let i = 0; i < 90; i++) {
-      const a = rand(0, TAU), R = rand(160, 560);
-      this.particles.spawn({
-        x: Math.cos(a) * R, y: Math.sin(a) * R - 20,
-        vx: -Math.cos(a) * R * rand(0.6, 1.0), vy: -Math.sin(a) * R * rand(0.6, 1.0),
-        life: rand(0.7, 1.6), size: rand(1.5, 4.5),
-        color: pick(['#b48cff', '#7ff5ff', '#ff9ad5', '#ffd27a']),
-        mode: Math.random() < 0.5 ? 'star' : 'glow', rotV: rand(-4, 4), drag: 0.9,
-      });
-    }
   }
 
   private releaseAll() {
@@ -498,7 +488,7 @@ export class Engine {
   private onKeyDown = (e: KeyboardEvent) => {
     this.keys[e.key.toLowerCase()] = true;
     if (e.key === ' ') e.preventDefault();
-    if (e.key === 'Escape' && !this.player.dead && !this.levelUpActive) {
+    if (e.key === 'Escape' && this.inRun && !this.player.dead && !this.levelUpActive) {
       this.paused = !this.paused;
       this.pushHud(true);
     }
@@ -508,10 +498,14 @@ export class Engine {
     if (e.key === 'h' || e.key === 'H') this.debugHitbox = !this.debugHitbox;
   };
   private onKeyUp = (e: KeyboardEvent) => { this.keys[e.key.toLowerCase()] = false; };
+  // Alt-Tab / focus loss eats the keyup, leaving movement keys latched on;
+  // drop every held key when the window blurs.
+  private onBlur = () => { this.keys = {}; };
 
   bindInput() {
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
+    window.addEventListener('blur', this.onBlur);
   }
 
   start() {
@@ -580,6 +574,7 @@ export class Engine {
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
+    window.removeEventListener('blur', this.onBlur);
     if (this.world) { this.world.dispose(); this.world = null; }
     if (this.gpuCanvas && this.gpuCanvas.parentNode) this.gpuCanvas.parentNode.removeChild(this.gpuCanvas);
     this.gpuCanvas = null;
@@ -1294,6 +1289,7 @@ export class Engine {
     pr.kind = kind;
     pr.dead = false;
     pr.target = null;
+    pr.targetUid = 0;
     pr.splinter = false;
     pr.pierce = 0;
     pr.struckA = -1;
@@ -1310,6 +1306,12 @@ export class Engine {
     pr.evolved = false;
     pr.t = 0;
     return pr;
+  }
+
+  // assign a homing target together with its uid (see Projectile.targetUid)
+  private setProjTarget(pr: Projectile, e: Enemy | null) {
+    pr.target = e;
+    pr.targetUid = e ? e.uid : 0;
   }
 
   private cast(id: string, st: SpellStats) {
@@ -1329,7 +1331,7 @@ export class Engine {
           pr.dmg = st.damage! * this.dmgMul();
           pr.life = 2.6; pr.r = 7;
           pr.turn = st.special!.seek ? 10.5 : 7.5;
-          pr.target = target;
+          this.setProjTarget(pr, target);
           pr.splinter = !!st.evolved;
           pr.pierce = st.special!.pierce || 0;
           this.projectiles.push(pr);
@@ -1881,7 +1883,6 @@ export class Engine {
   // ================================================================ sim step
   private simStep(dt: number) {
     this.t += dt;
-    this.wake = Math.max(0, this.wake - dt);
     this.computeWave();
     this.computeDifficulty();
     const p = this.player;
@@ -1996,7 +1997,11 @@ export class Engine {
       // the touching distance, larger for later/bigger types.
       if (e.meleeCd > 0) e.meleeCd -= dt;
       if (e.meleeAnim > 0) e.meleeAnim -= dt;
-      if (e.meleeCd <= 0) {
+      // hard-frozen foes (Absolute Winter, sigil sleep, comet stun — slow ≥ 0.9)
+      // can't strike; ordinary chills only slow movement. Ranged fire is gated
+      // on any slow already (see the shootCd check above).
+      const frozen = e.slowT > 0 && e.slow >= 0.9;
+      if (e.meleeCd <= 0 && !frozen) {
         const reach = e.radius + PLAYER_HURT_R + e.meleeReach;
         if (dist2(e.x, e.y, p.x, p.y + PLAYER_HURT_DY) < reach * reach) {
           e.meleeCd = e.meleeBaseCd;
@@ -2281,7 +2286,9 @@ export class Engine {
       if (pr.kind === 'arcane') {
         pr.life -= dt;
         // target validity: object may be dead or recycled (uid changed)
-        if (!pr.target || pr.target.dead) pr.target = this.nearestEnemy(pr.x, pr.y, 520);
+        if (!pr.target || pr.target.dead || pr.target.uid !== pr.targetUid) {
+          this.setProjTarget(pr, this.nearestEnemy(pr.x, pr.y, 520));
+        }
         if (pr.target) {
           const want = Math.atan2(pr.target.y - pr.y, pr.target.x - pr.x);
           const cur = Math.atan2(pr.vy, pr.vx);
@@ -2317,7 +2324,7 @@ export class Engine {
               sub.dmg = pr.dmg * 0.4;
               sub.life = 0.9; sub.r = 5;
               sub.turn = 9;
-              sub.target = this.nearestEnemy(pr.x, pr.y, 420, e);
+              this.setProjTarget(sub, this.nearestEnemy(pr.x, pr.y, 420, e));
               this.projectiles.push(sub);
             }
           }
@@ -2325,7 +2332,7 @@ export class Engine {
           if (pr.pierce > 0) {
             pr.pierce--;
             if (pr.struckA < 0) pr.struckA = e.uid; else pr.struckB = e.uid;
-            pr.target = this.nearestEnemy(pr.x, pr.y, 520, e);
+            this.setProjTarget(pr, this.nearestEnemy(pr.x, pr.y, 520, e));
           } else {
             pr.life = 0;
           }
