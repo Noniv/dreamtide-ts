@@ -147,6 +147,19 @@ class Settings {
     this.recompute();
     this.save();
   }
+
+  // Restore every setting to its shipped default. Fires the resolution callback
+  // so the renderer resizes if the scale changed.
+  resetDefaults() {
+    this.musicVol = DEFAULTS.musicVol;
+    this.sfxVol = DEFAULTS.sfxVol;
+    this.perf = { ...DEFAULTS.perf };
+    this.resolution = DEFAULTS.resolution;
+    this.devEndgame = DEFAULTS.devEndgame;
+    this.recompute();
+    this.save();
+    if (this.onResolutionChange) this.onResolutionChange(this.resolution);
+  }
 }
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));

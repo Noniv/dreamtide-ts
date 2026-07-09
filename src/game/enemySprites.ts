@@ -453,6 +453,42 @@ function extraSprites(): ExtraSprite[] {
       ctx.closePath(); ctx.fill();
     },
   });
+  // astral glaive: a twin-bladed star-blade baked at its natural size so the
+  // renderer draws it crisp (rotated live via pr.spin). Local +x is one blade
+  // tip; the mirror blade points -x. Icy-blue palette.
+  out.push({
+    id: 'proj:glaive', half: 30, paint(ctx) {
+      // faint icy aura so the blade never reads as a hard cutout
+      ctx.globalCompositeOperation = 'lighter';
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 28);
+      g.addColorStop(0, 'rgba(159,216,255,0.5)'); g.addColorStop(1, 'rgba(159,216,255,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 28, 0, TAU); ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+      for (const side of [0, Math.PI]) {
+        ctx.save();
+        ctx.rotate(side);
+        // blade body
+        ctx.fillStyle = '#e8f6ff';
+        ctx.beginPath();
+        ctx.moveTo(6, 0);
+        ctx.quadraticCurveTo(20, -18, 30, -4);
+        ctx.quadraticCurveTo(20, -7, 8, 5);
+        ctx.closePath();
+        ctx.fill();
+        // keen edge
+        ctx.strokeStyle = '#9fd8ff';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(8, 1);
+        ctx.quadraticCurveTo(20, -8, 30, -4);
+        ctx.stroke();
+        ctx.restore();
+      }
+      // bright hub
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(0, 0, 4.2, 0, TAU); ctx.fill();
+    },
+  });
   // boss/enemy bullet (dark dart + hot core; glow drawn separately as a quad)
   out.push({
     id: 'proj:bullet', half: 12, paint(ctx) {

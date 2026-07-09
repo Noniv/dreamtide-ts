@@ -279,6 +279,16 @@ function Settings({ onClose }: { onClose: () => void }) {
   const changePerf = (k: keyof PerfPresets, p: Preset) => { settings.setPerf(k, p); setPerf({ ...settings.perf }); };
   const changeRes = (v: ResolutionScale) => { settings.setResolution(v); setRes(v); };
   const changeDev = (v: boolean) => { settings.setDevEndgame(v); setDev(v); };
+  const resetDefaults = () => {
+    settings.resetDefaults();
+    audio.setMusicVolume(settings.musicVol);
+    audio.setSfxVolume(settings.sfxVol);
+    setMusic(settings.musicVol);
+    setSfx(settings.sfxVol);
+    setPerf({ ...settings.perf });
+    setRes(settings.resolution);
+    setDev(settings.devEndgame);
+  };
 
   return (
     <div className="overlay settings-overlay">
@@ -288,7 +298,10 @@ function Settings({ onClose }: { onClose: () => void }) {
             <div className="eyebrow">Settings</div>
             <h2 className="settings-title">Tune the dream</h2>
           </div>
-          <button className="btn-secondary" onClick={onClose}>Return</button>
+          <div className="settings-head-actions">
+            <button className="btn-secondary" onClick={resetDefaults}>Reset to defaults</button>
+            <button className="btn-secondary" onClick={onClose}>Return</button>
+          </div>
         </div>
 
         <div className="settings-scroll">
@@ -384,7 +397,8 @@ function LevelUp({ choices, level, banishes, rerolls, showBanish, showReroll, on
                 <div className="card-glyph">{isSpell && HAS_ICON(c.id) ? <SpellIcon id={c.id} size={40} /> : def.icon}</div>
                 <div className="card-name">{isEvolve ? EVOLVE[c.id].name : def.name}</div>
                 <div className="card-school">
-                  {isEvolve ? `${spellDef!.school} · Evolution` : isSpell ? `${spellDef!.school} · ${c.isNew ? 'New spell' : c.mastery ? `Mastery ${c.level}` : `Level ${c.level}`}` : `${c.kind === 'generic' ? 'Amplify' : 'Boon'} · Rank ${c.level}`}
+                  <span>{isEvolve ? spellDef!.school : isSpell ? spellDef!.school : c.kind === 'generic' ? 'Amplify' : 'Boon'}</span>
+                  <span>{isEvolve ? 'Evolution' : isSpell ? (c.isNew ? 'New spell' : c.mastery ? `Mastery ${c.level}` : `Level ${c.level}`) : `Rank ${c.level}`}</span>
                 </div>
                 <div className="card-desc">
                   {isEvolve ? EVOLVE[c.id].desc : c.kind === 'generic' ? def.desc : (isSpell ? (c.isNew ? spellDef!.desc : c.mastery ? 'Pure damage — the dream deepens beyond its limits.' : spellDef!.levelText(c.level!)) : def.desc)}

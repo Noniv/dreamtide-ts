@@ -184,9 +184,9 @@ body {
 .card:nth-child(3) { animation-delay: 0.16s; }
 @keyframes cardIn { from { opacity: 0; transform: translateY(18px); } }
 .card:hover { transform: translateY(-6px) scale(1.03); box-shadow: 0 0 40px color-mix(in srgb, var(--c) 45%, transparent); }
-.card-glyph { font-size: 40px; color: var(--c); text-shadow: 0 0 18px var(--c); margin-bottom: 12px; }
+.card-glyph { display: flex; justify-content: center; font-size: 40px; color: var(--c); text-shadow: 0 0 18px var(--c); margin-bottom: 12px; }
 .card-name { font-family: 'Roboto', sans-serif; font-weight: 700; font-size: 18px; color: #fff; letter-spacing: 0.04em; }
-.card-school { font-size: 11px; letter-spacing: 0.26em; text-transform: uppercase; color: var(--c); margin: 8px 0 12px; }
+.card-school { display: flex; flex-direction: column; gap: 5px; font-size: 11px; letter-spacing: 0.26em; text-transform: uppercase; color: var(--c); margin: 8px 0 12px; }
 .card-desc { font-size: 14px; line-height: 1.55; font-weight: 300; opacity: 0.88; }
 
 /* game over */
@@ -631,6 +631,7 @@ body {
   text-align: left;
 }
 .settings-head .eyebrow { margin-bottom: 6px; }
+.settings-head-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .settings-title {
   font-family: 'Roboto', sans-serif; font-weight: 700; font-size: 26px;
   letter-spacing: 0.06em; color: #fff; text-shadow: 0 0 22px rgba(180, 140, 255, 0.5);

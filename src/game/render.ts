@@ -534,8 +534,11 @@ function emitProjectile(q: QuadList, eng: Engine, pr: Projectile, alpha: number)
     const e = q.uv('proj:fang')!;
     q.push(false, e, x, y, e.half, Math.atan2(pr.vy, pr.vx), 1);
   } else if (pr.kind === 'glaive') {
-    const e = q.uv('proj:fang')!; // crescent-ish; tinted icy blue, spinning
-    q.push(false, e, x, y, 16, pr.spin, 1, 0.62, 0.85, 1, 0.7);
+    const glowE = q.uv('glow')!;
+    q.push(true, glowE, x, y, 44, 0, 0.6, 0.62, 0.85, 1); // icy-blue halo, hitbox-sized
+    const e = q.uv('proj:glaive')!; // baked twin-bladed star-blade, spinning
+    q.push(false, e, x, y, e.half, pr.spin, 1);
+    q.push(true, e, x, y, e.half, pr.spin, 0.4); // additive pass = glinting edge
   }
 }
 
@@ -1001,31 +1004,36 @@ function drawProjectile(eng: Engine, ctx: CanvasRenderingContext2D, pr: Projecti
     ctx.fillStyle = cachedLinear(ctx, -56, 0, 0, 0, 'rgba(159,216,255,0)', 'rgba(232,246,255,0.55)');
     ctx.fillRect(-56, -3, 56, 6);
     ctx.restore();
+    // icy halo roughly matching the hitbox
+    ctx.fillStyle = centeredRadial(ctx, 46, [[0, 'rgba(159,216,255,0.5)'], [1, 'rgba(159,216,255,0)']]);
+    ctx.beginPath();
+    ctx.arc(0, 0, 46, 0, TAU);
+    ctx.fill();
     ctx.rotate(pr.spin);
     ctx.shadowColor = '#9fd8ff';
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = 14;
     for (const side of [0, Math.PI]) {
       ctx.save();
       ctx.rotate(side);
       ctx.fillStyle = '#e8f6ff';
       ctx.beginPath();
-      ctx.moveTo(6, 0);
-      ctx.quadraticCurveTo(20, -16, 30, -4);
-      ctx.quadraticCurveTo(19, -6, 8, 4);
+      ctx.moveTo(8, 0);
+      ctx.quadraticCurveTo(27, -22, 41, -5);
+      ctx.quadraticCurveTo(26, -8, 11, 5);
       ctx.closePath();
       ctx.fill();
       ctx.strokeStyle = '#9fd8ff';
-      ctx.lineWidth = 1.4;
+      ctx.lineWidth = 1.9;
       ctx.beginPath();
-      ctx.moveTo(8, 1);
-      ctx.quadraticCurveTo(20, -7, 30, -4);
+      ctx.moveTo(11, 1);
+      ctx.quadraticCurveTo(27, -10, 41, -5);
       ctx.stroke();
       ctx.restore();
     }
     ctx.shadowBlur = 0;
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(0, 0, 3.4, 0, TAU);
+    ctx.arc(0, 0, 5, 0, TAU);
     ctx.fill();
   }
   ctx.restore();

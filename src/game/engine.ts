@@ -2395,7 +2395,7 @@ export class Engine {
           }
         }
         if (pr.life > 0) {
-          if (Math.random() < 0.85) this.particles.spawn({ x: pr.x + rand(-3, 3), y: pr.y + rand(-3, 3), vx: rand(-25, 25), vy: rand(-25, 25), life: rand(0.3, 0.6), size: rand(2.5, 5), endSize: 0.5, color: '#e8f6ff', color2: '#9fd8ff', mode: 'shard', rotV: rand(-10, 10), drag: 0.93 });
+          if (Math.random() < 0.9) this.particles.spawn({ x: pr.x + rand(-10, 10), y: pr.y + rand(-10, 10), vx: rand(-40, 40), vy: rand(-40, 40), life: rand(0.35, 0.7), size: rand(6, 11), endSize: 1, color: '#e8f6ff', color2: '#9fd8ff', mode: 'shard', rotV: rand(-10, 10), drag: 0.93 });
           this.grid.queryCircle(pr.x, pr.y, pr.r + 45, (e) => {
             if (!pr.hitCd!.ready(e.slot, this.t)) return;
             if (dist2(pr.x, pr.y, e.x, e.y) < (e.radius + pr.r) ** 2) {
