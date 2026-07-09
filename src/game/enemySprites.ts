@@ -591,6 +591,37 @@ function extraSprites(): ExtraSprite[] {
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 5, 0, TAU); ctx.fill();
     },
   });
+  // fallen-star pickup: the five-pointed cyan star core (rotates live). Baked
+  // as an additive white/cyan sprite so the caller can tint/pulse it.
+  out.push({
+    id: 'pickup:star', half: 12, paint(ctx) {
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 12);
+      g.addColorStop(0, '#ffffff'); g.addColorStop(0.4, '#7ff5ff'); g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 12, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#eafeff';
+      ctx.beginPath();
+      for (let k = 0; k < 5; k++) {
+        const a = (k / 5) * TAU - Math.PI / 2;
+        const a2 = a + TAU / 10;
+        ctx.lineTo(Math.cos(a) * 10, Math.sin(a) * 10);
+        ctx.lineTo(Math.cos(a2) * 4.2, Math.sin(a2) * 4.2);
+      }
+      ctx.closePath(); ctx.fill();
+    },
+  });
+  // fallen-star pickup: the vertical "beacon" — a tall bright column fading to
+  // transparent at the top, painted in a tall-aspect region of a square tile.
+  // Emitted additively with the quad's top anchored at the star. HALF is large
+  // so the column reads ~190px tall at native scale.
+  out.push({
+    id: 'pickup:beacon', half: 96, paint(ctx) {
+      const g = ctx.createLinearGradient(0, -96, 0, 0);
+      g.addColorStop(0, 'rgba(127,245,255,0)');
+      g.addColorStop(1, 'rgba(127,245,255,0.32)');
+      ctx.fillStyle = g;
+      ctx.fillRect(-7, -96, 14, 96);
+    },
+  });
   return out;
 }
 

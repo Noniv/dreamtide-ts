@@ -512,9 +512,19 @@ function emitPickup(q: QuadList, eng: Engine, s: Pickup) {
   if (x < -60 || y < -60 || x > cam.w + 60 || y > cam.h + 60) return;
   const urgent = s.life < 5 ? 0.5 + 0.5 * Math.sin(eng.vt * 10) : 1;
   const glowE = q.uv('glow')!;
-  // beacon glow + star core, both cyan
+  const beaconE = q.uv('pickup:beacon')!;
+  const ringE = q.uv('ring')!;
+  const starE = q.uv('pickup:star')!;
+  // vertical beacon: the beacon sprite paints a bright column in the TOP half of
+  // its square tile (tile-y −half..0), so centring the quad ON the star anchors
+  // the column's base there and lets it rise upward.
+  q.push(true, beaconE, x, y, beaconE.half, 0, urgent, 0.5, 0.96, 1, 1);
+  // pulsing ground ring where the star rests (cyan, additive)
+  const ringPulse = 0.9 + Math.sin(s.ph) * 0.12;
+  q.push(true, ringE, x, y + 6, 11 * ringPulse, 0, 0.5 * urgent, 0.5, 0.96, 1, 1);
+  // soft glow halo + spinning five-point star core, both cyan
   q.push(true, glowE, x, y - 8, 26, 0, urgent, 0.5, 0.96, 1, 1);
-  q.push(false, glowE, x, y - 8, 12, s.ph * 0.6, urgent, 0.92, 1, 1, 1);
+  q.push(true, starE, x, y - 8, starE.half, s.ph * 0.6, urgent);
 }
 
 function emitOrbitals(q: QuadList, eng: Engine, alpha: number) {
