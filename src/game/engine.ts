@@ -720,7 +720,7 @@ export class Engine {
   reroll() {
     if (this.rerollCharges <= 0) return;
     this.rerollCharges--;
-    audio.nebulaCast();
+    audio.reroll();
     this.choices = this.buildChoices();
     this.hooks.onLevelUp([...this.choices], this.choiceLevel, this.banishCharges, this.rerollCharges);
   }
@@ -730,7 +730,7 @@ export class Engine {
     this.banishCharges--;
     const keyOf = (c: Choice) => `${c.kind === 'evolve' ? 'spell' : c.kind}:${c.id}`;
     this.banished.add(keyOf(choice));
-    audio.voidCast();
+    audio.banish();
     const idx = this.choices.indexOf(choice);
     const shown = new Set(this.choices.map(keyOf));
     const { pool, evolvePool } = this.buildChoicePool();
@@ -1059,6 +1059,8 @@ export class Engine {
       this.eliteTimer = Math.max(32, 50 - this.t / 40) / (1 + (this.meta.baneElite || 0) / 100);
       this.spawnEnemy(this.pickType(), true);
     }
+    // dread swells in the last seconds before the Devourer breaks through
+    if (this.bossTimer > 3 && this.bossTimer - dt <= 3) audio.bossOmen();
     this.bossTimer -= dt;
     if (this.bossTimer <= 0) {
       this.bossTimer = 115 / (1 + (this.meta.baneBoss || 0) / 100);
@@ -1068,6 +1070,7 @@ export class Engine {
   }
 
   private spawnEvent(kind: string) {
+    audio.waveEvent();
     const p = this.player;
     if (kind === 'ring') {
       this.setBanner('THE TIDE ENCIRCLES YOU', '#ff9ad5');
@@ -1132,6 +1135,7 @@ export class Engine {
     e.shootCd = -1; e.dmgTextT = 0; e.ranged = null; e.bossFire = null;
     e.meleeCd = Infinity; e.meleeBaseCd = Infinity; e.meleeReach = 0; e.meleeAnim = 0;
     this.enemies.push(e);
+    audio.goldenWisp();
     this.setBanner('A GOLDEN WISP FLITS PAST', '#ffd27a');
   }
 
@@ -1270,6 +1274,11 @@ export class Engine {
     pr.targetUid = e ? e.uid : 0;
   }
 
+  // stereo position of a world x for audio: the player is always screen-centre
+  private panOf(x: number) {
+    return clamp((x - this.player.x) / 900, -0.8, 0.8);
+  }
+
   private cast(id: string, st: SpellStats) {
     const p = this.player;
     p.castPulse = 1;
@@ -1292,7 +1301,7 @@ export class Engine {
           pr.pierce = st.special!.pierce || 0;
           this.projectiles.push(pr);
         }
-        audio.arcaneCast(rand(-0.4, 0.4));
+        audio.castArcane(rand(-0.4, 0.4));
         break;
       }
       case 'ember': {
@@ -1322,11 +1331,11 @@ export class Engine {
           }
           this.projectiles.push(pr);
         }
-        audio.fireCast();
+        audio.castEmber();
         break;
       }
       case 'frost': {
-        audio.frostCast();
+        audio.castFrost();
         const R = st.radius! * this.aoeMul();
         const z = this.zonePool.acquire();
         this.resetZone(z, 'frostwave', p.x, p.y);
@@ -1347,7 +1356,7 @@ export class Engine {
       case 'storm': {
         const first = this.pickTarget(p.x, p.y, st.range!);
         if (!first) return;
-        audio.stormCast();
+        audio.castStorm();
         let fromX = p.x, fromY = p.y - 34;
         let cur: Enemy | null = first;
         const hitSet = this.stormMask.begin();
@@ -1389,7 +1398,7 @@ export class Engine {
           ty = p.y + Math.sin(a) * minDist;
         }
         const { x: bx, y: by } = this.clampToView(tx, ty);
-        audio.voidCast();
+        audio.castVoid();
         const z = this.zonePool.acquire();
         this.resetZone(z, 'rift', bx, by);
         z.r = riftR; z.pr = riftR;
@@ -1404,7 +1413,7 @@ export class Engine {
         break;
       }
       case 'moon': {
-        audio.beamHum();
+        audio.castMoon();
         const target = this.pickTarget(p.x, p.y, 800);
         const a = target ? Math.atan2(target.y - p.y, target.x - p.x) : rand(0, TAU);
         const beamLife = st.evolved ? 0.75 : 0.5;
@@ -1424,7 +1433,7 @@ export class Engine {
         break;
       }
       case 'starfall': {
-        audio.starfallCast();
+        audio.castStarfall();
         const count = st.count! + (this.meta.extraCount || 0);
         const blastR = st.radius! * this.aoeMul();
         const cluster = this.densestPoint(blastR);
@@ -1454,7 +1463,7 @@ export class Engine {
         break;
       }
       case 'umbra': {
-        audio.fangCast();
+        audio.castUmbra();
         const count = st.count! + (this.meta.extraCount || 0) + (st.evolved ? 2 : 0);
         const target = this.pickTarget(p.x, p.y, 640);
         const baseA = target ? Math.atan2(target.y - p.y, target.x - p.x) : rand(0, TAU);
@@ -1474,7 +1483,7 @@ export class Engine {
         break;
       }
       case 'glaive': {
-        audio.glaiveCast();
+        audio.castGlaive();
         const count = st.count! + (this.meta.extraCount || 0);
         const target = this.pickTarget(p.x, p.y, 700);
         const baseA = target ? Math.atan2(target.y - p.y, target.x - p.x) : rand(0, TAU);
@@ -1495,7 +1504,7 @@ export class Engine {
         break;
       }
       case 'nebula': {
-        audio.nebulaCast();
+        audio.castNebula();
         const cloudR = st.radius! * this.aoeMul() * (st.evolved ? 1.25 : 1);
         const pt = this.densestPoint(cloudR);
         const { x: bx, y: by } = this.clampToView(pt ? pt.x : p.x + rand(-220, 220), pt ? pt.y : p.y + rand(-220, 220));
@@ -1515,6 +1524,7 @@ export class Engine {
         break;
       }
       case 'sigil': {
+        audio.castSigil();
         const sigR = st.radius! * this.aoeMul();
         const pt = this.densestPoint(sigR);
         const { x: bx, y: by } = this.clampToView(pt ? pt.x : p.x + rand(-200, 200), pt ? pt.y : p.y + rand(-200, 200));
@@ -1530,7 +1540,7 @@ export class Engine {
         break;
       }
       case 'lantern': {
-        audio.lanternCast();
+        audio.castLantern();
         const count = st.count! + (this.meta.extraCount || 0);
         const R = st.radius! * this.aoeMul();
         const dur = st.duration! * (st.evolved ? 1.5 : 1);
@@ -1556,7 +1566,7 @@ export class Engine {
         break;
       }
       case 'nova': {
-        audio.novaCast();
+        audio.castNova();
         const R = st.radius! * this.aoeMul();
         const mk = (maxR: number, dmg: number, knock: number, delay: number) => {
           const z = this.zonePool.acquire();
@@ -1638,7 +1648,7 @@ export class Engine {
         if (dist2(o.x, o.y, e.x, e.y) < (e.radius + 14) ** 2) {
           o.hitCd.set(e.slot, this.t + 0.5);
           this.damageEnemy(e, st.damage! * this.dmgMul(), '#7dffb0');
-          audio.petalTick();
+          audio.petalTick(this.panOf(e.x));
           const a = Math.atan2(e.y - p.y, e.x - p.x);
           const kn = st.special!.knock2 ? 240 : 120;
           e.knbx += Math.cos(a) * kn;
@@ -1660,7 +1670,7 @@ export class Engine {
     }
     e.hp -= dmg;
     e.hitFlash = 0.12;
-    audio.hit();
+    audio.hit(this.panOf(e.x));
     // Floating damage numbers, throttled per-enemy (see original notes)
     if (crit || e.boss || e.dmgTextT <= this.t) {
       e.dmgTextT = this.t + 0.28;
@@ -1702,7 +1712,7 @@ export class Engine {
     }
     this.particles.spawn({ x: e.x, y: e.y, life: 0.5, size: e.radius * (e.boss ? 4 : 2.6), color: e.color, mode: 'ring' });
     if (e.boss) {
-      audio.fireBoom();
+      audio.bossDown();
       this.shake = 16;
       this.flash = { color: '255,210,122', a: 0.4 };
       for (let i = 0; i < 18; i++) this.spawnGem(e.x + rand(-70, 70), e.y + rand(-70, 70), 14, true, false, false, rand(0, TAU));
@@ -1714,9 +1724,10 @@ export class Engine {
     } else if (e.golden) {
       this.bonusDust += 12;
       this.setBanner('+12 STARDUST', '#ffd27a');
-      audio.levelUp();
+      audio.bonus();
       for (let i = 0; i < 8; i++) this.spawnGem(e.x + rand(-45, 45), e.y + rand(-45, 45), 5, true, false, false, rand(0, TAU));
     } else {
+      audio.kill(this.panOf(e.x), e.elite);
       const drops = e.elite ? 4 : 1;
       for (let i = 0; i < drops; i++) this.spawnGem(e.x + rand(-14, 14), e.y + rand(-14, 14), e.xp, e.elite, false, false, rand(0, TAU));
       if (this.meta.extraGem && Math.random() * 100 < this.meta.extraGem) this.spawnGem(e.x + rand(-18, 18), e.y + rand(-18, 18), e.xp, false, false, false, rand(0, TAU));
@@ -1799,7 +1810,7 @@ export class Engine {
   }
 
   explode(x: number, y: number, radius: number, dmg: number, pal: { ring: string; core: string; sparks: string[]; text: string; quiet?: boolean } | null = null) {
-    if (!pal || !pal.quiet) audio.fireBoom();
+    if (!pal || !pal.quiet) audio.explode(this.panOf(x));
     const textCol = pal ? pal.text : '#ffbe8a';
     this.grid.queryCircle(x, y, radius + 130, (e) => {
       if (dist2(x, y, e.x, e.y) < (radius + e.radius) ** 2) {
@@ -1932,7 +1943,7 @@ export class Engine {
         e.shootCd -= dt;
         if (e.shootCd <= 0 && D < rangedDef.range * 1.15 && e.slowT <= 0) {
           e.shootCd = rangedDef.cd * rand(0.85, 1.15);
-          audio.enemyShot();
+          audio.enemyShot(this.panOf(e.x));
           const shots = rangedDef.shots;
           for (let si = 0; si < shots; si++) {
             const sa = a + (shots > 1 ? (si - (shots - 1) / 2) * 0.28 : rand(-0.05, 0.05));
@@ -2147,10 +2158,11 @@ export class Engine {
         g.dead = true;
         if (g.shard) {
           this.shardsEarned++;
-          audio.levelUp();
+          audio.shard();
           this.spawnText(p.x, p.y - 44, '+1 nightmare shard', '#ff7ab0', 1.2, -36, 15);
         } else if (g.heal) {
           p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.3);
+          audio.heal();
           this.spawnText(p.x, p.y - 40, '+life', '#7dffb0', 0.8, -40, 14);
         } else {
           this.gainXp(g.v);
@@ -2176,6 +2188,7 @@ export class Engine {
         x: p.x + Math.cos(a) * rand(650, 900), y: p.y + Math.sin(a) * rand(650, 900),
         life: 20, ph: rand(0, TAU), kind: pick(['heal', 'gems', 'dust'] as const),
       });
+      audio.starFallen();
       this.setBanner('A STAR HAS FALLEN NEARBY', '#7ff5ff');
     }
     for (let i = 0; i < this.pickups.length;) {
@@ -2184,7 +2197,7 @@ export class Engine {
       s.ph += dt * 3;
       if (!s.dead && dist2(s.x, s.y, p.x, p.y) < 34 * 34) {
         s.dead = true;
-        audio.levelUp();
+        audio.starPickup();
         if (s.kind === 'heal') {
           p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.35);
           this.spawnText(p.x, p.y - 44, '+life', '#7dffb0', 1, -40, 16);
@@ -2226,9 +2239,24 @@ export class Engine {
     this.shake = Math.max(0, this.shake - dt * 30);
     if (this.flash) { this.flash.a -= dt * 1.2; if (this.flash.a <= 0) this.flash = null; }
 
-    // hud sync ~10hz
+    // hud sync ~10hz; the same cadence feeds the adaptive music its picture of
+    // the battle (crowd pressure opens the pad, a live boss darkens the chord,
+    // low HP brings up the heartbeat)
     this.hudTimer -= dt;
-    if (this.hudTimer <= 0) { this.hudTimer = 0.1; this.pushHud(); }
+    if (this.hudTimer <= 0) {
+      this.hudTimer = 0.1;
+      this.pushHud();
+      let bossAlive = false;
+      for (const e of this.enemies) {
+        if (e.boss && !e.dead) { bossAlive = true; break; }
+      }
+      const hpFrac = p.maxHp > 0 ? p.hp / p.maxHp : 1;
+      audio.gameState(
+        Math.min(1, this.enemies.length / 130) * 0.75 + (bossAlive ? 0.35 : 0),
+        hpFrac < 0.42 && !p.dead ? 1 - hpFrac / 0.42 : 0,
+        bossAlive,
+      );
+    }
   }
 
   // -------------------------------------------------------------- projectiles
@@ -2478,7 +2506,7 @@ export class Engine {
         }
       } else if (z.kind === 'sigil') {
         if (z.life <= 0) {
-          audio.sigilBoom();
+          audio.sigilBoom(this.panOf(z.x));
           this.particles.spawn({ x: z.x, y: z.y, life: 0.45, size: z.r * 1.3, color: '#ffd27a', mode: 'ring' });
           for (let k = 0; k < 40; k++) {
             const a = rand(0, TAU);

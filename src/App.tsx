@@ -107,10 +107,33 @@ export default function App() {
     };
   }, [set]);
 
+  // Tactile UI, delegated so every button in the app gets it: a whisper of a
+  // tick on hover, a soft pluck on press. The pointerdown is also the user
+  // gesture that opens the AudioContext, so the menu ambience starts breathing
+  // on the very first interaction.
+  useEffect(() => {
+    const onDown = (ev: PointerEvent) => {
+      audio.userGesture();
+      if ((ev.target as HTMLElement).closest?.('button')) audio.uiClick();
+    };
+    const onOver = (ev: MouseEvent) => {
+      const btn = (ev.target as HTMLElement).closest?.('button');
+      const from = (ev.relatedTarget as HTMLElement | null)?.closest?.('button');
+      if (btn && btn !== from) audio.uiHover();
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    document.addEventListener('mouseover', onOver, true);
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true);
+      document.removeEventListener('mouseover', onOver, true);
+    };
+  }, []);
+
   const begin = () => {
     if (menuFading) return;
     const fromMenu = useGame.getState().screen === 'menu';
     audio.resume();
+    audio.runStart();
     engineRef.current!.reset();
     if (settings.devEndgame) engineRef.current!.devEndgame();
     engineRef.current!.inRun = true;
@@ -135,6 +158,7 @@ export default function App() {
   const returnToMenu = () => {
     engineRef.current!.paused = true;
     engineRef.current!.inRun = false;
+    audio.menuMood();
     set({ screen: 'menu', result: null });
   };
 
@@ -145,7 +169,7 @@ export default function App() {
 
   const renderOverlay = (s: Screen) => {
     if (s === 'settings') return <Settings key="settings" onClose={() => set({ screen: 'menu' })} />;
-    if (s === 'dead' && result) return <GameOver key="dead" result={result} dustEarned={dustEarned} onRetry={begin} onTree={() => set({ screen: 'tree' })} onMenu={() => set({ screen: 'menu', result: null })} />;
+    if (s === 'dead' && result) return <GameOver key="dead" result={result} dustEarned={dustEarned} onRetry={begin} onTree={() => set({ screen: 'tree' })} onMenu={() => { audio.menuMood(); set({ screen: 'menu', result: null }); }} />;
     if (s === 'tree') return (
       <SkillTree
         key="tree"
@@ -788,7 +812,7 @@ function SkillTree({ meta, onBuy, onRefund, onLoadout, onClose }: {
                   onClick={() => {
                     if (wasDrag()) return;
                     if (buyable) { onBuy(n.id); firePulse(n.id); audio.choose(); }
-                    else if (refundable) { onRefund(n.id); audio.voidCast(); }
+                    else if (refundable) { onRefund(n.id); audio.banish(); }
                   }}
                 >
                   {pulse && pulse.id === n.id && (
