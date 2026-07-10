@@ -367,7 +367,7 @@ export class Engine {
     createWorldGPU(canvas).then((world) => {
       if (this.disposed) { world.dispose(); return; }
       this.world = world;
-      this.perf.gpuBackend = 'webgpu';
+      this.perf.gpuBackend = `webgpu (${world.adapterLabel})`;
       this.perf.layers = 2;
       this.resize();
     }).catch((e) => {

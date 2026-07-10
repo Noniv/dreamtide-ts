@@ -248,7 +248,8 @@ export class PerfMonitor {
       `render    ${this.renderMs.avg(WINDOW).toFixed(2)} ms`,
       `particles ${this.particleMs.avg(WINDOW).toFixed(2)} ms`,
       `other/gpu ${other.toFixed(2)} ms`,
-      `gpu       ${this.gpuBackend}`,
+      // full adapter string goes to the exported JSON; clip it on screen
+      `gpu       ${this.gpuBackend.length > 26 ? this.gpuBackend.slice(0, 25) + '…' : this.gpuBackend}`,
       `canvas    ${this.viewW}x${this.viewH}@${this.dpr}x·${this.layers}L`,
       `scale     ${Math.round(this.renderScale * 100)}%`,
       `enemies   ${this.counts.enemies}`,

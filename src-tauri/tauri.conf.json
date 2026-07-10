@@ -21,7 +21,8 @@
         "decorations": false,
         "fullscreen": true,
         "focus": true,
-        "visible": true
+        "visible": true,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --force_high_performance_gpu"
       }
     ],
     "security": {

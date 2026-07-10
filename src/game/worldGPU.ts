@@ -497,6 +497,8 @@ fn composite_fs(in: FSIn) -> @location(0) vec4<f32> {
 export interface WorldGPU {
   readonly canvas: HTMLCanvasElement;
   readonly device: GPUDevice;
+  /** Human-readable adapter identity ("nvidia · rtx 3060 …") for perf logs. */
+  readonly adapterLabel: string;
   resize(cssW: number, cssH: number, dpr: number): void;
   render(time: number, camX: number, camY: number, shapes: ShapeList, quads: QuadList, over?: ShapeList): void;
   dispose(): void;
@@ -507,6 +509,7 @@ const BLOOM_MIPS = 4;
 class WorldGPUImpl implements WorldGPU {
   readonly canvas: HTMLCanvasElement;
   readonly device: GPUDevice;
+  readonly adapterLabel: string;
   private ctx: GPUCanvasContext;
   private format: GPUTextureFormat;
 
@@ -544,9 +547,10 @@ class WorldGPUImpl implements WorldGPU {
   private cssW = 1; private cssH = 1;
   private texW = 1; private texH = 1;
 
-  constructor(canvas: HTMLCanvasElement, device: GPUDevice, atlas: Atlas) {
+  constructor(canvas: HTMLCanvasElement, device: GPUDevice, atlas: Atlas, adapterLabel: string) {
     this.canvas = canvas;
     this.device = device;
+    this.adapterLabel = adapterLabel;
     const ctx = canvas.getContext('webgpu');
     if (!ctx) throw new Error('could not create a WebGPU canvas context');
     this.ctx = ctx;
@@ -809,5 +813,24 @@ export async function createWorldGPU(canvas: HTMLCanvasElement): Promise<WorldGP
   const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
   if (!adapter) throw new Error('no WebGPU adapter found');
   const device = await adapter.requestDevice();
-  return new WorldGPUImpl(canvas, device, getAtlas());
+  return new WorldGPUImpl(canvas, device, getAtlas(), describeAdapter(adapter));
+}
+
+// Identify which physical GPU the browser actually handed us. On hybrid
+// (iGPU + dGPU) machines the powerPreference above is only a hint — Windows
+// per-app graphics settings can override it — and a run that silently lands
+// on the integrated GPU looks exactly like "the game is slow". The perf
+// overlay exports this string so tester logs settle the question.
+function describeAdapter(adapter: GPUAdapter): string {
+  let info: Partial<GPUAdapterInfo> | undefined;
+  try {
+    info = adapter.info; // Chrome 128+ / current spec
+  } catch { /* older implementations */ }
+  const parts = [info?.vendor, info?.architecture, info?.description || info?.device]
+    .filter((s): s is string => !!s && s.length > 0);
+  const label = parts.length ? parts.join(' · ') : 'adapter info unavailable';
+  // a fallback adapter is CPU/software rendering (SwiftShader) — flag it loudly
+  // (the flag lives on GPUAdapterInfo in the current spec, on GPUAdapter in older ones)
+  const fallback = info?.isFallbackAdapter ?? (adapter as { isFallbackAdapter?: boolean }).isFallbackAdapter;
+  return fallback ? `${label} [SOFTWARE FALLBACK]` : label;
 }
