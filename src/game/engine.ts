@@ -689,8 +689,13 @@ export class Engine {
   // resonance marks last longer under the Prism Heart
   markDur(base: number) { return base * (this.relics.has('prismheart') ? 2 : 1); }
   // bonus stardust that keeps pace with the run — a flat "+10" reads as an
-  // insult beside a four-digit balance, so rewards grow with the clock
-  dustReward(mult = 1) { return Math.round((20 + this.t / 4) * mult); }
+  // insult beside a four-digit balance, so rewards pay 5% of what the run has
+  // earned so far (sans earlier bonuses, so stars don't compound off stars).
+  // The clock-based floor carries the first minutes, when 5% is pennies.
+  dustReward(mult = 1) {
+    const earned = dustForRun({ kills: this.kills, level: this.player.level, time: this.t, bonusDust: 0 }, this.meta);
+    return Math.round(Math.max(20 + this.t / 4, earned * 0.05) * mult);
+  }
   statCap() { return 5; }
   // 5 slots filled randomly during a run, plus the loadout (1 by default, up to
   // 4 with +1-slot notables). Default cap stays 6.
