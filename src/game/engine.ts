@@ -577,11 +577,15 @@ export class Engine {
   // Alt-Tab / focus loss eats the keyup, leaving movement keys latched on;
   // drop every held key when the window blurs.
   private onBlur = () => { this.keys = {}; };
+  // the OS context menu swallows keyups the same way — suppress it (this is a
+  // game, not a document) and drop held keys in case one already slipped by
+  private onContextMenu = (e: Event) => { e.preventDefault(); this.keys = {}; };
 
   bindInput() {
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', this.onBlur);
+    window.addEventListener('contextmenu', this.onContextMenu);
   }
 
   start() {
@@ -651,6 +655,7 @@ export class Engine {
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onBlur);
+    window.removeEventListener('contextmenu', this.onContextMenu);
     if (this.world) { this.world.dispose(); this.world = null; }
     if (this.overlay && this.overlay.parentNode) this.overlay.parentNode.removeChild(this.overlay);
     this.overlay = null;
@@ -1225,6 +1230,7 @@ export class Engine {
         pIdx: 0,
         hold: 0,
         blinkT: 0, blinkDur: BLINK_WINDUP, blinkIn: 0, bx: 0, by: 0,
+        gapAng: null, gapDir: Math.random() < 0.5 ? 1 : -1,
       };
     }
     return e;
@@ -1242,7 +1248,7 @@ export class Engine {
 
   private updateBossFire(e: Enemy, dt: number) {
     const p = this.player;
-    const bf = e.bossFire || (e.bossFire = { cd: 0, interval: 1.6, speed: 130, spin: 0, spinV: 0.6, patterns: ['aimed'], pIdx: 0, hold: 0, blinkT: 0, blinkDur: BLINK_WINDUP, blinkIn: 0, bx: 0, by: 0 });
+    const bf = e.bossFire || (e.bossFire = { cd: 0, interval: 1.6, speed: 130, spin: 0, spinV: 0.6, patterns: ['aimed'], pIdx: 0, hold: 0, blinkT: 0, blinkDur: BLINK_WINDUP, blinkIn: 0, bx: 0, by: 0, gapAng: null, gapDir: 1 });
     const n = this.bossCount;
     bf.spin += bf.spinV * dt;
     bf.hold = Math.max(0, bf.hold - dt);
@@ -1257,6 +1263,16 @@ export class Engine {
     const baseA = Math.atan2(p.y - e.y, p.x - e.x);
     const dmg = 12 + n * 3 + this.endgame() * 4;
     const shoot = (ang: number, spd: number, r = 6) => this.shootBossProj(e.x, e.y, ang, spd, r, dmg, 16, null);
+    // the safe gap in ring volleys: first one opens straight at the player,
+    // then it walks ~40° around the circle per volley so the escape is always
+    // reachable by following the pattern
+    const nextGap = () => {
+      if (bf.gapAng == null) bf.gapAng = baseA;
+      else bf.gapAng += bf.gapDir * 0.7;
+      return bf.gapAng;
+    };
+    const inGap = (ang: number, gapA: number, halfW: number) =>
+      Math.abs(Math.atan2(Math.sin(ang - gapA), Math.cos(ang - gapA))) < halfW;
     if (pat === 'aimed') {
       const shots = 3 + Math.min(8, Math.floor(n * 0.7));
       const arc = 0.28;
@@ -1269,11 +1285,12 @@ export class Engine {
       for (let i = 0; i < arms; i++) shoot(bf.spin + (i / arms) * TAU, bf.speed * 0.9);
     } else if (pat === 'ring') {
       const count = 10 + Math.min(20, Math.floor(n * 1.5));
-      const gap = Math.floor(rand(0, count));
-      const gapW = 2;
+      const gapA = nextGap();
+      const gapHalf = Math.max(0.25, 0.6 - n * 0.03); // tightens with boss count, like the old 2-slot gap did
       for (let i = 0; i < count; i++) {
-        if (Math.abs((i - gap + count) % count) < gapW) continue;
-        shoot(bf.spin + (i / count) * TAU, bf.speed * 0.85);
+        const ang = bf.spin + (i / count) * TAU;
+        if (inGap(ang, gapA, gapHalf)) continue;
+        shoot(ang, bf.speed * 0.85);
       }
     } else if (pat === 'cross') {
       for (let k = 0; k < 4; k++) {
@@ -1289,12 +1306,13 @@ export class Engine {
       this.shake = Math.min(10, this.shake + 6);
       audio.waveEvent();
       const count = 18 + Math.min(10, n);
-      const gap = Math.floor(rand(0, count));
+      const gapA = nextGap();
+      const gapHalf = Math.max(0.34, 0.55 - n * 0.02);
       const edge = e.radius * 0.7;
       for (let ring2 = 0; ring2 < 2; ring2++) {
         for (let i = 0; i < count; i++) {
-          if ((i - gap + count) % count < 3) continue;
           const ang = bf.spin + (i / count) * TAU + ring2 * (Math.PI / count);
+          if (inGap(ang, gapA, gapHalf)) continue;
           this.shootBossProj(e.x + Math.cos(ang) * edge, e.y + Math.sin(ang) * edge, ang, bf.speed * (0.55 + ring2 * 0.2), 9, dmg, 16, null);
         }
       }

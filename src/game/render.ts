@@ -184,26 +184,42 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
   }
   octx.restore();
 
-  // edge arrows toward off-screen fallen stars
+  // edge arrows toward off-screen fallen stars — big, outlined, and pulsing
+  // so they read against any ground, with a glowing orb standing in for the
+  // star itself
   for (const s of eng.pickups) {
     const sx = s.x - camX, sy = s.y - camY;
     if (sx >= 0 && sx <= w && sy >= 0 && sy <= h) continue;
-    const ax = clamp(sx, 46, w - 46), ay = clamp(sy, 46, h - 46);
+    const ax = clamp(sx, 52, w - 52), ay = clamp(sy, 52, h - 52);
     const ang = Math.atan2(sy - ay, sx - ax);
+    const pulse = 0.5 + 0.5 * Math.sin(vt * 5);
+    const arrowC = s.kind === 'altar' ? '#c48cff' : '#7ff5ff';
     octx.save();
     octx.translate(ax, ay);
     octx.rotate(ang);
-    octx.globalAlpha = 0.55 + 0.3 * Math.sin(vt * 5);
-    const arrowC = s.kind === 'altar' ? '#c48cff' : '#7ff5ff';
+    const sc = 1.5 + 0.3 * pulse;
+    octx.scale(sc, sc);
+    octx.globalAlpha = 0.85 + 0.15 * pulse;
+    // the star, trailing behind the chevron
     octx.fillStyle = arrowC;
     octx.shadowColor = arrowC;
-    octx.shadowBlur = 10;
+    octx.shadowBlur = 14;
     octx.beginPath();
-    octx.moveTo(14, 0);
-    octx.lineTo(-8, -8);
-    octx.lineTo(-4, 0);
-    octx.lineTo(-8, 8);
+    octx.arc(-13, 0, 3.6, 0, Math.PI * 2);
+    octx.fill();
+    // chevron with a dark rim so it survives bright backdrops
+    octx.beginPath();
+    octx.moveTo(16, 0);
+    octx.lineTo(-8, -9);
+    octx.lineTo(-3.5, 0);
+    octx.lineTo(-8, 9);
     octx.closePath();
+    octx.shadowBlur = 0;
+    octx.lineJoin = 'round';
+    octx.lineWidth = 4;
+    octx.strokeStyle = 'rgba(6,4,16,0.85)';
+    octx.stroke();
+    octx.shadowBlur = 14;
     octx.fill();
     octx.restore();
   }

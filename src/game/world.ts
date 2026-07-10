@@ -28,6 +28,11 @@ export interface BossFire {
   // marked so the vanishing act is a promise, not a cheat; blinkIn counts
   // down the unfold at the far end (the greeting fan fires when it hits 0)
   blinkT: number; blinkDur: number; blinkIn: number; bx: number; by: number;
+  // ring-gap choreography (Colossus slams, ring volleys): the safe gap first
+  // opens toward the player, then walks a fixed step around the circle each
+  // volley in gapDir's direction — an escape pattern to learn, not a dice
+  // roll that can land unreachably behind the boss. null = not aimed yet.
+  gapAng: number | null; gapDir: number;
 }
 
 export interface Enemy {
