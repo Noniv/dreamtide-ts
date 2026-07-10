@@ -23,6 +23,11 @@ export interface BossFire {
   // >0 roots the boss in place (the Colossus plants itself to slam, so its
   // slow rings stay centred on the body that threw them)
   hold: number;
+  // blink choreography (the Shade): blinkT counts down the wind-up while the
+  // body folds into a seam of night; bx/by is the exit, chosen up front and
+  // marked so the vanishing act is a promise, not a cheat; blinkIn counts
+  // down the unfold at the far end (the greeting fan fires when it hits 0)
+  blinkT: number; blinkDur: number; blinkIn: number; bx: number; by: number;
 }
 
 export interface Enemy {

@@ -13,7 +13,7 @@ import { dustForRun, type Bonuses } from './meta';
 import { settings } from './settings';
 import {
   TAU, rand, pick, clamp, dist2, ENEMY_SLOTS,
-  type Enemy, type Projectile, type BossProjectile, type Zone, type Beam,
+  type Enemy, type Projectile, type BossProjectile, type BossFire, type Zone, type Beam,
   type Bolt, type Gem, type FloatText, type Pickup, type Orbital,
   makeEnemy, makeProjectile, makeBossProjectile, makeZone, makeBeam, makeBolt,
   makeGem, makeText, Pool, swapRemove, HitMask, HitTimer, maskPool, timerPool,
@@ -28,6 +28,12 @@ const MAX_STEPS = 5;      // spiral-of-death guard: sim slows instead of hanging
 // duration of the melee strike lunge/slash effect (sim + render share it so the
 // render can map the countdown to a 0->1 animation phase)
 export const MELEE_ANIM_DUR = 0.22;
+
+// the Shade's blink: wind-up while the body folds into a seam of night (the
+// exit is marked the whole time), then an unfold at the far end. Sim + render
+// share these so the countdowns map cleanly to animation phases.
+export const BLINK_WINDUP = 0.55;
+export const BLINK_IN = 0.35;
 
 // Player hurtbox: a circle offset above the sprite origin (feet) so it encloses
 // the wizard's body — head through robe — rather than a small patch on the
@@ -1218,6 +1224,7 @@ export class Engine {
         patterns: arch.fire.patterns(n),
         pIdx: 0,
         hold: 0,
+        blinkT: 0, blinkDur: BLINK_WINDUP, blinkIn: 0, bx: 0, by: 0,
       };
     }
     return e;
@@ -1235,10 +1242,13 @@ export class Engine {
 
   private updateBossFire(e: Enemy, dt: number) {
     const p = this.player;
-    const bf = e.bossFire || (e.bossFire = { cd: 0, interval: 1.6, speed: 130, spin: 0, spinV: 0.6, patterns: ['aimed'], pIdx: 0, hold: 0 });
+    const bf = e.bossFire || (e.bossFire = { cd: 0, interval: 1.6, speed: 130, spin: 0, spinV: 0.6, patterns: ['aimed'], pIdx: 0, hold: 0, blinkT: 0, blinkDur: BLINK_WINDUP, blinkIn: 0, bx: 0, by: 0 });
     const n = this.bossCount;
     bf.spin += bf.spinV * dt;
     bf.hold = Math.max(0, bf.hold - dt);
+    // a blink in progress owns the turn: the fire clock pauses while the
+    // Shade folds away, steps, and unfolds (see updateBlink)
+    if (this.updateBlink(e, bf, dt)) return;
     bf.cd -= dt;
     if (bf.cd > 0) return;
     bf.cd = bf.interval * rand(0.9, 1.1);
@@ -1301,23 +1311,17 @@ export class Engine {
         shoot(baseA + rand(-0.04, 0.04), bf.speed * (1.7 + i * 0.18), 5);
       }
     } else if (pat === 'blink') {
-      // Shade: it is suddenly elsewhere — night blooms at both ends of the
-      // step, and a spiteful fan greets you from the new angle
-      const veil = (x: number, y: number) => {
-        for (let i = 0; i < 16; i++) {
-          const a2 = rand(0, TAU);
-          this.particles.spawn({ x, y, vx: Math.cos(a2) * rand(40, 200), vy: Math.sin(a2) * rand(40, 200), life: rand(0.3, 0.8), size: rand(4, 10), endSize: 1, color: '#8a7bff', color2: '#20123d', mode: 'smoke', drag: 0.9 });
-        }
-      };
-      veil(e.x, e.y);
+      // Shade: it is not dashing — it is unstitched from here and restitched
+      // there. The exit is chosen and marked NOW, so the vanishing act is a
+      // promise the player can play against; updateBlink runs the wind-up,
+      // the step, the unfold, and only then the spiteful greeting fan.
       const a3 = rand(0, TAU);
-      e.x = p.x + Math.cos(a3) * 300;
-      e.y = p.y + Math.sin(a3) * 300;
-      e.px = e.x; e.py = e.y; // no interpolation streak across the screen
-      veil(e.x, e.y);
-      audio.castVoid();
-      const na = Math.atan2(p.y - e.y, p.x - e.x);
-      for (let i = 0; i < 6; i++) shoot(na + (i - 2.5) * 0.14, bf.speed);
+      bf.bx = p.x + Math.cos(a3) * 300;
+      bf.by = p.y + Math.sin(a3) * 300;
+      bf.blinkDur = BLINK_WINDUP;
+      bf.blinkT = BLINK_WINDUP;
+      bf.hold = BLINK_WINDUP + BLINK_IN + 0.2; // rooted through the whole act
+      audio.bossBlink();
     } else if (pat === 'summon') {
       // Hollow Court: the king calls his retinue up through the floor
       if (this.enemies.length < 380) {
@@ -1338,6 +1342,80 @@ export class Engine {
       }
       // and a light volley so the summon turn still threatens
       for (let i = -1; i <= 1; i++) shoot(baseA + i * 0.2, bf.speed * 0.9);
+    }
+  }
+
+  // The Shade's step through the dark, staged so it never simply "is
+  // elsewhere": night pours INTO the body while the exit iris is marked
+  // (render draws the telegraph from bx/by), then a stitch of stars traces
+  // the path it did not take, then the body unfolds — and only once it has
+  // fully unfolded does the greeting fan fire, so the marked spot is dodgeable.
+  // Returns true while any phase is running (the fire clock pauses).
+  private updateBlink(e: Enemy, bf: BossFire, dt: number): boolean {
+    if (bf.blinkT > 0) {
+      bf.blinkT -= dt;
+      // motes fall inward from a collapsing shell around the body
+      for (let i = 0; i < 2; i++) {
+        const a = rand(0, TAU);
+        const r = e.radius * rand(1.5, 2.6);
+        const lf = rand(0.16, 0.3);
+        this.particles.spawn({
+          x: e.x + Math.cos(a) * r, y: e.y + Math.sin(a) * r,
+          vx: -Math.cos(a) * (r / lf), vy: -Math.sin(a) * (r / lf),
+          life: lf, size: rand(2.5, 5), endSize: 0.5,
+          color: '#8a7bff', color2: '#20123d', mode: 'spark',
+        });
+      }
+      // faint stars rise where it will re-emerge
+      if (Math.random() < 0.7) {
+        const a = rand(0, TAU), r = rand(0, e.radius * 0.9);
+        this.particles.spawn({ x: bf.bx + Math.cos(a) * r, y: bf.by + Math.sin(a) * r, vx: rand(-12, 12), vy: rand(-46, -16), life: rand(0.3, 0.6), size: rand(1.5, 3), color: '#b3a6ff', mode: 'star', rotV: rand(-4, 4), drag: 0.95 });
+      }
+      if (bf.blinkT <= 0) {
+        // the step itself: night blooms at the entry, a seam of stars is
+        // left along the path, and the body is simply at the exit
+        const ox = e.x, oy = e.y;
+        this.blinkVeil(ox, oy);
+        const steps = 9;
+        for (let i = 1; i < steps; i++) {
+          const f = i / steps;
+          this.particles.spawn({
+            x: ox + (bf.bx - ox) * f + rand(-6, 6), y: oy + (bf.by - oy) * f + rand(-6, 6),
+            vx: rand(-14, 14), vy: rand(-26, -6), life: rand(0.35, 0.7) + f * 0.15,
+            size: rand(1.5, 3), color: '#cfc4ff', mode: 'star', rotV: rand(-5, 5), drag: 0.93,
+          });
+        }
+        e.x = bf.bx; e.y = bf.by;
+        e.px = e.x; e.py = e.y; // no interpolation streak across the screen
+        this.blinkVeil(e.x, e.y);
+        bf.blinkIn = BLINK_IN;
+        audio.castVoid();
+      }
+      return true;
+    }
+    if (bf.blinkIn > 0) {
+      bf.blinkIn -= dt;
+      if (bf.blinkIn <= 0) {
+        // fully unfolded — the spiteful fan greets you from the new angle
+        const p = this.player;
+        const na = Math.atan2(p.y - e.y, p.x - e.x);
+        const dmg = 12 + this.bossCount * 3 + this.endgame() * 4;
+        for (let i = 0; i < 6; i++) this.shootBossProj(e.x, e.y, na + (i - 2.5) * 0.14, bf.speed, 6, dmg, 16, null);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  // night blooming at either end of a blink: dark smoke and a few pale stars
+  private blinkVeil(x: number, y: number) {
+    for (let i = 0; i < 14; i++) {
+      const a = rand(0, TAU);
+      this.particles.spawn({ x, y, vx: Math.cos(a) * rand(40, 200), vy: Math.sin(a) * rand(40, 200), life: rand(0.3, 0.8), size: rand(4, 10), endSize: 1, color: '#8a7bff', color2: '#20123d', mode: 'smoke', drag: 0.9 });
+    }
+    for (let i = 0; i < 5; i++) {
+      const a = rand(0, TAU);
+      this.particles.spawn({ x, y, vx: Math.cos(a) * rand(30, 90), vy: Math.sin(a) * rand(30, 90) - 20, life: rand(0.4, 0.8), size: rand(2, 4), color: '#cfc4ff', mode: 'star', rotV: rand(-6, 6), drag: 0.92 });
     }
   }
 

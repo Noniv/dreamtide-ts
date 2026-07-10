@@ -13,7 +13,7 @@
 //                     hidden behind the body that swings it
 
 import type { Engine } from './engine';
-import { ENEMY_TYPES, MELEE_ANIM_DUR, PLAYER_HURT_DY, PLAYER_HURT_R, STEP } from './engine';
+import { ENEMY_TYPES, MELEE_ANIM_DUR, BLINK_IN, PLAYER_HURT_DY, PLAYER_HURT_R, STEP } from './engine';
 import { TAU, clamp, type Enemy, type Zone, type Projectile, type BossProjectile, type Beam, type Bolt, type Gem, type Pickup } from './world';
 import { enemyFrameId, wizardFrameId, FRAMES, WIZARD_CY } from './enemySprites';
 import { SHAPE_RING, SHAPE_DISC, SHAPE_SPIRAL, SHAPE_CAPSULE, type QuadList, type ShapeList } from './worldGPU';
@@ -427,6 +427,45 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
   const vt = eng.vt;
   const ix = lerp(e.px, e.x, alpha), iy = lerp(e.py, e.y, alpha);
   let x = ix - camX, y = iy - camY;
+
+  // ---- blink choreography (the Shade boss) --------------------------------
+  // Wind-up: the body folds into a thin vertical seam of night (width and
+  // alpha collapse, height holds via aspect) while a closing iris marks the
+  // exit. Unfold: the same seam opens back into the body at the far end.
+  // Emitted BEFORE the cull so the exit telegraph draws even when the body
+  // waits offscreen. All of it reads bossFire countdowns — no render state.
+  let bodyA = 1, bodyS = 1, bodyAsp = 1;
+  const bfb = e.boss ? e.bossFire : null;
+  if (bfb && (bfb.blinkT > 0 || bfb.blinkIn > 0)) {
+    const [br, bg, bb] = rgb(e.color);
+    let seam: number;
+    if (bfb.blinkT > 0) {
+      const f = clamp(1 - bfb.blinkT / bfb.blinkDur, 0, 1); // 0 -> 1 folding
+      const g = f * f;
+      bodyA = 1 - g * 0.92; bodyS = 1 - g * 0.5; bodyAsp = 1 + g * 2.2;
+      seam = f;
+      // the exit: a night iris closing on the point it will step from,
+      // counter-rotating arcs so the eye reads motion toward the centre
+      const ex = bfb.bx - camX, ey = bfb.by - camY;
+      const R = e.radius * (0.8 + 1.9 * (1 - g));
+      shOver.push(SHAPE_RING, ex, ey, vt * 2.2, R, 1.6, 7, 0.5, br, bg, bb, 0.5 + 0.45 * f, br * 0.5, bg * 0.5, bb * 0.6);
+      shOver.push(SHAPE_RING, ex, ey, -vt * 3.4 + 1.7, R * 0.66, 1.2, 5, 0.95, 1, 1, 1, 0.3 + 0.4 * f, br * 0.4, bg * 0.4, bb * 0.5);
+      shOver.push(SHAPE_DISC, ex, ey, 0, e.radius * (0.5 + f * 0.6), 0.5, 1.4, 0, br, bg, bb, 0.06 + 0.3 * f, br * 0.5, bg * 0.5, bb * 0.6);
+    } else {
+      const g = (bfb.blinkIn / BLINK_IN) ** 2;              // 1 -> 0 unfolding
+      // tiny overshoot as it lands so the arrival has a pop, not a fade-in
+      bodyA = 1 - g * 0.9;
+      bodyS = 1 - g * 0.5 + Math.sin((1 - g) * Math.PI) * 0.07;
+      bodyAsp = 1 + g * 2.2;
+      seam = g;
+    }
+    if (seam > 0.04) {
+      // the seam itself: a razor of violet light the body threads through
+      const hgt = e.radius * (2.4 + seam * 1.4);
+      shOver.push(SHAPE_CAPSULE, x, y - hgt / 2, Math.PI / 2, hgt, 1 + seam * 1.6, 2 + 9 * seam, 0, 1, 0.96, 1, 0.75 * seam, br * 1.1, bg * 1.1, bb * 1.3);
+    }
+  }
+
   // cull margin scales with the sprite: art extends to roughly 2× the collision
   // radius, so a boss needs far more than a fixed margin or it pops at edges.
   const cullM = Math.max(90, e.radius * 2 + 40);
@@ -445,7 +484,7 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
 
   const glowE = q.uv('glow')!;
   // soft ground shadow (the Canvas2D era had one; the GPU port lost it)
-  q.push(false, glowE, x, y + e.radius * 0.55, e.radius * 1.05, 0, 0.38, 0.01, 0.005, 0.03, 1, 0.34);
+  q.push(false, glowE, x, y + e.radius * 0.55, e.radius * 1.05 * bodyS, 0, 0.38 * bodyA, 0.01, 0.005, 0.03, 1, 0.34);
 
   // smooth hit-flash fade + freeze tint via per-instance shader mix
   const flashMix = e.hitFlash > 0 ? Math.min(1, e.hitFlash / 0.12) * 0.85 : 0;
@@ -475,7 +514,7 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
       drawStats.enemyLiveOps++;
     }
   }
-  q.push(false, entry, x, y + bob * sc, half, 0, 1, tr, tg, tb, mix);
+  q.push(false, entry, x, y + bob * sc, half * bodyS, 0, bodyA, tr, tg, tb, mix, bodyAsp);
   drawStats.enemyBlits++;
 
   // ---- live overlays as extra quads (smooth, on the global clock) ----
@@ -502,7 +541,7 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
     const ringE = q.uv('ring')!;
     const [br, bg, bb] = rgb(e.color);
     const coronaR = e.radius + 16 + Math.sin(vt * 3) * 4;
-    q.push(true, ringE, x, y, coronaR / 30 * ringE.half, 0, 0.6, br, bg, bb, 1);
+    q.push(true, ringE, x, y, coronaR / 30 * ringE.half, 0, 0.6 * bodyA, br, bg, bb, 1);
     drawStats.enemyLiveOps++;
   }
 

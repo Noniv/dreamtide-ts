@@ -516,6 +516,16 @@ class AudioEngine {
     this.noise({ dur: 0.7, a: 0.45, peak: 0.04, freq: 320, q: 0.7, type: 'lowpass', verb: 0.4 });
   }
 
+  bossBlink() {
+    // the Shade folding into a seam: castVoid's hungry mouth breathing IN —
+    // a detuned pair rising two octaves under a tightening hiss. The rise is
+    // answered by castVoid's fall when the body steps out at the exit.
+    if (this.throttled('blink', 350)) return;
+    this.tone({ freq: nt(-12), to: nt(12), glide: 0.5, type: 'sine', d: 0.55, peak: 0.09, verb: 0.4, pri: 2 });
+    this.tone({ freq: nt(-12) * 1.012, to: nt(12) * 1.02, glide: 0.5, type: 'sine', d: 0.55, peak: 0.06, verb: 0.4, pri: 2 });
+    this.noise({ dur: 0.5, a: 0.4, peak: 0.035, freq: 500, to: 2600, q: 0.8, type: 'bandpass', verb: 0.5, pri: 2 });
+  }
+
   castMoon() {
     if (this.throttled('moon', 260)) return;
     // choir-lit hum: darkened saws under a rising E–A dyad
