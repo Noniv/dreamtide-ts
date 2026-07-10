@@ -310,6 +310,9 @@ export class Engine {
   private bossSeed = 0;
   // relic timers/counters
   private castCounter = 0;   // Stormcrown
+  // Discharge cascade generation: 0 for a directly-killed charged foe,
+  // +1 for each death caused by a discharge arc (halves arc damage per step)
+  private dischargeDepth = 0;
   private tearCd = 0;        // Frozen Tear
   private chaliceCd = 0;     // Night Chalice
   private cometT = 12;       // Ring of the Comet
@@ -439,6 +442,7 @@ export class Engine {
     this.dirTimer = 4;
     this.bossSeed = (Math.random() * BOSS_ARCHS.length) | 0;
     this.castCounter = 0;
+    this.dischargeDepth = 0;
     this.tearCd = 0;
     this.chaliceCd = 0;
     this.cometT = 12;
@@ -2121,7 +2125,7 @@ export class Engine {
     // marks
     if (element === 'storm') {
       e.chargeT = this.markDur(4);
-      e.chargeDmg = Math.max(e.chargeDmg, dmg * 0.5);
+      e.chargeDmg = Math.max(e.chargeDmg, dmg * 0.35);
     } else if (element === 'light') {
       e.brandT = this.markDur(3.5);
     }
@@ -2213,10 +2217,13 @@ export class Engine {
     // nearby kin. Chains cascade on purpose: charged deaths beget charged
     // deaths, and a well-stormed crowd goes up like a string of firecrackers.
     if (e.chargeT > 0 && e.chargeDmg > 0) {
-      const mul = this.relics.has('prismheart') ? 1.5 : 1;
+      // each cascade generation emits at half the strength of the last, so
+      // deep chains still light up the screen without wiping it
+      const mul = (this.relics.has('prismheart') ? 1.5 : 1) * Math.pow(0.5, this.dischargeDepth);
       audio.castStorm();
       this.spawnText(e.x, e.y - e.radius - 22, 'DISCHARGE', '#bfeaff', 0.8, -42, 14);
       let arcs = 0;
+      this.dischargeDepth++;
       this.grid.queryCircle(e.x, e.y, 280, (o) => {
         if (arcs >= 3 || o === e || o.dead) return;
         if (dist2(e.x, e.y, o.x, o.y) < 280 * 280) {
@@ -2225,6 +2232,7 @@ export class Engine {
           this.damageEnemy(o, e.chargeDmg * mul, '#bfeaff', 'cosmic');
         }
       });
+      this.dischargeDepth--;
     }
     const n = e.boss ? 160 : e.elite ? 46 : 18;
     for (let i = 0; i < n; i++) {
