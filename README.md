@@ -1,7 +1,7 @@
 # Dreamtide (TypeScript rewrite)
 
-A ground-up architectural rewrite of Dreamtide — same game, same balance, same
-visuals — rebuilt for heavy endgame scenarios.
+A ground-up architectural rewrite of Dreamtide — same game, same balance —
+rebuilt for heavy endgame scenarios, rendered entirely on WebGPU.
 
 ```sh
 npm install
@@ -25,12 +25,21 @@ npm run build      # typecheck + production build
 - **Spatial grid everywhere** — one uniform grid rebuild per sim step; all
   proximity queries (zone ticks, beams, orbitals, *and* projectile hit tests)
   route through it.
-- **GPU particle layer** — glow/smoke particles (the #1 measured frame cost)
-  render as a single instanced draw call. Backend order: **WebGPU → WebGL2 →
-  Canvas2D fallback** (`gpuParticles.ts`). Vector particle modes and the
-  procedurally-animated entities stay on Canvas2D: entity counts are capped
-  (~420) and view-culled, and their hand-animated vector look doesn't survive
-  sprite-atlas baking.
+- **WebGPU-only scene renderer** (`worldGPU.ts`) — the entire world draws on
+  one canvas in a handful of entity-count-independent draw calls:
+  1. *background*: fully procedural dreamscape shader (domain-warped nebula,
+     aurora veils, three parallax star fields, drifting colour motes);
+  2. *shapes*: spell zones, beams and lightning as instanced analytic SDF
+     primitives (rings, discs, spirals, capsules) — crisp at any radius;
+  3. *sprites*: every entity and particle as one instanced quad from a baked
+     procedural atlas (`enemySprites.ts`), drawn in a single pass in painter's
+     order — premultiplied output where additive quads write zero alpha, so
+     "lighter" and "source-over" blending coexist in one pipeline;
+  4. *post*: HDR (rgba16float) scene → threshold bloom mip-chain → filmic
+     composite with vignette and dither.
+  A thin full-resolution 2D overlay canvas on top carries damage text, health
+  bars, banners and the perf HUD. There is no Canvas2D/WebGL world fallback —
+  WebGPU is required (Tauri/WebView2 and all modern desktop browsers have it).
 - **Performance overlay** — press **F** to show render FPS, 1% low FPS,
   simulation FPS, per-subsystem frame timings and live entity counts. Press
   **F** again to hide it: a minimal diagnostic JSON naming the observed

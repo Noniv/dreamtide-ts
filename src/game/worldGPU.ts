@@ -1,314 +1,813 @@
-// WebGPU instanced world renderer.
+// WebGPU scene renderer — the whole game world in one canvas, a handful of
+// draw calls, entity-count-independent.
 //
-// The endgame frame cost was proven to be per-draw-call CPU overhead in the
-// browser's compositor process (halving render resolution didn't move it;
-// collapsing enemies from ~40 path-ops to 1 blit each didn't move it either —
-// because hundreds of *separate* Canvas2D draws, whatever their size, each
-// cross into the GPU process). The fix is to stop issuing per-entity draws at
-// all: every sprite in the world (enemies, gems, projectiles, bullets, glows,
-// particles) becomes one instance in a shared buffer, drawn in TWO instanced
-// calls per frame — one alpha-blended pass for opaque-ish bodies, one additive
-// pass for glows. Thousands of entities, a couple of draw calls.
+// Frame graph:
+//   1. scene pass → HDR (rgba16float) offscreen target
+//        a. background   : fullscreen procedural dreamscape (gradient sky,
+//                          domain-warped nebula, aurora veils, 3 parallax
+//                          star layers, drifting colour motes) — zero CPU cost
+//        b. shapes       : instanced analytic SDF primitives (rings, discs,
+//                          spirals, capsules) for spell zones, beams and
+//                          lightning — crisp at any radius, glow baked into
+//                          the math instead of Canvas2D stroke tricks
+//        c. sprites      : every entity/particle as one instanced quad from
+//                          the baked atlas. ONE draw in exact painter's order:
+//                          premultiplied-alpha output where additive quads
+//                          write alpha 0, so "lighter" and "source-over"
+//                          blending coexist in a single pipeline.
+//   2. bloom             : threshold prefilter → 4-mip downsample → additive
+//                          tent upsample chain (CoD-style). Everything bright
+//                          — glows, beams, star cores — blooms for free.
+//   3. composite → swapchain: scene + bloom, filmic-ish soft tonemap,
+//                          vignette, dither.
 //
-// WebGPU only. On a browser without WebGPU the engine keeps a minimal Canvas2D
-// fallback (playable, not perf-tuned).
-//
-// Instance layout (16 floats, std140-friendly 4×vec4):
-//   [0..1]  pos.xy      screen-space centre (CSS px)
-//   [2]     half        half-extent (px); quad spans centre ± half
-//   [3]     rot         radians
-//   [4..7]  uvRect      u0,v0,u1,v1  (atlas UV; for a flat glow use the 'glow' tile)
-//   [8..10] tintRGB     tint colour 0..1
-//   [11]    tintMix     0 = sprite as-is, 1 = replace rgb with tint (keep sprite alpha)
-//   [12]    alpha       overall multiply
-//   [13..15] pad
+// Instances are packed into two big Float32Arrays refilled every frame by
+// render.ts; total per-frame GPU traffic is a couple of writeBuffer calls.
+// WebGPU is REQUIRED — there is no fallback renderer.
 
-import type { CamRect } from './particles';
 import { getAtlas, type Atlas, type AtlasEntry } from './enemySprites';
 
 export const FLOATS_PER_QUAD = 16;
-const MAX_QUADS = 16384; // enemies+gems+projectiles+particles ceiling with headroom
+const MAX_QUADS = 16384; // entities + particles ceiling, with headroom
+export const FLOATS_PER_SHAPE = 16;
+const MAX_SHAPES = 2048; // zones/beams/bolt-segments ceiling
 
-// ---- one growable instance list the engine fills each frame ----
-// Two blend groups packed into the SAME Float32Array: alpha group grows from
-// the front, additive group written to a scratch then appended — simpler: we
-// keep two arrays and two counts.
+// shape kinds (match the WGSL switch)
+export const SHAPE_RING = 0;
+export const SHAPE_DISC = 1;
+export const SHAPE_SPIRAL = 2;
+export const SHAPE_CAPSULE = 3;
+
+// ---- one growable instance list the emitters fill each frame --------------
 export class QuadList {
   atlas: Atlas;
-  alphaData = new Float32Array(MAX_QUADS * FLOATS_PER_QUAD);
-  addData = new Float32Array(MAX_QUADS * FLOATS_PER_QUAD);
-  alphaN = 0;
-  addN = 0;
+  data = new Float32Array(MAX_QUADS * FLOATS_PER_QUAD);
+  n = 0;
 
   constructor() { this.atlas = getAtlas(); }
 
-  reset() { this.alphaN = 0; this.addN = 0; }
+  reset() { this.n = 0; }
 
   // look up a sprite's atlas entry (uv + half)
   uv(id: string): AtlasEntry | undefined { return this.atlas.entries.get(id); }
 
-  // push one quad. `additive` chooses the blend group. tint defaults to none.
+  // push one quad, drawn in push order (painter's algorithm).
+  //   additive : true → light-emitting (blends like Canvas2D 'lighter')
+  //   aspect   : halfY = half * aspect (squashed shadows, stretched sparks)
+  //   mirror   : flip horizontally (UV swap) — used for the wizard's facing
   push(
     additive: boolean,
     e: AtlasEntry,
     x: number, y: number, half: number, rot: number,
     alpha: number,
     tintR = 1, tintG = 1, tintB = 1, tintMix = 0,
+    aspect = 1, mirror = false,
   ) {
-    const data = additive ? this.addData : this.alphaData;
-    const i = additive ? this.addN : this.alphaN;
-    if (i >= MAX_QUADS) return;
-    const o = i * FLOATS_PER_QUAD;
-    data[o] = x; data[o + 1] = y; data[o + 2] = half; data[o + 3] = rot;
-    data[o + 4] = e.u0; data[o + 5] = e.v0; data[o + 6] = e.u1; data[o + 7] = e.v1;
-    data[o + 8] = tintR; data[o + 9] = tintG; data[o + 10] = tintB; data[o + 11] = tintMix;
-    data[o + 12] = alpha; data[o + 13] = 0; data[o + 14] = 0; data[o + 15] = 0;
-    if (additive) this.addN++; else this.alphaN++;
+    if (this.n >= MAX_QUADS) return;
+    const o = this.n * FLOATS_PER_QUAD;
+    const d = this.data;
+    d[o] = x; d[o + 1] = y; d[o + 2] = half; d[o + 3] = rot;
+    if (mirror) { d[o + 4] = e.u1; d[o + 6] = e.u0; } else { d[o + 4] = e.u0; d[o + 6] = e.u1; }
+    d[o + 5] = e.v0; d[o + 7] = e.v1;
+    d[o + 8] = tintR; d[o + 9] = tintG; d[o + 10] = tintB; d[o + 11] = tintMix;
+    d[o + 12] = alpha; d[o + 13] = aspect; d[o + 14] = additive ? 1 : 0; d[o + 15] = 0;
+    this.n++;
   }
 }
 
-const WGSL = /* wgsl */ `
-struct Uniforms { viewport: vec2<f32>, pad: vec2<f32> };
-@group(0) @binding(0) var<uniform> u: Uniforms;
+// Analytic shape instances (zones, beams, bolts). Same painter's-order rule.
+// Layout: [x, y, rot, kind, p0, p1, p2, p3, c1.rgb, alpha, c2.rgb, additive]
+//   RING    p0=radius  p1=core width  p2=glow width  p3=arc half-gap (rad, 0=full)
+//   DISC    p0=radius  p1=colour mid  p2=falloff exp p3=unused
+//   SPIRAL  p0=radius  p1=arm count   p2=coil (rad)  p3=arm width px
+//   CAPSULE p0=length  p1=core width  p2=glow width  p3=unused  (+x from origin)
+// c1 = core colour, alpha = master alpha, c2 = glow colour (pre-scaled by the
+// emitter for glow strength — the HDR target happily takes >1 values).
+export class ShapeList {
+  data = new Float32Array(MAX_SHAPES * FLOATS_PER_SHAPE);
+  n = 0;
+  reset() { this.n = 0; }
+  push(
+    kind: number, x: number, y: number, rot: number,
+    p0: number, p1: number, p2: number, p3: number,
+    c1r: number, c1g: number, c1b: number, alpha: number,
+    c2r: number, c2g: number, c2b: number, additive = true,
+  ) {
+    if (this.n >= MAX_SHAPES) return;
+    const o = this.n * FLOATS_PER_SHAPE;
+    const d = this.data;
+    d[o] = x; d[o + 1] = y; d[o + 2] = rot; d[o + 3] = kind;
+    d[o + 4] = p0; d[o + 5] = p1; d[o + 6] = p2; d[o + 7] = p3;
+    d[o + 8] = c1r; d[o + 9] = c1g; d[o + 10] = c1b; d[o + 11] = alpha;
+    d[o + 12] = c2r; d[o + 13] = c2g; d[o + 14] = c2b; d[o + 15] = additive ? 1 : 0;
+    this.n++;
+  }
+}
+
+// ============================================================ WGSL: scene
+const SCENE_WGSL = /* wgsl */ `
+struct U {
+  viewport: vec2<f32>,   // logical (css px) size of the view
+  time: f32,
+  shake: f32,
+  cam: vec2<f32>,        // world position of the view's top-left (css px)
+  res: vec2<f32>,        // framebuffer pixel size of the scene target
+};
+@group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var samp: sampler;
 @group(0) @binding(2) var tex: texture_2d<f32>;
 
-struct VSOut {
+// ---------------------------------------------------------------- helpers
+fn hash21(p: vec2<f32>) -> f32 {
+  var q = fract(p * vec2(123.34, 456.21));
+  q = q + dot(q, q + 45.32);
+  return fract(q.x * q.y);
+}
+fn hash22(p: vec2<f32>) -> vec2<f32> {
+  let h = vec2(hash21(p), hash21(p + 17.17));
+  return h;
+}
+fn vnoise(p: vec2<f32>) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let s = f * f * (3.0 - 2.0 * f);
+  let a = hash21(i);
+  let b = hash21(i + vec2(1.0, 0.0));
+  let c = hash21(i + vec2(0.0, 1.0));
+  let d = hash21(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, s.x), mix(c, d, s.x), s.y);
+}
+fn fbm(p: vec2<f32>) -> f32 {
+  var v = 0.0;
+  var amp = 0.55;
+  var q = p;
+  for (var i = 0; i < 4; i++) {
+    v += vnoise(q) * amp;
+    q = q * 2.13 + vec2(11.7, 5.3);
+    amp *= 0.5;
+  }
+  return v;
+}
+
+// ------------------------------------------------------------- background
+struct BGOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
+
+@vertex
+fn bg_vs(@builtin(vertex_index) vi: u32) -> BGOut {
+  var out: BGOut;
+  let xy = vec2(f32((vi << 1u) & 2u), f32(vi & 2u));
+  out.pos = vec4(xy * 2.0 - 1.0, 0.0, 1.0);
+  out.uv = vec2(xy.x, 1.0 - xy.y);
+  return out;
+}
+
+// one parallax star field layer: hashed grid, round soft stars, twinkle
+fn starLayer(px: vec2<f32>, par: f32, cell: f32, bright: f32, t: f32) -> f32 {
+  let wp = px + u.cam * par;
+  let g = wp / cell;
+  let id = floor(g);
+  let h = hash22(id);
+  let starPos = (id + 0.15 + h * 0.7) * cell;
+  let d = length(wp - starPos);
+  let sz = 0.6 + hash21(id + 3.3) * 1.6;
+  let tw = 0.4 + 0.6 * (0.5 + 0.5 * sin(t * (1.0 + h.x * 2.4) + h.y * 40.0));
+  // keep a subset of cells starless so the grid never reads as a grid
+  let keep = step(0.35, hash21(id + 9.1));
+  return exp(-d * d / (sz * sz)) * tw * bright * keep;
+}
+
+@fragment
+fn bg_fs(in: BGOut) -> @location(0) vec4<f32> {
+  let px = in.uv * u.viewport;          // css-px screen coords
+  let t = u.time;
+
+  // deep dream sky: vertical gradient, slightly denser at the horizon line
+  let y = in.uv.y;
+  var col = mix(vec3(0.030, 0.026, 0.105), vec3(0.078, 0.052, 0.180), y);
+  col = mix(col, vec3(0.105, 0.060, 0.230), y * y * 0.8);
+
+  // domain-warped nebula clouds, slow parallax drift (world-locked)
+  let np = (px + u.cam * 0.22) * 0.0016;
+  let warp = vec2(fbm(np * 0.9 + vec2(t * 0.014, 0.0)), fbm(np * 0.9 + vec2(4.7, t * 0.011)));
+  let neb = fbm(np + warp * 1.7);
+  let neb2 = fbm(np * 1.9 - warp * 1.2 + vec2(8.2, 1.3));
+  // two-tone dream nebula: violet body, magenta-teal highlights
+  let nebI = smoothstep(0.42, 0.95, neb);
+  let nebJ = smoothstep(0.55, 1.0, neb2);
+  col += vec3(0.16, 0.09, 0.34) * nebI * 0.55;
+  col += vec3(0.30, 0.10, 0.28) * nebJ * nebI * 0.5;
+  col += vec3(0.05, 0.16, 0.22) * smoothstep(0.6, 1.0, fbm(np * 2.6 + warp)) * 0.35;
+
+  // aurora veils: two soft diagonal light bands sweeping very slowly
+  let ap = px + u.cam * 0.3;
+  let a1 = 0.5 + 0.5 * sin(ap.x * 0.0021 + ap.y * 0.0009 + t * 0.10 + warp.x * 2.6);
+  let a2 = 0.5 + 0.5 * sin(ap.x * -0.0014 + ap.y * 0.0016 - t * 0.07 + warp.y * 3.1);
+  col += vec3(0.10, 0.30, 0.26) * pow(a1, 4.0) * 0.10;
+  col += vec3(0.24, 0.12, 0.34) * pow(a2, 4.0) * 0.11;
+
+  // three parallax star layers (near layer brightest, bloom catches the cores)
+  col += vec3(0.36, 0.42, 0.71) * starLayer(px, 0.12, 110.0, 0.55, t);
+  col += vec3(0.56, 0.63, 0.91) * starLayer(px + vec2(37.0, 71.0), 0.22, 130.0, 0.8, t);
+  col += vec3(0.80, 0.85, 1.00) * starLayer(px + vec2(113.0, 29.0), 0.35, 170.0, 1.25, t);
+
+  // drifting colour motes: sparse, larger, softly pulsing dream dust
+  {
+    let par = 0.55;
+    let cell = 210.0;
+    var wp = px + u.cam * par;
+    wp.y += t * 9.0;                       // slow upward drift (world falls past)
+    let id = floor(wp / cell);
+    let h = hash22(id);
+    var mp = (id + 0.2 + h * 0.6) * cell;
+    mp.x += sin(t * 0.3 + h.y * 6.28) * 26.0;
+    let d = length(wp - mp);
+    let r = 2.2 + h.x * 3.4;
+    let pulse = 0.55 + 0.45 * sin(t * (0.6 + h.y) + h.x * 6.28);
+    // pick one of four dream hues per cell
+    let hs = hash21(id + 5.5);
+    var hue = vec3(0.71, 0.55, 1.00);                       // violet
+    if (hs < 0.25) { hue = vec3(0.50, 0.96, 1.00); }        // cyan
+    else if (hs < 0.5) { hue = vec3(1.00, 0.60, 0.84); }    // pink
+    else if (hs < 0.75) { hue = vec3(0.49, 1.00, 0.69); }   // mint
+    col += hue * exp(-d * d / (r * r * 9.0)) * 0.22 * pulse * step(0.45, hash21(id + 2.2));
+  }
+
+  return vec4(col, 1.0);
+}
+
+// ------------------------------------------------------------------ quads
+struct QuadVSOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) uv: vec2<f32>,
-  @location(1) tint: vec4<f32>,   // rgb + mix
-  @location(2) alpha: f32,
+  @location(1) tint: vec4<f32>,          // rgb + mix
+  @location(2) alphaAdd: vec2<f32>,      // alpha, additive
 };
 
 @vertex
-fn vs(
+fn quad_vs(
   @builtin(vertex_index) vi: u32,
   @location(0) iPos: vec2<f32>,
-  @location(1) iHalfRot: vec2<f32>,   // half, rot
-  @location(2) iUV: vec4<f32>,        // u0 v0 u1 v1
-  @location(3) iTint: vec4<f32>,      // r g b mix
-  @location(4) iAlpha: vec4<f32>,     // alpha, pad, pad, pad
-) -> VSOut {
+  @location(1) iHalfRot: vec2<f32>,      // half, rot
+  @location(2) iUV: vec4<f32>,           // u0 v0 u1 v1 (u0>u1 → mirrored)
+  @location(3) iTint: vec4<f32>,         // r g b mix
+  @location(4) iMisc: vec4<f32>,         // alpha, aspect, additive, pad
+) -> QuadVSOut {
   var corners = array<vec2<f32>, 6>(
-    vec2(-1.0,-1.0), vec2(1.0,-1.0), vec2(1.0,1.0),
-    vec2(-1.0,-1.0), vec2(1.0,1.0), vec2(-1.0,1.0),
-  );
-  var uvs = array<vec2<f32>, 6>(
-    vec2(0.0,0.0), vec2(1.0,0.0), vec2(1.0,1.0),
-    vec2(0.0,0.0), vec2(1.0,1.0), vec2(0.0,1.0),
+    vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(1.0, 1.0),
+    vec2(-1.0, -1.0), vec2(1.0, 1.0), vec2(-1.0, 1.0),
   );
   let corner = corners[vi];
   let half = iHalfRot.x;
   let rot = iHalfRot.y;
   let c = cos(rot); let s = sin(rot);
-  let local = vec2(corner.x * half, corner.y * half);
+  let local = vec2(corner.x * half, corner.y * half * iMisc.y);
   let rotated = vec2(local.x * c - local.y * s, local.x * s + local.y * c);
   let px = iPos + rotated;
   let clip = vec2(px.x / u.viewport.x * 2.0 - 1.0, 1.0 - px.y / u.viewport.y * 2.0);
-  var out: VSOut;
+  var out: QuadVSOut;
   out.pos = vec4(clip, 0.0, 1.0);
-  out.uv = mix(iUV.xy, iUV.zw, uvs[vi]);
+  let uv01 = (corner + 1.0) * 0.5;
+  out.uv = mix(iUV.xy, iUV.zw, uv01);
   out.tint = iTint;
-  out.alpha = iAlpha.x;
+  out.alphaAdd = vec2(iMisc.x, iMisc.z);
   return out;
 }
 
 @fragment
-fn fs(in: VSOut) -> @location(0) vec4<f32> {
-  var texel = textureSample(tex, samp, in.uv);
-  // tintMix replaces rgb (keeps sprite alpha) — used for flash/frozen bodies
-  // and for colouring the flat white 'glow' sprite.
+fn quad_fs(in: QuadVSOut) -> @location(0) vec4<f32> {
+  let texel = textureSample(tex, samp, in.uv);
+  // tintMix replaces rgb (keeps sprite alpha) — hit flash, freeze, particles
   let rgb = mix(texel.rgb, in.tint.rgb, in.tint.a);
-  let a = texel.a * in.alpha;
-  return vec4(rgb * a, a); // premultiplied
+  let a = texel.a * in.alphaAdd.x;
+  // premultiplied output; additive instances contribute no coverage
+  return vec4(rgb * a, a * (1.0 - in.alphaAdd.y));
+}
+
+// ----------------------------------------------------------------- shapes
+struct ShapeVSOut {
+  @builtin(position) pos: vec4<f32>,
+  @location(0) local: vec2<f32>,          // shape-frame coords (px)
+  @location(1) @interpolate(flat) kind: u32,
+  @location(2) p: vec4<f32>,
+  @location(3) c1: vec4<f32>,
+  @location(4) c2: vec4<f32>,             // rgb + additive
+};
+
+@vertex
+fn shape_vs(
+  @builtin(vertex_index) vi: u32,
+  @location(0) iPosRotKind: vec4<f32>,
+  @location(1) iP: vec4<f32>,
+  @location(2) iC1: vec4<f32>,
+  @location(3) iC2: vec4<f32>,
+) -> ShapeVSOut {
+  var corners = array<vec2<f32>, 6>(
+    vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0),
+    vec2(0.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0),
+  );
+  let t01 = corners[vi];
+  let kind = u32(iPosRotKind.w);
+  // shape-frame bounding box
+  var lo = vec2(0.0);
+  var hi = vec2(0.0);
+  // glow margin: the fragment windows the exponential falloff to reach zero
+  // exactly here — quads any tighter clip the glow into a visible square
+  if (kind == 3u) { // capsule: from origin along +x
+    let m = iP.y + iP.z * 4.0 + 3.0;
+    lo = vec2(-m, -m);
+    hi = vec2(iP.x + m, m);
+  } else {
+    var ext = iP.x;
+    if (kind == 0u) { ext = iP.x + iP.y + iP.z * 4.0 + 3.0; }
+    lo = vec2(-ext);
+    hi = vec2(ext);
+  }
+  let local = mix(lo, hi, t01);
+  let rot = iPosRotKind.z;
+  let c = cos(rot); let s = sin(rot);
+  let world = iPosRotKind.xy + vec2(local.x * c - local.y * s, local.x * s + local.y * c);
+  let clip = vec2(world.x / u.viewport.x * 2.0 - 1.0, 1.0 - world.y / u.viewport.y * 2.0);
+  var out: ShapeVSOut;
+  out.pos = vec4(clip, 0.0, 1.0);
+  out.local = local;
+  out.kind = kind;
+  out.p = iP;
+  out.c1 = iC1;
+  out.c2 = iC2;
+  return out;
+}
+
+@fragment
+fn shape_fs(in: ShapeVSOut) -> @location(0) vec4<f32> {
+  let l = in.local;
+  let p = in.p;
+  var core = 0.0;
+  var glow = 0.0;
+  switch in.kind {
+    case 0u: { // RING
+      let d = abs(length(l) - p.x);
+      core = 1.0 - smoothstep(0.0, max(p.y, 0.5), d);
+      // windowed exponential: exp() alone never reaches 0, so it would clip
+      // at the instance quad's edge as a faint square — the window (matching
+      // the vertex margin) takes it smoothly to zero first
+      let M = p.y + p.z * 4.0 + 3.0;
+      let win = 1.0 - smoothstep(0.0, M, d);
+      glow = exp(-d / max(p.z, 0.5)) * win * win;
+      if (p.w > 0.0) { // arc: visible only within ±p3 radians of local +x
+        let ang = abs(atan2(l.y, l.x));
+        let mask = 1.0 - smoothstep(p.w - 0.2, p.w + 0.2, ang);
+        core *= mask;
+        glow *= mask;
+      }
+    }
+    case 1u: { // DISC: two-stop soft radial fill
+      let f = clamp(length(l) / max(p.x, 0.5), 0.0, 1.0);
+      let s = pow(1.0 - f, max(p.z, 0.35));
+      core = s * (1.0 - smoothstep(0.0, max(p.y, 0.001), f));
+      glow = s * smoothstep(0.0, max(p.y, 0.001), f);
+    }
+    case 2u: { // SPIRAL arms
+      let d = length(l);
+      let f = d / max(p.x, 1.0);
+      if (f < 1.0 && f > 0.02) {
+        let ang = atan2(l.y, l.x);
+        let armsOverTau = p.y / 6.2831853;
+        let g = (ang - f * p.z) * armsOverTau;
+        let angDist = abs(fract(g) - 0.5) / max(armsOverTau, 0.001); // radians
+        let arc = angDist * d;                                       // px
+        let fade = smoothstep(1.0, 0.72, f) * smoothstep(0.02, 0.14, f);
+        core = exp(-arc * arc / (p.w * p.w)) * fade;
+        glow = exp(-arc / (p.w * 2.4)) * fade;
+      }
+    }
+    case 3u: { // CAPSULE (beam / bolt segment)
+      let q = vec2(clamp(l.x, 0.0, p.x), 0.0);
+      let d = length(l - q);
+      core = 1.0 - smoothstep(0.0, max(p.y, 0.5), d);
+      let M = p.y + p.z * 4.0 + 3.0; // same windowing as RING (no square edge)
+      let win = 1.0 - smoothstep(0.0, M, d);
+      glow = exp(-d / max(p.z, 0.5)) * win * win;
+    }
+    default: {}
+  }
+  let a = clamp(core, 0.0, 1.0) * in.c1.a;
+  let rgb = (in.c1.rgb * core + in.c2.rgb * glow) * in.c1.a;
+  return vec4(rgb, a * (1.0 - in.c2.a)); // c2.a holds the additive flag
+}
+`;
+
+// ============================================================ WGSL: post
+const POST_WGSL = /* wgsl */ `
+struct U {
+  viewport: vec2<f32>,
+  time: f32,
+  shake: f32,
+  cam: vec2<f32>,
+  res: vec2<f32>,
+};
+@group(0) @binding(0) var<uniform> u: U;
+@group(0) @binding(1) var samp: sampler;
+@group(0) @binding(2) var src: texture_2d<f32>;
+@group(0) @binding(3) var bloomTex: texture_2d<f32>;
+
+struct FSIn { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
+
+@vertex
+fn fs_vs(@builtin(vertex_index) vi: u32) -> FSIn {
+  var out: FSIn;
+  let xy = vec2(f32((vi << 1u) & 2u), f32(vi & 2u));
+  out.pos = vec4(xy * 2.0 - 1.0, 0.0, 1.0);
+  out.uv = vec2(xy.x, 1.0 - xy.y);
+  return out;
+}
+
+// soft-knee bright-pass + first downsample
+@fragment
+fn prefilter_fs(in: FSIn) -> @location(0) vec4<f32> {
+  let ts = 1.0 / vec2<f32>(textureDimensions(src));
+  var c = textureSampleLevel(src, samp, in.uv + vec2(-0.5, -0.5) * ts, 0.0).rgb;
+  c += textureSampleLevel(src, samp, in.uv + vec2(0.5, -0.5) * ts, 0.0).rgb;
+  c += textureSampleLevel(src, samp, in.uv + vec2(-0.5, 0.5) * ts, 0.0).rgb;
+  c += textureSampleLevel(src, samp, in.uv + vec2(0.5, 0.5) * ts, 0.0).rgb;
+  c *= 0.25;
+  let T = 1.0;       // threshold — only genuinely hot (stacked/HDR) pixels bloom
+  let K = 0.5;       // soft knee
+  let br = max(c.r, max(c.g, c.b));
+  let soft = clamp(br - T + K, 0.0, 2.0 * K);
+  let w = max(soft * soft / (4.0 * K), br - T) / max(br, 1e-4);
+  return vec4(c * max(w, 0.0), 1.0);
+}
+
+@fragment
+fn down_fs(in: FSIn) -> @location(0) vec4<f32> {
+  let ts = 1.0 / vec2<f32>(textureDimensions(src));
+  var c = textureSampleLevel(src, samp, in.uv + vec2(-0.75, -0.75) * ts, 0.0).rgb;
+  c += textureSampleLevel(src, samp, in.uv + vec2(0.75, -0.75) * ts, 0.0).rgb;
+  c += textureSampleLevel(src, samp, in.uv + vec2(-0.75, 0.75) * ts, 0.0).rgb;
+  c += textureSampleLevel(src, samp, in.uv + vec2(0.75, 0.75) * ts, 0.0).rgb;
+  return vec4(c * 0.25, 1.0);
+}
+
+// 9-tap tent upsample, additively blended into the target mip
+@fragment
+fn up_fs(in: FSIn) -> @location(0) vec4<f32> {
+  let ts = 1.0 / vec2<f32>(textureDimensions(src));
+  var c = textureSampleLevel(src, samp, in.uv + vec2(-1.0, -1.0) * ts, 0.0).rgb;
+  c += textureSampleLevel(src, samp, in.uv + vec2(0.0, -1.0) * ts, 0.0).rgb * 2.0;
+  c += textureSampleLevel(src, samp, in.uv + vec2(1.0, -1.0) * ts, 0.0).rgb;
+  c += textureSampleLevel(src, samp, in.uv + vec2(-1.0, 0.0) * ts, 0.0).rgb * 2.0;
+  c += textureSampleLevel(src, samp, in.uv, 0.0).rgb * 4.0;
+  c += textureSampleLevel(src, samp, in.uv + vec2(1.0, 0.0) * ts, 0.0).rgb * 2.0;
+  c += textureSampleLevel(src, samp, in.uv + vec2(-1.0, 1.0) * ts, 0.0).rgb;
+  c += textureSampleLevel(src, samp, in.uv + vec2(0.0, 1.0) * ts, 0.0).rgb * 2.0;
+  c += textureSampleLevel(src, samp, in.uv + vec2(1.0, 1.0) * ts, 0.0).rgb;
+  return vec4(c / 16.0, 1.0);
+}
+
+fn hash12(p: vec2<f32>) -> f32 {
+  var q = fract(p * vec2(443.897, 441.423));
+  q += dot(q, q.yx + 19.19);
+  return fract((q.x + q.y) * q.x);
+}
+
+@fragment
+fn composite_fs(in: FSIn) -> @location(0) vec4<f32> {
+  var c = textureSampleLevel(src, samp, in.uv, 0.0).rgb;
+  let bloom = textureSampleLevel(bloomTex, samp, in.uv, 0.0).rgb;
+  c += bloom * 0.62;
+  // Shoulder-only tonemap: IDENTITY below the knee so sprites keep their full
+  // contrast against the dark sky; only the overbright range (stacked additive
+  // effects, HDR values past ~0.72 luma) is compressed toward white. A global
+  // Reinhard here once dimmed every bright pixel ~25-40% and read as a milky
+  // veil over the whole scene.
+  let luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  let e = max(luma - 0.72, 0.0);
+  let lumaC = min(luma, 0.72) + e / (1.0 + e * 3.0);
+  c *= lumaC / max(luma, 1e-4);
+  // vignette (replaces the old quarter-res Canvas2D overlay layer)
+  let dc = (in.uv - 0.5) * vec2(u.viewport.x / u.viewport.y, 1.0) * 1.35;
+  let vig = 1.0 - smoothstep(0.52, 1.15, length(dc)) * 0.52;
+  c *= vig;
+  // dither to hide 8-bit banding in the dark sky gradients
+  c += (hash12(in.uv * u.res + u.time * 61.7) - 0.5) * (1.6 / 255.0);
+  return vec4(max(c, vec3(0.0)), 1.0);
 }
 `;
 
 export interface WorldGPU {
   readonly canvas: HTMLCanvasElement;
+  readonly device: GPUDevice;
   resize(cssW: number, cssH: number, dpr: number): void;
-  begin(clear: boolean): void;                 // start a frame's render pass
-  drawQuads(list: QuadList): void;             // alpha pass then additive pass
-  end(): void;
+  render(time: number, camX: number, camY: number, shapes: ShapeList, quads: QuadList, over?: ShapeList): void;
   dispose(): void;
-  readonly device: GPUDevice;                  // shared with the particle layer
-  readonly format: GPUTextureFormat;
 }
 
-function makeCanvas(host: HTMLCanvasElement, cls: string): HTMLCanvasElement {
-  const c = document.createElement('canvas');
-  c.className = 'game-canvas ' + cls;
-  c.style.position = 'absolute';
-  c.style.inset = '0';
-  c.style.pointerEvents = 'none';
-  host.parentNode!.insertBefore(c, host.nextSibling);
-  return c;
-}
+const BLOOM_MIPS = 4;
 
 class WorldGPUImpl implements WorldGPU {
   readonly canvas: HTMLCanvasElement;
   readonly device: GPUDevice;
-  readonly format: GPUTextureFormat;
   private ctx: GPUCanvasContext;
-  private pipeAlpha: GPURenderPipeline;
-  private pipeAdd: GPURenderPipeline;
-  private uniBuf: GPUBuffer;
-  private bind: GPUBindGroup;
-  private alphaBuf: GPUBuffer;
-  private addBuf: GPUBuffer;
-  private uniData = new Float32Array(4);
-  private cssW = 1; private cssH = 1;
-  private encoder: GPUCommandEncoder | null = null;
-  private pass: GPURenderPassEncoder | null = null;
+  private format: GPUTextureFormat;
 
-  constructor(host: HTMLCanvasElement, device: GPUDevice, atlas: Atlas) {
+  private pipeBG!: GPURenderPipeline;
+  private pipeShape!: GPURenderPipeline;
+  private pipeShapeOver!: GPURenderPipeline;
+  private pipeQuad!: GPURenderPipeline;
+  private pipePrefilter!: GPURenderPipeline;
+  private pipeDown!: GPURenderPipeline;
+  private pipeUp!: GPURenderPipeline;
+  private pipeComposite!: GPURenderPipeline;
+
+  private sceneLayout!: GPUBindGroupLayout;
+  private postLayout!: GPUBindGroupLayout;
+  private uniBuf: GPUBuffer;
+  private uniData = new Float32Array(8);
+  private sampler: GPUSampler;
+  private atlasTex: GPUTexture;
+  private sceneBind!: GPUBindGroup;
+
+  private quadBuf: GPUBuffer;
+  private shapeBuf: GPUBuffer;
+  private shapeOverBuf: GPUBuffer;
+
+  // offscreen targets (rebuilt on resize)
+  private sceneTex: GPUTexture | null = null;
+  private bloomTex: (GPUTexture | null)[] = [];
+  private bloomViews: GPUTextureView[] = [];
+  private sceneView!: GPUTextureView;
+  private prefilterBind!: GPUBindGroup;
+  private downBinds: GPUBindGroup[] = [];
+  private upBinds: GPUBindGroup[] = [];
+  private compositeBind!: GPUBindGroup;
+
+  private cssW = 1; private cssH = 1;
+  private texW = 1; private texH = 1;
+
+  constructor(canvas: HTMLCanvasElement, device: GPUDevice, atlas: Atlas) {
+    this.canvas = canvas;
     this.device = device;
-    // `host` here is the dedicated middle GPU canvas the engine created and
-    // stacked between the 2D background and the 2D overlay.
-    this.canvas = host;
-    const ctx = host.getContext('webgpu');
-    if (!ctx) throw new Error('no webgpu context on host');
+    const ctx = canvas.getContext('webgpu');
+    if (!ctx) throw new Error('could not create a WebGPU canvas context');
     this.ctx = ctx;
     this.format = navigator.gpu.getPreferredCanvasFormat();
-    // this is the MIDDLE layer — it must be transparent so the 2D bottom layer
-    // (sky, zones) shows through everywhere entities aren't drawn
-    this.ctx.configure({ device, format: this.format, alphaMode: 'premultiplied' });
+    this.ctx.configure({ device, format: this.format, alphaMode: 'opaque' });
 
-    const module = device.createShaderModule({ code: WGSL });
-    const attrs: GPUVertexAttribute[] = [
-      { shaderLocation: 0, offset: 0, format: 'float32x2' },   // pos
-      { shaderLocation: 1, offset: 8, format: 'float32x2' },   // half,rot
-      { shaderLocation: 2, offset: 16, format: 'float32x4' },  // uv
-      { shaderLocation: 3, offset: 32, format: 'float32x4' },  // tint
-      { shaderLocation: 4, offset: 48, format: 'float32x4' },  // alpha,pad
-    ];
-    const vbLayout: GPUVertexBufferLayout = {
-      arrayStride: FLOATS_PER_QUAD * 4, stepMode: 'instance', attributes: attrs,
-    };
-    // explicit shared layout so ONE bind group is valid for both pipelines
-    // (with layout:'auto' each pipeline gets an incompatible auto-layout)
-    const bgLayout = device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-      ],
-    });
-    const pipeLayout = device.createPipelineLayout({ bindGroupLayouts: [bgLayout] });
-    const mkPipe = (add: boolean) => device.createRenderPipeline({
-      layout: pipeLayout,
-      vertex: { module, entryPoint: 'vs', buffers: [vbLayout] },
-      fragment: {
-        module, entryPoint: 'fs',
-        targets: [{
-          format: this.format,
-          blend: add
-            ? { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } }
-            : { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } },
-        }],
-      },
-      primitive: { topology: 'triangle-list' },
-    });
-    this.pipeAlpha = mkPipe(false);
-    this.pipeAdd = mkPipe(true);
-
-    // upload the atlas as a texture
-    const tex = device.createTexture({
+    // atlas texture
+    this.atlasTex = device.createTexture({
       size: [atlas.size, atlas.size],
       format: 'rgba8unorm',
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
     });
     device.queue.copyExternalImageToTexture(
       { source: atlas.canvas },
-      { texture: tex, premultipliedAlpha: false },
+      { texture: this.atlasTex, premultipliedAlpha: false },
       [atlas.size, atlas.size],
     );
-    const sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+    this.sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+    this.uniBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.quadBuf = device.createBuffer({ size: MAX_QUADS * FLOATS_PER_QUAD * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    this.shapeBuf = device.createBuffer({ size: MAX_SHAPES * FLOATS_PER_SHAPE * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    this.shapeOverBuf = device.createBuffer({ size: MAX_SHAPES * FLOATS_PER_SHAPE * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
 
-    this.uniBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.bind = device.createBindGroup({
-      layout: bgLayout,
+    this.buildPipelines();
+  }
+
+  private buildPipelines() {
+    const device = this.device;
+    const sceneModule = device.createShaderModule({ code: SCENE_WGSL });
+    const postModule = device.createShaderModule({ code: POST_WGSL });
+
+    this.sceneLayout = device.createBindGroupLayout({
       entries: [
-        { binding: 0, resource: { buffer: this.uniBuf } },
-        { binding: 1, resource: sampler },
-        { binding: 2, resource: tex.createView() },
+        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
       ],
     });
-    const bytes = MAX_QUADS * FLOATS_PER_QUAD * 4;
-    this.alphaBuf = device.createBuffer({ size: bytes, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-    this.addBuf = device.createBuffer({ size: bytes, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    this.postLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+        { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+      ],
+    });
+    const scenePL = device.createPipelineLayout({ bindGroupLayouts: [this.sceneLayout] });
+    const postPL = device.createPipelineLayout({ bindGroupLayouts: [this.postLayout] });
+
+    // premultiplied "over" blending: additive instances emit alpha 0, so a
+    // single pipeline serves both source-over and lighter composition
+    const premult: GPUBlendState = {
+      color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+      alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+    };
+    const HDR: GPUTextureFormat = 'rgba16float';
+
+    this.pipeBG = device.createRenderPipeline({
+      layout: scenePL,
+      vertex: { module: sceneModule, entryPoint: 'bg_vs' },
+      fragment: { module: sceneModule, entryPoint: 'bg_fs', targets: [{ format: HDR }] },
+      primitive: { topology: 'triangle-list' },
+    });
+
+    const quadAttrs: GPUVertexAttribute[] = [
+      { shaderLocation: 0, offset: 0, format: 'float32x2' },
+      { shaderLocation: 1, offset: 8, format: 'float32x2' },
+      { shaderLocation: 2, offset: 16, format: 'float32x4' },
+      { shaderLocation: 3, offset: 32, format: 'float32x4' },
+      { shaderLocation: 4, offset: 48, format: 'float32x4' },
+    ];
+    this.pipeQuad = device.createRenderPipeline({
+      layout: scenePL,
+      vertex: {
+        module: sceneModule, entryPoint: 'quad_vs',
+        buffers: [{ arrayStride: FLOATS_PER_QUAD * 4, stepMode: 'instance', attributes: quadAttrs }],
+      },
+      fragment: { module: sceneModule, entryPoint: 'quad_fs', targets: [{ format: HDR, blend: premult }] },
+      primitive: { topology: 'triangle-list' },
+    });
+
+    const shapeAttrs: GPUVertexAttribute[] = [
+      { shaderLocation: 0, offset: 0, format: 'float32x4' },
+      { shaderLocation: 1, offset: 16, format: 'float32x4' },
+      { shaderLocation: 2, offset: 32, format: 'float32x4' },
+      { shaderLocation: 3, offset: 48, format: 'float32x4' },
+    ];
+    // Shapes SCREEN-blend (src·(1−dst) + dst·(1−srcα)) instead of summing:
+    // overlapping same-kind zones (drifting nebulas, stacked pools) saturate
+    // toward one continuous cloud rather than doubling up — the bright
+    // lens-shaped seam where two AoE circles cross disappears. Additive
+    // instances (α=0) become pure screen; alpha instances keep their darkening
+    // term. Sprites stay on plain premultiplied blending — enemy body colours
+    // must not shift with what's behind them.
+    const screen: GPUBlendState = {
+      color: { srcFactor: 'one-minus-dst', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+      alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+    };
+    const mkShapePipe = (blend: GPUBlendState) => device.createRenderPipeline({
+      layout: scenePL,
+      vertex: {
+        module: sceneModule, entryPoint: 'shape_vs',
+        buffers: [{ arrayStride: FLOATS_PER_SHAPE * 4, stepMode: 'instance', attributes: shapeAttrs }],
+      },
+      fragment: { module: sceneModule, entryPoint: 'shape_fs', targets: [{ format: HDR, blend }] },
+      primitive: { topology: 'triangle-list' },
+    });
+    this.pipeShape = mkShapePipe(screen);
+    // the over pass (melee slashes) draws AFTER sprites where the HDR buffer
+    // can exceed 1 — screen's (1−dst) factor would go negative and etch dark
+    // arcs into hot areas, so it keeps plain premultiplied blending
+    this.pipeShapeOver = mkShapePipe(premult);
+
+    const mkPost = (entry: string, format: GPUTextureFormat, blend?: GPUBlendState) => device.createRenderPipeline({
+      layout: postPL,
+      vertex: { module: postModule, entryPoint: 'fs_vs' },
+      fragment: { module: postModule, entryPoint: entry, targets: [{ format, blend }] },
+      primitive: { topology: 'triangle-list' },
+    });
+    this.pipePrefilter = mkPost('prefilter_fs', HDR);
+    this.pipeDown = mkPost('down_fs', HDR);
+    this.pipeUp = mkPost('up_fs', HDR, {
+      color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+      alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+    });
+    this.pipeComposite = mkPost('composite_fs', this.format);
+
+    this.sceneBind = device.createBindGroup({
+      layout: this.sceneLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.uniBuf } },
+        { binding: 1, resource: this.sampler },
+        { binding: 2, resource: this.atlasTex.createView() },
+      ],
+    });
   }
 
   resize(cssW: number, cssH: number, dpr: number) {
     const w = Math.max(1, Math.round(cssW * dpr)), h = Math.max(1, Math.round(cssH * dpr));
-    if (this.canvas.width !== w || this.canvas.height !== h) {
-      this.canvas.width = w; this.canvas.height = h;
-    }
     this.canvas.style.width = cssW + 'px';
     this.canvas.style.height = cssH + 'px';
     this.cssW = cssW; this.cssH = cssH;
-  }
+    if (this.canvas.width === w && this.canvas.height === h && this.sceneTex) return;
+    this.canvas.width = w; this.canvas.height = h;
+    this.texW = w; this.texH = h;
 
-  begin(clear: boolean) {
-    this.encoder = this.device.createCommandEncoder();
-    this.pass = this.encoder.beginRenderPass({
-      colorAttachments: [{
-        view: this.ctx.getCurrentTexture().createView(),
-        clearValue: { r: 0, g: 0, b: 0, a: 0 }, // transparent — middle layer
-        loadOp: clear ? 'clear' : 'load',
-        storeOp: 'store',
-      }],
+    // (re)create offscreen targets
+    const device = this.device;
+    this.sceneTex?.destroy();
+    for (const t of this.bloomTex) t?.destroy();
+    this.bloomTex = [];
+    this.bloomViews = [];
+    const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
+    this.sceneTex = device.createTexture({ size: [w, h], format: 'rgba16float', usage });
+    this.sceneView = this.sceneTex.createView();
+    let mw = w, mh = h;
+    for (let i = 0; i < BLOOM_MIPS; i++) {
+      mw = Math.max(4, mw >> 1); mh = Math.max(4, mh >> 1);
+      const t = device.createTexture({ size: [mw, mh], format: 'rgba16float', usage });
+      this.bloomTex.push(t);
+      this.bloomViews.push(t.createView());
+    }
+
+    // post bind groups (dummy secondary texture where unused)
+    const mkBind = (srcView: GPUTextureView, extraView?: GPUTextureView) => device.createBindGroup({
+      layout: this.postLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.uniBuf } },
+        { binding: 1, resource: this.sampler },
+        { binding: 2, resource: srcView },
+        { binding: 3, resource: extraView || srcView },
+      ],
     });
-    this.uniData[0] = this.cssW; this.uniData[1] = this.cssH;
-    this.device.queue.writeBuffer(this.uniBuf, 0, this.uniData);
+    this.prefilterBind = mkBind(this.sceneView);
+    this.downBinds = [];
+    this.upBinds = [];
+    for (let i = 1; i < BLOOM_MIPS; i++) this.downBinds.push(mkBind(this.bloomViews[i - 1]));
+    for (let i = BLOOM_MIPS - 1; i >= 1; i--) this.upBinds.push(mkBind(this.bloomViews[i]));
+    this.compositeBind = mkBind(this.sceneView, this.bloomViews[0]);
   }
 
-  drawQuads(list: QuadList) {
-    const pass = this.pass!;
-    if (list.alphaN > 0) {
-      this.device.queue.writeBuffer(this.alphaBuf, 0, list.alphaData, 0, list.alphaN * FLOATS_PER_QUAD);
-      pass.setPipeline(this.pipeAlpha);
-      pass.setBindGroup(0, this.bind);
-      pass.setVertexBuffer(0, this.alphaBuf);
-      pass.draw(6, list.alphaN);
-    }
-    if (list.addN > 0) {
-      this.device.queue.writeBuffer(this.addBuf, 0, list.addData, 0, list.addN * FLOATS_PER_QUAD);
-      pass.setPipeline(this.pipeAdd);
-      pass.setBindGroup(0, this.bind);
-      pass.setVertexBuffer(0, this.addBuf);
-      pass.draw(6, list.addN);
-    }
-  }
+  render(time: number, camX: number, camY: number, shapes: ShapeList, quads: QuadList, over?: ShapeList) {
+    if (!this.sceneTex) return;
+    const device = this.device;
+    const u = this.uniData;
+    u[0] = this.cssW; u[1] = this.cssH;
+    u[2] = time; u[3] = 0;
+    u[4] = camX; u[5] = camY;
+    u[6] = this.texW; u[7] = this.texH;
+    device.queue.writeBuffer(this.uniBuf, 0, u);
+    if (quads.n > 0) device.queue.writeBuffer(this.quadBuf, 0, quads.data, 0, quads.n * FLOATS_PER_QUAD);
+    if (shapes.n > 0) device.queue.writeBuffer(this.shapeBuf, 0, shapes.data, 0, shapes.n * FLOATS_PER_SHAPE);
+    if (over && over.n > 0) device.queue.writeBuffer(this.shapeOverBuf, 0, over.data, 0, over.n * FLOATS_PER_SHAPE);
 
-  end() {
-    this.pass!.end();
-    this.device.queue.submit([this.encoder!.finish()]);
-    this.pass = null; this.encoder = null;
+    const enc = device.createCommandEncoder();
+
+    // ---- scene: background + shapes + sprites into the HDR target ----
+    {
+      const pass = enc.beginRenderPass({
+        colorAttachments: [{ view: this.sceneView, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }],
+      });
+      pass.setBindGroup(0, this.sceneBind);
+      pass.setPipeline(this.pipeBG);
+      pass.draw(3);
+      if (shapes.n > 0) {
+        pass.setPipeline(this.pipeShape);
+        pass.setVertexBuffer(0, this.shapeBuf);
+        pass.draw(6, shapes.n);
+      }
+      if (quads.n > 0) {
+        pass.setPipeline(this.pipeQuad);
+        pass.setVertexBuffer(0, this.quadBuf);
+        pass.draw(6, quads.n);
+      }
+      if (over && over.n > 0) { // combat feedback drawn above the sprites
+        pass.setPipeline(this.pipeShapeOver);
+        pass.setVertexBuffer(0, this.shapeOverBuf);
+        pass.draw(6, over.n);
+      }
+      pass.end();
+    }
+
+    // ---- bloom: prefilter → downsample chain → additive tent upsample ----
+    const fullscreen = (pipe: GPURenderPipeline, bind: GPUBindGroup, view: GPUTextureView, load: GPULoadOp) => {
+      const pass = enc.beginRenderPass({
+        colorAttachments: [{ view, loadOp: load, storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } }],
+      });
+      pass.setBindGroup(0, bind);
+      pass.setPipeline(pipe);
+      pass.draw(3);
+      pass.end();
+    };
+    fullscreen(this.pipePrefilter, this.prefilterBind, this.bloomViews[0], 'clear');
+    for (let i = 1; i < BLOOM_MIPS; i++) fullscreen(this.pipeDown, this.downBinds[i - 1], this.bloomViews[i], 'clear');
+    for (let k = 0, i = BLOOM_MIPS - 1; i >= 1; i--, k++) fullscreen(this.pipeUp, this.upBinds[k], this.bloomViews[i - 1], 'load');
+
+    // ---- composite to the swapchain ----
+    fullscreen(this.pipeComposite, this.compositeBind, this.ctx.getCurrentTexture().createView(), 'clear');
+
+    device.queue.submit([enc.finish()]);
   }
 
   dispose() {
-    this.alphaBuf.destroy();
-    this.addBuf.destroy();
+    this.quadBuf.destroy();
+    this.shapeBuf.destroy();
+    this.shapeOverBuf.destroy();
     this.uniBuf.destroy();
+    this.sceneTex?.destroy();
+    for (const t of this.bloomTex) t?.destroy();
+    this.atlasTex.destroy();
   }
 }
 
-// Create the world renderer on the given host canvas. Returns null if WebGPU is
-// unavailable (caller falls back to Canvas2D).
-export async function createWorldGPU(host: HTMLCanvasElement): Promise<WorldGPU | null> {
-  if (typeof navigator === 'undefined' || !navigator.gpu) return null;
-  try {
-    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
-    if (!adapter) return null;
-    const device = await adapter.requestDevice();
-    const atlas = getAtlas();
-    return new WorldGPUImpl(host, device, atlas);
-  } catch (e) {
-    console.warn('[worldGPU] init failed, Canvas2D fallback:', e);
-    return null;
+// Create the scene renderer on the given canvas. WebGPU is mandatory: rejects
+// with a descriptive error if unavailable (the engine surfaces it to the UI).
+export async function createWorldGPU(canvas: HTMLCanvasElement): Promise<WorldGPU> {
+  if (typeof navigator === 'undefined' || !navigator.gpu) {
+    throw new Error('WebGPU is not available in this environment');
   }
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+  if (!adapter) throw new Error('no WebGPU adapter found');
+  const device = await adapter.requestDevice();
+  return new WorldGPUImpl(canvas, device, getAtlas());
 }
-
-export { makeCanvas };
-export type { CamRect };

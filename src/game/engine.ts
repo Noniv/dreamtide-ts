@@ -5,7 +5,7 @@
 // steady-state frame allocates nothing.
 
 import { ParticleSystem } from './particles';
-import { createWorldGPU, makeCanvas, QuadList, type WorldGPU } from './worldGPU';
+import { createWorldGPU, QuadList, ShapeList, type WorldGPU } from './worldGPU';
 import { PerfMonitor } from './perf';
 import { SPELLS, BOONS, EVOLVE, type SpellStats } from './spells';
 import { audio } from './audio';
@@ -20,9 +20,9 @@ import {
   SpatialGrid,
 } from './world';
 import { renderFrame } from './render';
-import { prebakeEnemies } from './enemySprites';
+import { prebakeSprites } from './enemySprites';
 
-const STEP = 1 / 60;      // fixed simulation timestep
+export const STEP = 1 / 60; // fixed simulation timestep (render interpolates against it)
 const MAX_STEPS = 5;      // spiral-of-death guard: sim slows instead of hanging
 // duration of the melee strike lunge/slash effect (sim + render share it so the
 // render can map the countdown to a 0->1 animation phase)
@@ -86,39 +86,6 @@ const WAVES: WaveDef[] = [
   { t: 560, floor: 152, rate: 0.36, types: { golem: 8, eye: 6, shade: 6, warlock: 4 }, hp: 13.5, dmg: 3.1, event: 'ring' },
 ];
 
-// ---------------------------------------------------------------- gradients
-// Cache for centered radial gradients reused across frames (render helpers).
-const _gradCache = new Map<string, CanvasGradient>();
-export function centeredRadial(ctx: CanvasRenderingContext2D, r: number, stops: [number, string][]): CanvasGradient {
-  r = Math.max(1, Math.round(r));
-  let key = r + '|';
-  for (let i = 0; i < stops.length; i++) key += stops[i][0] + ':' + stops[i][1] + ';';
-  let g = _gradCache.get(key);
-  if (!g) {
-    g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
-    for (const [o, c] of stops) g.addColorStop(o, c);
-    _gradCache.set(key, g);
-  }
-  return g;
-}
-
-// Cached two-stop linear gradients keyed by local-space coords + colours.
-// Entity bodies (golem, shade, siren, warlock…) build the identical gradient in
-// local space every frame — one shared CanvasGradient per signature replaces
-// hundreds of per-frame createLinearGradient allocations.
-const _linCache = new Map<string, CanvasGradient>();
-export function cachedLinear(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number, c0: string, c1: string): CanvasGradient {
-  const key = x0 + ',' + y0 + ',' + x1 + ',' + y1 + '|' + c0 + '|' + c1;
-  let g = _linCache.get(key);
-  if (!g) {
-    g = ctx.createLinearGradient(x0, y0, x1, y1);
-    g.addColorStop(0, c0);
-    g.addColorStop(1, c1);
-    _linCache.set(key, g);
-  }
-  return g;
-}
-
 // ---------------------------------------------------------------- interfaces
 export interface PlayerSpell { id: string; level: number; cd: number; evolved?: boolean; mastery?: number }
 
@@ -159,26 +126,24 @@ export interface EngineHooks {
   getMeta?: () => Bonuses;
 }
 
-interface StarDot { x: number; y: number; s: number; tw: number }
-interface Mote { x: number; y: number; r: number; sp: number; ph: number; hue: string }
-
 interface WaveState extends WaveDef { idx: number }
 interface Difficulty { hpMul: number; spdMul: number; rate: number; dmgMul: number; esc: number }
 
 // ================================================================== engine
 export class Engine {
   canvas: HTMLCanvasElement;
-  ctx: CanvasRenderingContext2D;
   overlay: HTMLCanvasElement | null = null;
   octx: CanvasRenderingContext2D | null = null;
   debugHitbox = false; // H toggles collision-outline overlay
   hooks: EngineHooks;
   particles = new ParticleSystem();
-  // WebGPU world layer: entities + particles as instanced quads (the middle
-  // canvas). null on a browser without WebGPU → Canvas2D fallback on `ctx`.
+  // WebGPU scene renderer on the main canvas: background + zones + every
+  // entity/particle. null only for the first few frames while the device
+  // attaches. WebGPU is REQUIRED — without it the engine shows an error.
   world: WorldGPU | null = null;
-  gpuCanvas: HTMLCanvasElement | null = null;
   quads = new QuadList();
+  shapes = new ShapeList();
+  shapesOver = new ShapeList();
   perf = new PerfMonitor();
   grid = new SpatialGrid();
   keys: Record<string, boolean> = {};
@@ -211,8 +176,6 @@ export class Engine {
   texts: FloatText[] = [];
   pickups: Pickup[] = [];
   orbitals: Orbital[] = [];
-  stars: StarDot[][] = [];
-  motes: Mote[] = [];
   cam = { x: 0, y: 0, w: 1, h: 1 };
   shake = 0;
   flash: { color: string; a: number } | null = null;
@@ -283,42 +246,46 @@ export class Engine {
 
   constructor(canvas: HTMLCanvasElement, hooks: EngineHooks) {
     this.canvas = canvas;
-    // alpha:false — the sky gradient covers every pixel, and an opaque bottom
-    // layer lets the compositor skip blending it (3 stacked canvases otherwise)
-    this.ctx = canvas.getContext('2d', { alpha: false })!;
     this.hooks = hooks;
-    // resolution is a performance preset now; apply it and re-resize whenever
+    // resolution is a performance preset; apply it and re-resize whenever
     // the player changes it in Settings.
     this.renderScale = settings.renderScale;
     settings.bindResolution((scale) => { this.renderScale = scale; this.resize(); });
     // Canvas topology (bottom → top):
-    //   host   (this.canvas, 2D)  — sky, stars, motes, zones, beams, bolts
-    //   gpu    (WebGPU)           — enemies, gems, projectiles, particles
-    //   overlay(2D)               — texts, vignette, banner, flash, HUD
-    // The GPU middle canvas is created synchronously so the overlay stacks
-    // above it in the right order; WorldGPU (the device) attaches async.
-    if (canvas.parentNode && typeof navigator !== 'undefined' && navigator.gpu) {
-      this.gpuCanvas = makeCanvas(canvas, 'gpu-world-layer');
-    }
+    //   world  (this.canvas, WebGPU) — background, zones, entities, particles,
+    //                                  bloom — the entire game world
+    //   overlay(2D)                  — damage text, health bars, banner, HUD
     this.makeOverlay();
     this.reset();
     this.bindInput();
     this.resize();
     window.addEventListener('resize', this.onResize);
-    if (this.gpuCanvas) {
-      createWorldGPU(this.gpuCanvas).then((world) => {
-        if (!world) { this.perf.gpuBackend = 'canvas2d'; this.perf.layers = 2; return; }
-        if (this.disposed) { world.dispose(); return; }
-        this.world = world;
-        this.perf.gpuBackend = 'webgpu';
-        this.perf.layers = 3;
-        this.resize();
-      });
-    } else {
-      this.perf.gpuBackend = 'canvas2d';
+    createWorldGPU(canvas).then((world) => {
+      if (this.disposed) { world.dispose(); return; }
+      this.world = world;
+      this.perf.gpuBackend = 'webgpu';
       this.perf.layers = 2;
-    }
+      this.resize();
+    }).catch((e) => {
+      this.perf.gpuBackend = 'unavailable';
+      this.showGpuError(e);
+    });
     (window as any).__engine = this;
+  }
+
+  // WebGPU is the only renderer. If it can't start (very old driver, feature
+  // disabled), say so plainly instead of limping along on a hidden fallback.
+  private showGpuError(e: unknown) {
+    console.error('[dreamtide] WebGPU init failed:', e);
+    const div = document.createElement('div');
+    div.style.cssText =
+      'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;' +
+      'background:#0b0a1e;color:#cdd8ff;font:16px/1.6 sans-serif;z-index:9999;text-align:center;padding:32px;';
+    div.innerHTML =
+      '<div><h2 style="color:#ff9ad5;margin-bottom:12px">Dreamtide needs WebGPU</h2>' +
+      'This build renders exclusively with WebGPU and it could not be initialised.<br>' +
+      'Please update your graphics drivers or run the desktop build.</div>';
+    document.body.appendChild(div);
   }
 
   private onResize = () => this.resize();
@@ -331,12 +298,11 @@ export class Engine {
     c.style.position = 'absolute';
     c.style.inset = '0';
     c.style.pointerEvents = 'none';
-    // insert after the gpu canvas if present, else after host
-    const anchor = this.gpuCanvas || this.canvas;
-    anchor.parentNode!.insertBefore(c, anchor.nextSibling);
+    this.canvas.parentNode!.insertBefore(c, this.canvas.nextSibling);
     this.overlay = c;
     this.octx = c.getContext('2d')!;
   }
+
 
   // ---------------------------------------------------------------- lifecycle
   reset() {
@@ -377,14 +343,7 @@ export class Engine {
     this.levelUpActive = false;
     const vw = window.innerWidth, vh = window.innerHeight;
     this.cam = { x: -vw / 2, y: -vh / 2, w: vw, h: vh };
-    this.stars = [];
-    for (let i = 0; i < 3; i++) {
-      const layer: StarDot[] = [];
-      for (let j = 0; j < 70; j++) layer.push({ x: Math.random() * 2000, y: Math.random() * 2000, s: rand(0.6, 2.4 - i * 0.4), tw: Math.random() * 10 });
-      this.stars.push(layer);
-    }
-    this.motes = [];
-    for (let i = 0; i < 46; i++) this.motes.push({ x: rand(0, 1800), y: rand(0, 1800), r: rand(1.4, 4.2), sp: rand(4, 14), ph: Math.random() * TAU, hue: pick(['#b48cff', '#7ff5ff', '#ff9ad5', '#7dffb0']) });
+    // (stars and dream-motes are procedural in the background shader now)
     this.player = {
       x: 0, y: 0, px: 0, py: 0,
       hp: 100, maxHp: 100, speed: 190,
@@ -417,7 +376,7 @@ export class Engine {
       if (bump) s.level = Math.min(this.statCap(), s.level + bump);
     }
     this.rebuildOrbitals();
-    prebakeEnemies(); // one-time sprite bake so the first endgame frame doesn't stall
+    prebakeSprites(); // one-time atlas bake so the first heavy frame doesn't stall
   }
 
   private releaseAll() {
@@ -464,18 +423,16 @@ export class Engine {
     this.perf.renderScale = this.renderScale;
     this.perf.viewW = window.innerWidth;
     this.perf.viewH = window.innerHeight;
-    // bottom 2D layer (sky + zones) renders at full res — it's cheap and
-    // scaling would blur the zone vectors. The GPU entity layer takes the
-    // render-scale reduction (that's where the fill cost lives).
-    const bgDpr = this.world ? dpr : worldDpr; // no GPU → host carries everything
-    this.canvas.width = Math.round(window.innerWidth * bgDpr);
-    this.canvas.height = Math.round(window.innerHeight * bgDpr);
-    this.canvas.style.width = window.innerWidth + 'px';
-    this.canvas.style.height = window.innerHeight + 'px';
-    this.ctx.setTransform(bgDpr, 0, 0, bgDpr, 0, 0);
     this.cam.w = window.innerWidth;
     this.cam.h = window.innerHeight;
-    if (this.world) this.world.resize(window.innerWidth, window.innerHeight, worldDpr);
+    // World canvas rasterizes at renderScale and is stretched by the
+    // compositor; the 2D overlay (text) stays at full resolution so it's crisp.
+    if (this.world) {
+      this.world.resize(window.innerWidth, window.innerHeight, worldDpr);
+    } else {
+      this.canvas.style.width = window.innerWidth + 'px';
+      this.canvas.style.height = window.innerHeight + 'px';
+    }
     if (this.overlay && this.octx) {
       this.overlay.width = window.innerWidth * dpr;
       this.overlay.height = window.innerHeight * dpr;
@@ -576,8 +533,6 @@ export class Engine {
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onBlur);
     if (this.world) { this.world.dispose(); this.world = null; }
-    if (this.gpuCanvas && this.gpuCanvas.parentNode) this.gpuCanvas.parentNode.removeChild(this.gpuCanvas);
-    this.gpuCanvas = null;
     if (this.overlay && this.overlay.parentNode) this.overlay.parentNode.removeChild(this.overlay);
     this.overlay = null;
     this.octx = null;
@@ -996,6 +951,7 @@ export class Engine {
       this.flash = { color: '154,92,255', a: 0.35 };
       this.setBanner('☽  THE DEVOURER STIRS  ☾', '#c48cff', 4.2, 38);
       this.spawnText(e.x, e.y - 60, 'THE DEVOURER STIRS', '#c48cff', 2.4, -12, 22);
+      this.shake = 13; // a boss clawing into the dream is one of the few things that shakes it
       const n = this.bossCount;
       e.bossFire = {
         cd: 0,
@@ -1413,7 +1369,6 @@ export class Engine {
             if (d < bd) { bd = d; cur = e; }
           }
         }
-        this.shake = Math.min(10, this.shake + 3);
         break;
       }
       case 'void': {
@@ -1466,7 +1421,6 @@ export class Engine {
           bm.sweep = st.evolved ? (b % 2 ? 1 : -1) * 2.0 : 0;
           this.beams.push(bm);
         }
-        this.shake = Math.min(9, this.shake + 2.5);
         break;
       }
       case 'starfall': {
@@ -1618,7 +1572,6 @@ export class Engine {
         mk(R, st.damage! * this.dmgMul(), st.knock!, 0);
         // Endless Dusk: a second wave follows the first
         if (st.evolved) mk(R * 1.1, st.damage! * this.dmgMul() * 0.7, st.knock! * 0.7, 0.35);
-        this.shake = Math.min(10, this.shake + 3);
         for (let i = 0; i < 50; i++) {
           const a = rand(0, TAU);
           this.particles.spawn({ x: p.x, y: p.y, vx: Math.cos(a) * rand(160, R * 2.2), vy: Math.sin(a) * rand(160, R * 2.2), life: rand(0.3, 0.7), size: rand(3, 7), endSize: 1, color: '#ff9ad5', color2: '#5a2a6e', mode: 'glow', drag: 0.87 });
@@ -1819,7 +1772,8 @@ export class Engine {
     if (iframeDur > 0) p.iframes = iframeDur;
     p.hp -= dmg;
     audio.hurt();
-    this.shake = Math.min(14, this.shake + 6);
+    // a light, brief kick — camera shake is otherwise reserved for boss moments
+    this.shake = Math.min(6, this.shake + 3.5);
     this.flash = { color: '255,90,120', a: 0.28 };
     for (let i = 0; i < 16; i++) this.particles.spawn({ x: p.x, y: p.y - 16, vx: rand(-180, 180), vy: rand(-220, 40), life: rand(0.3, 0.7), size: rand(2, 5), color: '#ff7aa8', mode: 'glow', drag: 0.9 });
     if (p.hp <= 0 && this.meta.cheatDeath && !this.cheated) {
@@ -1846,7 +1800,6 @@ export class Engine {
 
   explode(x: number, y: number, radius: number, dmg: number, pal: { ring: string; core: string; sparks: string[]; text: string; quiet?: boolean } | null = null) {
     if (!pal || !pal.quiet) audio.fireBoom();
-    this.shake = Math.min(12, this.shake + (pal && pal.quiet ? 1.5 : 4));
     const textCol = pal ? pal.text : '#ffbe8a';
     this.grid.queryCircle(x, y, radius + 130, (e) => {
       if (dist2(x, y, e.x, e.y) < (radius + e.radius) ** 2) {
@@ -2526,7 +2479,6 @@ export class Engine {
       } else if (z.kind === 'sigil') {
         if (z.life <= 0) {
           audio.sigilBoom();
-          this.shake = Math.min(10, this.shake + 3);
           this.particles.spawn({ x: z.x, y: z.y, life: 0.45, size: z.r * 1.3, color: '#ffd27a', mode: 'ring' });
           for (let k = 0; k < 40; k++) {
             const a = rand(0, TAU);
@@ -2579,7 +2531,10 @@ export class Engine {
           this.grid.queryCircle(z.x, z.y, z.r + 60, (e) => {
             if (dist2(z.x, z.y, e.x, e.y) < (z.r + e.radius) ** 2) { this.damageEnemy(e, z.dmg, '#a8ffe8'); struck = true; }
           });
-          this.particles.spawn({ x: z.x, y: z.y, life: 0.5, size: z.r * 0.62, endSize: z.r * 0.9, color: 'rgba(168,255,232,0.5)', color2: 'rgba(74,217,196,0.12)', mode: 'glow', drag: 1 });
+          // gentle heartbeat, not a floodlight: the pulse spans the whole
+          // (AoE-scaled) zone and several lanterns tick at once, so it must
+          // stay near-subliminal or the field strobes
+          this.particles.spawn({ x: z.x, y: z.y, life: 0.5, size: z.r * 0.55, endSize: z.r * 0.85, color: 'rgba(168,255,232,0.18)', color2: 'rgba(74,217,196,0.06)', mode: 'glow', drag: 1 });
           if (struck) {
             for (let k = 0; k < 10; k++) {
               const a = rand(0, TAU);

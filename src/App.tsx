@@ -56,7 +56,12 @@ function fmtTime(t: number) {
 // frame zero, visibly "resetting" the sky when switching menu ↔ settings ↔ tree.
 // A negative animation-delay equal to the app's age makes each mount resume
 // mid-cycle exactly where a continuously-running sky would be.
+// MUST be captured once per mount (useSkyState): recomputed on every render it
+// slides the animation phase forward by the component's age, so each button
+// click / slider tick visibly skips the sky ahead and desyncs it from the
+// other screens' skies.
 const skyState = () => ({ '--sky-delay': `-${(performance.now() / 1000).toFixed(2)}s` } as React.CSSProperties);
+function useSkyState() { return useMemo(skyState, []); }
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -279,9 +284,10 @@ function Menu({ onStart, onTree, onSettings, meta, closing }: {
   onStart: () => void; onTree: () => void; onSettings: () => void; meta: Meta;
   closing?: boolean;
 }) {
+  const sky = useSkyState();
   return (
     <div className={`overlay menu${closing ? ' closing' : ''}`}>
-      <div className="menu-bg" aria-hidden="true" style={skyState()} />
+      <div className="menu-bg" aria-hidden="true" style={sky} />
       <div className="title-block">
         <h1>Dreamtide</h1>
         <div className="menu-subtitle">Reverie of the Last Magus</div>
@@ -353,6 +359,7 @@ function VolumeRow({ label, value, onChange }: { label: string; value: number; o
 }
 
 function Settings({ onClose }: { onClose: () => void }) {
+  const sky = useSkyState();
   // local mirror so the sliders/buttons re-render; the settings singleton is
   // the source of truth and persists each change.
   const [music, setMusic] = useState(settings.musicVol);
@@ -379,7 +386,7 @@ function Settings({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="overlay settings-overlay">
-      <div className="menu-bg" aria-hidden="true" style={skyState()} />
+      <div className="menu-bg" aria-hidden="true" style={sky} />
       <div className="settings-panel panel">
         <div className="settings-head">
           <div>
@@ -656,6 +663,7 @@ function SkillTree({ meta, onBuy, onRefund, onLoadout, onClose }: {
   meta: Meta; onBuy: (id: string) => void; onRefund: (id: string) => void;
   onLoadout: (loadout: string[]) => void; onClose: () => void;
 }) {
+  const sky = useSkyState();
   const [tip, setTip] = useState<{ id: string; x: number; y: number } | null>(null);
   const [view, setView] = useState({ x: 0, y: 0, z: 1 });
   // one-shot allocation pulse: { id, key } — key bumps each buy so re-buying the
@@ -740,7 +748,7 @@ function SkillTree({ meta, onBuy, onRefund, onLoadout, onClose }: {
 
   return (
     <div className="overlay tree-overlay">
-      <div className="tree-bg" aria-hidden="true" style={skyState()} />
+      <div className="tree-bg" aria-hidden="true" style={sky} />
       <div className="tree-head">
         <div>
           <div className="tree-title">The Constellation</div>

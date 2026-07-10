@@ -2,6 +2,10 @@
 // Particles are cosmetic-only, so they update on the RENDER clock (per rAF
 // frame, real dt) — they stay silky at any refresh rate and never touch the
 // fixed-step simulation.
+//
+// This module is simulation only: drawing happens on the WebGPU sprite pass
+// (render.ts maps each mode to an atlas sprite quad — stars, shards, petals,
+// runes and velocity-stretched sparks all keep their real shapes).
 
 import { settings } from './settings';
 
@@ -28,44 +32,13 @@ export interface SpawnOpts {
   wobble?: number; wobbleF?: number; glow?: number; keep?: boolean;
 }
 
-export interface CamRect { x: number; y: number; w: number; h: number }
-
 // Initial pool size. The live-count ceiling and the adaptive emission budget
 // (SOFT) are read from `settings` each spawn so the performance presets apply
 // live: below SOFT every spawn is honoured; past it an increasing share of new
-// cosmetic particles are dropped — invisible thinning among overlapping glows,
-// big drop in draw calls + fill-rate. On the "unlimited" preset the ceiling is
-// effectively infinite, so the pool grows past this on demand (see spawn()).
+// cosmetic particles are dropped — invisible thinning among overlapping glows.
+// On the "unlimited" preset the pool grows past this on demand (see spawn()).
 const INITIAL = 3600;
 const SINK = { alive: false } as Particle;
-
-// ---------------------------------------------------------------- glow sprites
-// Baked radial-gradient sprites for the Canvas2D fallback path.
-const GLOW_RES = 64;
-const glowCache = new Map<string, HTMLCanvasElement>();
-
-function glowSprite(color: string, color2: string | null, mode: string): HTMLCanvasElement {
-  const key = mode + '|' + color + '|' + (color2 || '');
-  let c = glowCache.get(key);
-  if (c) return c;
-  c = document.createElement('canvas');
-  c.width = c.height = GLOW_RES;
-  const g = c.getContext('2d')!;
-  const r = GLOW_RES / 2;
-  const grad = g.createRadialGradient(r, r, 0, r, r, r);
-  if (mode === 'smoke') {
-    grad.addColorStop(0, color);
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
-  } else {
-    grad.addColorStop(0, color);
-    grad.addColorStop(0.55, color2 || color);
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
-  }
-  g.fillStyle = grad;
-  g.fillRect(0, 0, GLOW_RES, GLOW_RES);
-  glowCache.set(key, c);
-  return c;
-}
 
 function makeParticle(): Particle {
   return {
@@ -159,140 +132,5 @@ export class ParticleSystem {
       p.rot += p.rotV * dt;
       i++;
     }
-  }
-
-  // `skipSprites` is set when a GPU renderer draws the sprite modes
-  // ('glow'/'smoke'). Canvas2D then only handles the cheap vector modes.
-  draw(ctx: CanvasRenderingContext2D, cam: CamRect, skipSprites: boolean) {
-    ctx.save();
-    let curOp: GlobalCompositeOperation = 'source-over';
-    ctx.globalCompositeOperation = curOp;
-    for (let i = 0; i < this.count; i++) {
-      const p = this.pool[i];
-      if (skipSprites && (p.mode === 'glow' || p.mode === 'smoke')) continue;
-      const t = p.life / p.maxLife; // 1 -> 0
-      const x = p.x - cam.x;
-      const y = p.y - cam.y;
-      if (x < -80 || y < -80 || x > cam.w + 80 || y > cam.h + 80) continue;
-      const size = p.endSize + (p.size - p.endSize) * t;
-      if (size < 1.2) continue;
-      const alpha = t < 0.35 ? t / 0.35 : 1;
-      ctx.globalAlpha = Math.min(1, alpha);
-      const op: GlobalCompositeOperation = p.mode === 'smoke' ? 'source-over' : 'lighter';
-      if (op !== curOp) { ctx.globalCompositeOperation = op; curOp = op; }
-
-      switch (p.mode) {
-        case 'glow': {
-          const spr = glowSprite(p.color, p.color2, 'glow');
-          ctx.drawImage(spr, x - size, y - size, size * 2, size * 2);
-          break;
-        }
-        case 'star': {
-          ctx.fillStyle = p.color;
-          ctx.save();
-          ctx.translate(x, y);
-          ctx.rotate(p.rot);
-          ctx.beginPath();
-          for (let k = 0; k < 4; k++) {
-            const a = (k * Math.PI) / 2;
-            ctx.moveTo(0, 0);
-            ctx.lineTo(Math.cos(a - 0.18) * size * 0.35, Math.sin(a - 0.18) * size * 0.35);
-            ctx.lineTo(Math.cos(a) * size, Math.sin(a) * size);
-            ctx.lineTo(Math.cos(a + 0.18) * size * 0.35, Math.sin(a + 0.18) * size * 0.35);
-          }
-          ctx.closePath();
-          ctx.fill();
-          ctx.restore();
-          break;
-        }
-        case 'spark': {
-          const len = size * 2.4;
-          const ang = Math.atan2(p.vy, p.vx);
-          ctx.strokeStyle = p.color;
-          ctx.lineWidth = Math.max(0.6, size * 0.32);
-          ctx.lineCap = 'round';
-          ctx.beginPath();
-          ctx.moveTo(x - Math.cos(ang) * len, y - Math.sin(ang) * len);
-          ctx.lineTo(x, y);
-          ctx.stroke();
-          break;
-        }
-        case 'shard': {
-          ctx.save();
-          ctx.translate(x, y);
-          ctx.rotate(p.rot);
-          ctx.fillStyle = p.color;
-          ctx.beginPath();
-          ctx.moveTo(0, -size);
-          ctx.lineTo(size * 0.38, 0);
-          ctx.lineTo(0, size);
-          ctx.lineTo(-size * 0.38, 0);
-          ctx.closePath();
-          ctx.fill();
-          if (p.color2) {
-            ctx.fillStyle = p.color2;
-            ctx.beginPath();
-            ctx.moveTo(0, -size * 0.55);
-            ctx.lineTo(size * 0.18, 0);
-            ctx.lineTo(0, size * 0.55);
-            ctx.lineTo(-size * 0.18, 0);
-            ctx.closePath();
-            ctx.fill();
-          }
-          ctx.restore();
-          break;
-        }
-        case 'ring': {
-          ctx.strokeStyle = p.color;
-          ctx.lineWidth = Math.max(1, size * 0.12 * t + 0.8);
-          ctx.beginPath();
-          ctx.arc(x, y, size * (1 - t * 0.9 + 0.1), 0, Math.PI * 2);
-          ctx.stroke();
-          break;
-        }
-        case 'petal': {
-          ctx.save();
-          ctx.translate(x, y);
-          ctx.rotate(p.rot);
-          ctx.fillStyle = p.color;
-          ctx.beginPath();
-          ctx.ellipse(0, -size * 0.5, size * 0.34, size * 0.62, 0, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.restore();
-          break;
-        }
-        case 'rune': {
-          ctx.save();
-          ctx.translate(x, y);
-          ctx.rotate(p.rot);
-          ctx.strokeStyle = p.color;
-          ctx.lineWidth = 1.4;
-          const s = size;
-          ctx.beginPath();
-          const glyph = Math.floor(p.seed) % 4;
-          if (glyph === 0) {
-            ctx.moveTo(-s, s); ctx.lineTo(0, -s); ctx.lineTo(s, s); ctx.moveTo(-s * 0.5, 0.2 * s); ctx.lineTo(s * 0.5, 0.2 * s);
-          } else if (glyph === 1) {
-            ctx.moveTo(0, -s); ctx.lineTo(0, s); ctx.moveTo(-s * 0.7, -s * 0.4); ctx.lineTo(s * 0.7, s * 0.4);
-          } else if (glyph === 2) {
-            ctx.arc(0, 0, s * 0.8, 0.4, Math.PI * 2 - 0.4); ctx.moveTo(0, -s); ctx.lineTo(0, s * 0.2);
-          } else {
-            ctx.moveTo(-s, 0); ctx.lineTo(0, -s); ctx.lineTo(s, 0); ctx.lineTo(0, s); ctx.closePath();
-          }
-          ctx.stroke();
-          ctx.restore();
-          break;
-        }
-        case 'smoke': {
-          ctx.globalAlpha = Math.min(0.5, t * 0.5);
-          const spr = glowSprite(p.color, null, 'smoke');
-          ctx.drawImage(spr, x - size, y - size, size * 2, size * 2);
-          break;
-        }
-      }
-    }
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.restore();
   }
 }

@@ -1,27 +1,22 @@
-// Enemy sprite cache: bakes each enemy type's animated *shape* into a small
-// sprite-sheet of offscreen canvases, once, at supersampled resolution. At
-// runtime an enemy collapses from ~40 Canvas2D path ops into a single
-// drawImage — the draw-call count is what the browser's compositor process is
-// actually bound on in the endgame (halving render resolution didn't move it,
-// which proves it is per-draw overhead, not fill-rate).
+// Procedural sprite atlas. Every sprite the WebGPU world renderer draws is
+// painted once with Canvas2D vector code at supersampled resolution and packed
+// into a single texture: enemy animation frames, the wizard, gems, projectile
+// bodies, particle shapes, pickups and utility glows.
 //
 // WHAT IS BAKED vs LIVE
 //   baked  : the internal shape morph driven by animT (wing flap, flame lick,
-//            robe hem ripple, tentacle wiggle). Discretised into FRAMES steps
-//            of a canonical loop; per-enemy `seed` selects a frame, so enemies
-//            are never in lockstep — same visual as the live version.
-//   live   : bob/hover, hit-flash, freeze-tint, rotation, elite/golden corona,
-//            and the eye's player-tracking iris. Applied by the caller at blit
-//            time so the motions the eye actually locks onto stay continuous.
-//
-// TINT: only three body states exist (normal / white hit-flash / frozen blue),
-// so each is a separate baked variant rather than a per-pixel runtime multiply.
+//            robe hem ripple). Discretised into FRAMES steps of a canonical
+//            loop; per-enemy `seed` selects a frame so enemies never march in
+//            lockstep.
+//   live   : bob/hover, rotation, hit-flash / freeze tint (per-instance shader
+//            tint — no baked variants), coronas, the eye's player-tracking
+//            iris. Applied per-instance at emit time so the motions the eye
+//            actually locks onto stay continuous.
 
 export const FRAMES = 24;          // animation-loop samples per type
-const SS = 2;                      // supersample factor (bake at 2x, downscale)
+const SS = 3;                      // supersample factor (bake at 3x for crisp magnification)
 const PAD = 10;                    // px padding around the art (glow spill)
 export type TintKind = 'normal' | 'flash' | 'frozen';
-const TINTS: TintKind[] = ['normal', 'flash', 'frozen'];
 export const ENEMY_KINDS = ['wisp', 'bat', 'eye', 'shade', 'golem', 'siren', 'warlock'];
 
 // Half-extent of each type's art in local (pre-scale) space, generous enough
@@ -31,33 +26,21 @@ const HALF: Record<string, number> = {
   wisp: 26, bat: 30, eye: 34, shade: 30, golem: 34, siren: 24, warlock: 26,
 };
 
-// A baked type: FRAMES frames × 3 tints. Each entry is an offscreen canvas of
-// size (2*half+2*PAD)*SS. `half` is the local-space half-extent so the caller
-// can position/scale correctly.
-interface Baked {
-  half: number;
-  size: number;              // canvas pixel size (already *SS)
-  frames: HTMLCanvasElement[][]; // [tint][frame]
-}
-
-const _cache = new Map<string, Baked>();
-
 // Parametric body painters: draw the type's shape at loop phase `ph` in [0,1),
-// in local space centred at (0,0), with the given tint colour (null = none).
-// These mirror the live drawX functions but take an explicit phase instead of
-// (animT, seed), so a fixed set of frames tiles the whole animation loop.
-type Painter = (ctx: CanvasRenderingContext2D, ph: number, tint: string | null) => void;
+// in local space centred at (0,0). Hit-flash / frozen tints are applied by the
+// renderer per-instance (shader colour mix), so painters bake natural colours.
+type Painter = (ctx: CanvasRenderingContext2D, ph: number) => void;
 
 const TAU = Math.PI * 2;
 
 const PAINTERS: Record<string, Painter> = {
-  wisp(ctx, ph, tint) {
+  wisp(ctx, ph) {
     const a = ph * TAU;
     const f = Math.sin(a);          // flame lick, one full cycle across the sheet
     ctx.globalCompositeOperation = 'lighter';
-    ctx.fillStyle = radial(ctx, 20, tint || '#dffcff', '#7ff5ff');
+    ctx.fillStyle = radial(ctx, 20, '#dffcff', '#7ff5ff');
     ctx.beginPath(); ctx.arc(0, 0, 20, 0, TAU); ctx.fill();
-    ctx.fillStyle = tint || 'rgba(190,250,255,0.85)';
+    ctx.fillStyle = 'rgba(190,250,255,0.85)';
     for (let i = -1; i <= 1; i++) {
       ctx.beginPath();
       ctx.moveTo(i * 6 - 3, 2);
@@ -66,7 +49,7 @@ const PAINTERS: Record<string, Painter> = {
       ctx.closePath(); ctx.fill();
     }
     ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = tint || '#eafeff';
+    ctx.fillStyle = '#eafeff';
     ctx.beginPath(); ctx.arc(0, 0, 9, 0, TAU); ctx.fill();
     ctx.fillStyle = '#0b2a3a';
     const blink = Math.sin(a * 1.3) > 0.92 ? 0.2 : 1;
@@ -76,11 +59,11 @@ const PAINTERS: Record<string, Painter> = {
     ctx.fill();
   },
 
-  bat(ctx, ph, tint) {
+  bat(ctx, ph) {
     const a = ph * TAU;
     const flap = Math.sin(a);       // one wingbeat across the sheet
     // (hover bob is applied LIVE by the caller, not baked)
-    ctx.fillStyle = tint || '#5b3a9e';
+    ctx.fillStyle = '#5b3a9e';
     for (const side of [-1, 1]) {
       ctx.save();
       ctx.scale(side, 1);
@@ -92,7 +75,7 @@ const PAINTERS: Record<string, Painter> = {
       ctx.quadraticCurveTo(15, 2, 14, 8);
       ctx.quadraticCurveTo(9, 4, 4, 6);
       ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = tint || '#7a55c9';
+      ctx.strokeStyle = '#7a55c9';
       ctx.lineWidth = 1.2;
       ctx.beginPath();
       ctx.moveTo(5, 0); ctx.lineTo(24, -5);
@@ -100,13 +83,13 @@ const PAINTERS: Record<string, Painter> = {
       ctx.stroke();
       ctx.restore();
     }
-    ctx.fillStyle = tint || '#7a55c9';
+    ctx.fillStyle = '#7a55c9';
     ctx.beginPath(); ctx.ellipse(0, 0, 7.5, 9.5, 0, 0, TAU); ctx.fill();
     ctx.beginPath();
     ctx.moveTo(-5, -7); ctx.lineTo(-6.5, -14); ctx.lineTo(-1.5, -9);
     ctx.moveTo(5, -7); ctx.lineTo(6.5, -14); ctx.lineTo(1.5, -9);
     ctx.closePath(); ctx.fill();
-    // eyes: bake the fake-glow dot + core (glow via radial, no shadowBlur)
+    // eyes: baked soft glow dot + hot core (bloom pass amplifies these)
     softGlow(ctx, -2.8, -2, 6, 'rgba(255,90,122,0.75)');
     softGlow(ctx, 2.8, -2, 6, 'rgba(255,90,122,0.75)');
     ctx.fillStyle = '#ff5a7a';
@@ -119,15 +102,11 @@ const PAINTERS: Record<string, Painter> = {
   },
 
   // eye: bake the eyeball WITHOUT the iris (iris tracks the player → drawn live
-  // as a tiny quad by the caller). Tentacle wiggle + blink lid are baked.
-  eye(ctx, _ph, tint) {
-    // Tentacles are NOT baked here anymore. Baking them into FRAMES samples of a
-    // slow loop always read as choppy — and the boss magnifies it because it's
-    // scaled up (every per-frame pixel-jump grows with it). Instead the crown of
-    // tentacles is a static, radially-symmetric sprite ('tentacles') emitted as a
-    // single LIVE quad that rotates continuously — smooth at any scale, like the
-    // boss shard crown. So the baked eye body is just the eyeball + veins.
-    ctx.fillStyle = tint || '#fdeef6';
+  // as a tiny quad by the caller). The tentacle crown is a separate static
+  // sprite emitted as one live continuously-rotating quad — smooth at any
+  // scale, which matters for the magnified boss.
+  eye(ctx, _ph) {
+    ctx.fillStyle = '#fdeef6';
     ctx.beginPath(); ctx.arc(0, 0, 15, 0, TAU); ctx.fill();
     // veins (static)
     ctx.strokeStyle = 'rgba(200,80,120,0.5)';
@@ -138,12 +117,12 @@ const PAINTERS: Record<string, Painter> = {
     ctx.stroke();
   },
 
-  shade(ctx, ph, tint) {
+  shade(ctx, ph) {
     const wave = ph * TAU;
     ctx.globalAlpha = 0.92;
     ctx.fillStyle = 'rgba(60,40,120,0.35)';
     ctx.beginPath(); ctx.ellipse(-Math.sin(wave) * 4, 12, 12, 5, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = linGrad(ctx, 0, -22, 0, 16, tint || '#4a3a96', tint || '#1c1440');
+    ctx.fillStyle = linGrad(ctx, 0, -22, 0, 16, '#4a3a96', '#1c1440');
     ctx.beginPath();
     ctx.moveTo(0, -24);
     ctx.quadraticCurveTo(14, -18, 13, 0);
@@ -174,12 +153,12 @@ const PAINTERS: Record<string, Painter> = {
     ctx.globalAlpha = 1;
   },
 
-  golem(ctx, ph, tint) {
+  golem(ctx, ph) {
     const a = ph * TAU;
     const breathe = Math.sin(a) * 1.5;
     // orbiting rock chunks are emitted as LIVE quads by the caller (a full
     // orbit baked over 24 frames read as choppy); body only is baked here.
-    ctx.fillStyle = linGrad(ctx, 0, -20, 0, 16, tint || '#7fb7d9', tint || '#2a4a72');
+    ctx.fillStyle = linGrad(ctx, 0, -20, 0, 16, '#7fb7d9', '#2a4a72');
     ctx.beginPath();
     ctx.moveTo(0, -22 - breathe);
     ctx.lineTo(14, -10); ctx.lineTo(18, 6); ctx.lineTo(8, 14);
@@ -205,10 +184,10 @@ const PAINTERS: Record<string, Painter> = {
   },
 
   // siren: bake the resting (non-charging) look; the charging mouth-glow +
-  // note motes are handled live by the caller. Veils sway is baked.
-  siren(ctx, ph, tint) {
+  // note motes are handled live by the caller. Veil sway is baked.
+  siren(ctx, ph) {
     const a = ph * TAU;
-    ctx.fillStyle = tint || 'rgba(125,201,255,0.4)';
+    ctx.fillStyle = 'rgba(125,201,255,0.4)';
     for (const side of [-1, 1]) {
       ctx.beginPath();
       ctx.moveTo(side * 4, -6);
@@ -216,7 +195,7 @@ const PAINTERS: Record<string, Painter> = {
       ctx.quadraticCurveTo(side * 6, 6, side * 2, 8);
       ctx.closePath(); ctx.fill();
     }
-    ctx.fillStyle = linGrad(ctx, 0, -16, 0, 12, tint || '#bfe4ff', tint || '#3a6ea8');
+    ctx.fillStyle = linGrad(ctx, 0, -16, 0, 12, '#bfe4ff', '#3a6ea8');
     ctx.beginPath();
     ctx.moveTo(0, -16);
     ctx.quadraticCurveTo(9, -6, 7, 6);
@@ -234,9 +213,9 @@ const PAINTERS: Record<string, Painter> = {
     ctx.stroke();
   },
 
-  warlock(ctx, ph, tint) {
+  warlock(ctx, ph) {
     const a = ph * TAU;
-    ctx.fillStyle = linGrad(ctx, 0, -20, 0, 16, tint || '#7a3aa8', tint || '#2a1040');
+    ctx.fillStyle = linGrad(ctx, 0, -20, 0, 16, '#7a3aa8', '#2a1040');
     ctx.beginPath();
     ctx.moveTo(0, -22);
     ctx.quadraticCurveTo(13, -14, 12, 2);
@@ -266,74 +245,96 @@ const PAINTERS: Record<string, Painter> = {
   },
 };
 
-// tint colour for the frozen state (mirrors mixHint in render.ts)
-function tintColor(kind: TintKind): string | null {
-  if (kind === 'flash') return '#ffffff';
-  if (kind === 'frozen') return '#bfe9ff';
-  return null;
-}
+// ------------------------------------------------------------------- wizard
+// The player joins the GPU world as a baked sprite sheet: robe hem ripple and
+// hat bend are the loop; bob, sway (quad rotation), facing (UV mirror), blink
+// (quad alpha) and the staff orb (live glow quads) are applied per-instance.
+// Local space: baked centred at the wizard's mid-point, which sits WIZARD_CY
+// px above the feet anchor the engine simulates.
+export const WIZARD_CY = 25;   // sprite centre sits this far above the feet
+export const WIZARD_HALF = 38;
 
-function build(type: string): Baked {
-  const painter = PAINTERS[type];
-  const half = HALF[type];
-  const px = Math.ceil((half + PAD) * 2 * SS);
-  const frames: HTMLCanvasElement[][] = [[], [], []];
-  for (let ti = 0; ti < TINTS.length; ti++) {
-    const tint = tintColor(TINTS[ti]);
-    for (let f = 0; f < FRAMES; f++) {
-      const c = document.createElement('canvas');
-      c.width = c.height = px;
-      const g = c.getContext('2d')!;
-      g.setTransform(SS, 0, 0, SS, (half + PAD) * SS, (half + PAD) * SS);
-      painter(g, f / FRAMES, tint);
-      frames[ti].push(c);
+function paintWizard(ctx: CanvasRenderingContext2D, ph: number) {
+  ctx.translate(0, WIZARD_CY); // paint in original feet-anchored coords
+  const hemT = ph * TAU;
+  const robe = (w1: number, w2: number, hY: number, col: string) => {
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(-w1, -26);
+    ctx.quadraticCurveTo(-w2 - 2, -6, -w2, hY);
+    for (let i = 0; i <= 6; i++) {
+      const f = i / 6;
+      ctx.lineTo(-w2 + f * w2 * 2, hY + Math.sin(hemT + f * 9) * 2.2);
     }
+    ctx.quadraticCurveTo(w2 + 2, -6, w1, -26);
+    ctx.closePath();
+    ctx.fill();
+  };
+  robe(9, 16, 8, '#241a4d');
+  robe(8, 13, 5, '#3b2a78');
+  // belt & moon sigil
+  ctx.fillStyle = '#ffd27a';
+  ctx.fillRect(-8, -14, 16, 2.4);
+  ctx.strokeStyle = '#8fe8ff';
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.arc(0, -4, 4.4, 0.7, TAU - 0.7);
+  ctx.stroke();
+  // head
+  ctx.fillStyle = '#f2d9c0';
+  ctx.beginPath(); ctx.arc(1, -32, 6.5, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#1a1330';
+  ctx.beginPath(); ctx.arc(3.4, -33, 1, 0, TAU); ctx.fill();
+  // hat: wide brim + bent cone with a slowly-spinning star
+  const hatBend = Math.sin(hemT * 0.5) * 1.5;
+  ctx.fillStyle = '#2c1f63';
+  ctx.beginPath(); ctx.ellipse(0.5, -36, 13.5, 3.6, -0.06, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#3b2a78';
+  ctx.beginPath();
+  ctx.moveTo(-7.5, -37);
+  ctx.quadraticCurveTo(-3, -52, 2 + hatBend, -56);
+  ctx.quadraticCurveTo(7 + hatBend, -58, 4 + hatBend, -50);
+  ctx.quadraticCurveTo(7, -44, 8, -37.5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#ffd27a';
+  ctx.save();
+  ctx.translate(3.5 + hatBend, -54);
+  ctx.rotate(ph * TAU);
+  ctx.beginPath();
+  for (let k = 0; k < 5; k++) {
+    const a = (k / 5) * TAU - Math.PI / 2;
+    const a2 = a + TAU / 10;
+    ctx.lineTo(Math.cos(a) * 3, Math.sin(a) * 3);
+    ctx.lineTo(Math.cos(a2) * 1.3, Math.sin(a2) * 1.3);
   }
-  return { half, size: px, frames };
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+  // staff arm + staff (orb glow/core drawn live so it can pulse with casts)
+  ctx.strokeStyle = '#f2d9c0';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(4, -22); ctx.lineTo(13, -26); ctx.stroke();
+  ctx.strokeStyle = '#6b4a2a';
+  ctx.lineWidth = 2.6;
+  ctx.beginPath();
+  ctx.moveTo(14, 6);
+  ctx.quadraticCurveTo(15.5, -20, 14, -44);
+  ctx.stroke();
+  ctx.fillStyle = '#bff9ff';
+  ctx.beginPath(); ctx.arc(14, -48, 3.6, 0, TAU); ctx.fill();
 }
 
-export function getBaked(type: string): Baked {
-  let b = _cache.get(type);
-  if (!b) { b = build(type); _cache.set(type, b); }
-  return b;
-}
+export function wizardFrameId(frame: number): string { return `wiz:${frame}`; }
 
-// Pre-bake up front (one-time). Builds the GPU atlas; also keeps the per-type
-// offscreen sheets for the Canvas2D no-WebGPU fallback path.
-export function prebakeEnemies() {
-  buildAtlas();
-  for (const type of Object.keys(PAINTERS)) getBaked(type);
-}
-
-// Draw enemy body from its baked sheet. `ctx` is already translated to the
-// enemy centre and scaled to its on-screen size; we blit the frame centred.
-// Returns nothing. tintKind picks the baked variant.
-export function blitEnemy(ctx: CanvasRenderingContext2D, type: string, ph: number, tintKind: TintKind) {
-  const b = getBaked(type);
-  const ti = tintKind === 'flash' ? 1 : tintKind === 'frozen' ? 2 : 0;
-  let fi = (ph * FRAMES) | 0;
-  fi = ((fi % FRAMES) + FRAMES) % FRAMES;
-  const spr = b.frames[ti][fi];
-  const d = b.half + PAD;
-  ctx.drawImage(spr, -d, -d, d * 2, d * 2);
-}
-
-export function enemyHalf(type: string): number { return HALF[type]; }
-
-// ---- local baking helpers (self-contained; don't touch the live gradient
-// caches in engine.ts, since these run at 2x supersampled scale) ----
-function radial(ctx: CanvasRenderingContext2D, r: number, c0: string, c1: string): CanvasGradient {
-  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
-  g.addColorStop(0, c0);
-  if (c1.startsWith('rgba') && c1.endsWith(',0)')) { g.addColorStop(1, c1); }
-  else { g.addColorStop(0.45, c1); g.addColorStop(1, 'rgba(0,0,0,0)'); }
-  return g;
+// stable sprite id for an enemy body frame (tint applied per-instance now)
+export function enemyFrameId(type: string, frame: number): string {
+  return `e:${type}:${frame}`;
 }
 
 // ============================================================ sprite atlas
-// One texture holding every static sprite the GPU world renderer draws:
-// enemy body frames (type × tint × FRAMES), gems/orbs, projectile bodies,
-// the fallen-star pickup. Each entry records its UV rect in the atlas and its
+// One texture holding every sprite. Each entry records its UV rect and its
 // world half-extent so the renderer can size the quad. Built once per run.
 
 export interface AtlasEntry {
@@ -350,20 +351,17 @@ export interface Atlas {
   entries: Map<string, AtlasEntry>;
 }
 
-// stable sprite id for an enemy body frame
-export function enemyFrameId(type: string, tint: TintKind, frame: number): string {
-  return `e:${type}:${tint}:${frame}`;
-}
-
 let _atlas: Atlas | null = null;
 
-// A small extra painter set for the non-enemy world sprites (gems, projectiles,
-// pickups). Each draws centred at (0,0) in a local space of half-extent `half`.
+// A small extra painter set for the non-enemy world sprites. Each draws
+// centred at (0,0) in a local space of half-extent `half`. Particle shape
+// sprites (p:*) are baked white so the per-instance tint colours them exactly
+// like the old flat-colour vector fills.
 interface ExtraSprite { id: string; half: number; paint: (ctx: CanvasRenderingContext2D) => void }
 
 function extraSprites(): ExtraSprite[] {
   const out: ExtraSprite[] = [];
-  // gem variants: [id, coreColor, spikeColor, coreSize]
+  // gem variants
   const gemDefs: [string, string, number][] = [
     ['gem:xp', '#7ff5ff', 5.5],
     ['gem:big', '#ffd27a', 8],
@@ -446,8 +444,6 @@ function extraSprites(): ExtraSprite[] {
   // tip; the mirror blade points -x. Icy-blue palette.
   out.push({
     id: 'proj:glaive', half: 30, paint(ctx) {
-      // faint icy aura so the blade never reads as a hard cutout — kept tight
-      // and low-alpha so it hugs the blade rather than blooming into an orb
       ctx.globalCompositeOperation = 'lighter';
       const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 20);
       g.addColorStop(0, 'rgba(159,216,255,0.28)'); g.addColorStop(1, 'rgba(159,216,255,0)');
@@ -456,7 +452,6 @@ function extraSprites(): ExtraSprite[] {
       for (const side of [0, Math.PI]) {
         ctx.save();
         ctx.rotate(side);
-        // blade body
         ctx.fillStyle = '#e8f6ff';
         ctx.beginPath();
         ctx.moveTo(6, 0);
@@ -464,7 +459,6 @@ function extraSprites(): ExtraSprite[] {
         ctx.quadraticCurveTo(20, -7, 8, 5);
         ctx.closePath();
         ctx.fill();
-        // keen edge
         ctx.strokeStyle = '#9fd8ff';
         ctx.lineWidth = 1.6;
         ctx.beginPath();
@@ -473,7 +467,6 @@ function extraSprites(): ExtraSprite[] {
         ctx.stroke();
         ctx.restore();
       }
-      // bright hub
       ctx.fillStyle = '#ffffff';
       ctx.beginPath(); ctx.arc(0, 0, 4.2, 0, TAU); ctx.fill();
     },
@@ -492,7 +485,7 @@ function extraSprites(): ExtraSprite[] {
       ctx.fillStyle = '#ffd6da'; ctx.beginPath(); ctx.arc(0.5, 0, 1.5, 0, TAU); ctx.fill();
     },
   });
-  // a plain soft white glow quad, tinted per-instance for bullet halos / misc
+  // a plain soft white glow quad, tinted per-instance (halos, particles, shadows)
   out.push({
     id: 'glow', half: 32, paint(ctx) {
       const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 32);
@@ -500,10 +493,8 @@ function extraSprites(): ExtraSprite[] {
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 32, 0, TAU); ctx.fill();
     },
   });
-  // eye iris: pink orb + dark pupil + white highlight. Drawn as one alpha quad,
-  // rotated per-instance toward the player (the eye body is baked iris-less).
-  // Local +x points toward the player after the quad's rotation, so the pupil
-  // sits offset along +x.
+  // eye iris: pink orb + dark pupil + white highlight, rotated per-instance
+  // toward the player (the eye body is baked iris-less).
   out.push({
     id: 'iris', half: 9, paint(ctx) {
       const off = 5; // pupil offset toward look direction (+x)
@@ -517,8 +508,7 @@ function extraSprites(): ExtraSprite[] {
   });
   // eye tentacle crown: 7 arms radiating from the eyeball, baked once as a
   // static radially-symmetric sprite. Emitted as a single live quad that spins
-  // slowly, so the motion is continuous at any scale (no baked frame-stepping).
-  // Drawn UNDER the eyeball body by the caller. Half-extent matches the eye art.
+  // slowly, so the motion is continuous at any scale.
   out.push({
     id: 'tentacles', half: 34, paint(ctx) {
       ctx.strokeStyle = '#c76ba3';
@@ -527,8 +517,6 @@ function extraSprites(): ExtraSprite[] {
       for (let i = 0; i < 7; i++) {
         const ta = (i / 7) * TAU;
         const cs = Math.cos(ta), sn = Math.sin(ta);
-        // a gentle fixed curl gives each arm an organic hook; because the whole
-        // sprite rotates live, the hooks sweep smoothly around the eye
         const px = -sn, py = cs, curl = 3;
         ctx.beginPath();
         ctx.moveTo(cs * 14, sn * 14);
@@ -591,8 +579,7 @@ function extraSprites(): ExtraSprite[] {
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 5, 0, TAU); ctx.fill();
     },
   });
-  // fallen-star pickup: the five-pointed cyan star core (rotates live). Baked
-  // as an additive white/cyan sprite so the caller can tint/pulse it.
+  // fallen-star pickup: the five-pointed cyan star core (rotates live)
   out.push({
     id: 'pickup:star', half: 12, paint(ctx) {
       const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 12);
@@ -610,9 +597,8 @@ function extraSprites(): ExtraSprite[] {
     },
   });
   // fallen-star pickup: the vertical "beacon" — a tall bright column fading to
-  // transparent at the top, painted in a tall-aspect region of a square tile.
-  // Emitted additively with the quad's top anchored at the star. HALF is large
-  // so the column reads ~190px tall at native scale.
+  // transparent at the top, painted in the TOP half of a square tile. Emitted
+  // additively with the quad centred on the star so the column rises upward.
   out.push({
     id: 'pickup:beacon', half: 96, paint(ctx) {
       const g = ctx.createLinearGradient(0, -96, 0, 0);
@@ -622,59 +608,150 @@ function extraSprites(): ExtraSprite[] {
       ctx.fillRect(-7, -96, 14, 96);
     },
   });
+  // spirit lantern body (Lantern zone): frame + glass, flame glow drawn live
+  out.push({
+    id: 'lantern', half: 14, paint(ctx) {
+      ctx.fillStyle = '#1a3a34';
+      ctx.fillRect(-5, -11, 10, 3);
+      ctx.fillRect(-4, 8, 8, 2.5);
+      ctx.strokeStyle = '#4ad9c4';
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(-5.5, -8, 11, 16);
+      ctx.fillStyle = '#4ad9c4';
+      ctx.beginPath(); ctx.ellipse(0, 0, 3, 4.5, 0, 0, TAU); ctx.fill();
+    },
+  });
+
+  // ---------------- particle shape sprites (white → per-instance tint) ------
+  // four-point sparkle (mode 'star'); outer radius = half so quadHalf = size
+  out.push({
+    id: 'p:star', half: 16, paint(ctx) {
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      for (let k = 0; k < 4; k++) {
+        const a = (k * Math.PI) / 2;
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(a - 0.18) * 16 * 0.35, Math.sin(a - 0.18) * 16 * 0.35);
+        ctx.lineTo(Math.cos(a) * 16, Math.sin(a) * 16);
+        ctx.lineTo(Math.cos(a + 0.18) * 16 * 0.35, Math.sin(a + 0.18) * 16 * 0.35);
+      }
+      ctx.closePath(); ctx.fill();
+    },
+  });
+  // crystal shard diamond (mode 'shard') with a brighter core facet
+  out.push({
+    id: 'p:shard', half: 16, paint(ctx) {
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      ctx.moveTo(0, -16); ctx.lineTo(6.1, 0); ctx.lineTo(0, 16); ctx.lineTo(-6.1, 0);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(0, -8.8); ctx.lineTo(2.9, 0); ctx.lineTo(0, 8.8); ctx.lineTo(-2.9, 0);
+      ctx.closePath(); ctx.fill();
+    },
+  });
+  // falling blossom petal (mode 'petal')
+  out.push({
+    id: 'p:petal', half: 16, paint(ctx) {
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.ellipse(0, -7, 4.8, 8.8, 0, 0, TAU);
+      ctx.fill();
+    },
+  });
+  // thin shockwave ring (mode 'ring'); expansion driven by quad scale
+  out.push({
+    id: 'p:ring', half: 32, paint(ctx) {
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2.6;
+      ctx.beginPath(); ctx.arc(0, 0, 29, 0, TAU); ctx.stroke();
+      ctx.globalAlpha = 0.35;
+      ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.arc(0, 0, 26, 0, TAU); ctx.stroke();
+      ctx.globalAlpha = 1;
+    },
+  });
+  // velocity-stretched spark streak (mode 'spark'): bright head at +x, tail -x
+  out.push({
+    id: 'p:spark', half: 16, paint(ctx) {
+      const g = ctx.createLinearGradient(-16, 0, 12, 0);
+      g.addColorStop(0, 'rgba(255,255,255,0)');
+      g.addColorStop(0.7, 'rgba(255,255,255,0.7)');
+      g.addColorStop(1, '#ffffff');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(-16, 0);
+      ctx.quadraticCurveTo(2, -3.4, 12, 0);
+      ctx.quadraticCurveTo(2, 3.4, -16, 0);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(11, 0, 2.6, 0, TAU); ctx.fill();
+    },
+  });
+  // dream-glyph runes (mode 'rune'), four variants picked by seed
+  for (let glyph = 0; glyph < 4; glyph++) {
+    out.push({
+      id: 'p:rune' + glyph, half: 16, paint(ctx) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2.2;
+        ctx.lineCap = 'round';
+        const s = 12;
+        ctx.beginPath();
+        if (glyph === 0) {
+          ctx.moveTo(-s, s); ctx.lineTo(0, -s); ctx.lineTo(s, s);
+          ctx.moveTo(-s * 0.5, 0.2 * s); ctx.lineTo(s * 0.5, 0.2 * s);
+        } else if (glyph === 1) {
+          ctx.moveTo(0, -s); ctx.lineTo(0, s);
+          ctx.moveTo(-s * 0.7, -s * 0.4); ctx.lineTo(s * 0.7, s * 0.4);
+        } else if (glyph === 2) {
+          ctx.arc(0, 0, s * 0.8, 0.4, TAU - 0.4);
+          ctx.moveTo(0, -s); ctx.lineTo(0, s * 0.2);
+        } else {
+          ctx.moveTo(-s, 0); ctx.lineTo(0, -s); ctx.lineTo(s, 0); ctx.lineTo(0, s); ctx.closePath();
+        }
+        ctx.stroke();
+      },
+    });
+  }
   return out;
 }
 
 // Build the atlas: shelf-pack every sprite into a square texture. Enemy frames
-// dominate the count (7 types × 3 tints × 24 = 504 tiles) but are small.
+// dominate the count (7 types × 24 + 24 wizard frames) but pack tightly.
 export function buildAtlas(): Atlas {
   if (_atlas) return _atlas;
 
   interface Tile { id: string; half: number; px: number; canvas: HTMLCanvasElement }
   const tiles: Tile[] = [];
 
-  // enemy frames
-  for (const type of ENEMY_KINDS) {
-    const painter = PAINTERS[type];
-    const half = HALF[type];
+  const bake = (id: string, half: number, paint: Painter | ((c: CanvasRenderingContext2D) => void), ph = 0) => {
     const px = Math.ceil((half + PAD) * 2 * SS);
-    for (const tint of TINTS) {
-      const tc = tintColor(tint);
-      for (let f = 0; f < FRAMES; f++) {
-        const c = document.createElement('canvas');
-        c.width = c.height = px;
-        const g = c.getContext('2d')!;
-        g.setTransform(SS, 0, 0, SS, (half + PAD) * SS, (half + PAD) * SS);
-        painter(g, f / FRAMES, tc);
-        tiles.push({ id: enemyFrameId(type, tint, f), half, px, canvas: c });
-      }
-    }
-  }
-  // extra sprites (gems, projectiles, pickups, glow)
-  for (const es of extraSprites()) {
-    const px = Math.ceil((es.half + PAD) * 2 * SS);
     const c = document.createElement('canvas');
     c.width = c.height = px;
     const g = c.getContext('2d')!;
-    g.setTransform(SS, 0, 0, SS, (es.half + PAD) * SS, (es.half + PAD) * SS);
-    es.paint(g);
-    tiles.push({ id: es.id, half: es.half, px, canvas: c });
+    g.setTransform(SS, 0, 0, SS, (half + PAD) * SS, (half + PAD) * SS);
+    (paint as Painter)(g, ph);
+    tiles.push({ id, half, px, canvas: c });
+  };
+
+  // enemy frames (single tint — hit-flash/frozen are per-instance shader mixes)
+  for (const type of ENEMY_KINDS) {
+    for (let f = 0; f < FRAMES; f++) bake(enemyFrameId(type, f), HALF[type], PAINTERS[type], f / FRAMES);
   }
+  // wizard frames
+  for (let f = 0; f < FRAMES; f++) bake(wizardFrameId(f), WIZARD_HALF, paintWizard, f / FRAMES);
+  // extra sprites
+  for (const es of extraSprites()) bake(es.id, es.half, es.paint);
 
   // shelf pack, tallest-first, into a power-of-two square
   tiles.sort((a, b) => b.px - a.px);
   const totalArea = tiles.reduce((s, t) => s + t.px * t.px, 0);
   let size = 256;
   // Initial size GUESS only — the pack loop below grows `size` if tiles don't
-  // fit, so this just needs to be a rough lower bound, not a safe upper one.
-  // The headroom factor covers shelf-packing waste (rows leave gaps under short
-  // tiles). It was 1.35, but for the current sprite set that overshot 4096² by
-  // ~2% and forced the guess to 8192 — quadrupling atlas memory (256MB→ vs
-  // 64MB per copy) even though the tiles pack fine into 4096². 1.2 still clears
-  // the real waste while letting 4096 be tried first; the loop remains the
-  // actual safety net if a future sprite set genuinely needs more.
+  // fit. The 1.2 headroom covers shelf-packing waste without overshooting to
+  // the next power of two.
   while (size * size < totalArea * 1.2) size *= 2;
-  // try to place; grow if a shelf run overflows
   const entries = new Map<string, AtlasEntry>();
   const GAP = 2;
   for (;;) {
@@ -708,6 +785,18 @@ export function buildAtlas(): Atlas {
 }
 
 export function getAtlas(): Atlas { return _atlas || buildAtlas(); }
+
+// Pre-bake up front (one-time) so the first heavy frame doesn't stall.
+export function prebakeSprites() { buildAtlas(); }
+
+// ---- local baking helpers ----
+function radial(ctx: CanvasRenderingContext2D, r: number, c0: string, c1: string): CanvasGradient {
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+  g.addColorStop(0, c0);
+  if (c1.startsWith('rgba') && c1.endsWith(',0)')) { g.addColorStop(1, c1); }
+  else { g.addColorStop(0.45, c1); g.addColorStop(1, 'rgba(0,0,0,0)'); }
+  return g;
+}
 function linGrad(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number, c0: string, c1: string): CanvasGradient {
   const g = ctx.createLinearGradient(x0, y0, x1, y1);
   g.addColorStop(0, c0);

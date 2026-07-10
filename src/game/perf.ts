@@ -26,7 +26,7 @@ const COMMON_HZ = [60, 75, 90, 120, 144, 165, 180, 240, 360];
 // to prove the enemy-sprite change: `enemyBlits` is one drawImage per enemy
 // now (was ~40 path ops each), `enemyLiveOps` counts the live overlays kept
 // (iris, coronas, boss crown, caster charge). Reset by the renderer each frame.
-export const drawStats = { enemyBlits: 0, enemyLiveOps: 0, worldQuads: 0, worldDrawCalls: 0 };
+export const drawStats = { enemyBlits: 0, enemyLiveOps: 0, worldQuads: 0, worldShapes: 0, worldDrawCalls: 0 };
 
 class Ring {
   buf: Float32Array;
@@ -81,7 +81,7 @@ export class PerfMonitor {
   private counts: PerfCounts = { enemies: 0, projectiles: 0, particles: 0, zones: 0, gems: 0, texts: 0 };
   private peakCounts: PerfCounts = { enemies: 0, projectiles: 0, particles: 0, zones: 0, gems: 0, texts: 0 };
   private sessionStart = 0;
-  gpuBackend = 'canvas2d';
+  gpuBackend = 'webgpu (starting)';
   // environment facts, set by the engine (resize / gpu attach)
   dpr = 1;
   renderScale = 1;
@@ -167,23 +167,20 @@ export class PerfMonitor {
     if (avgFrame >= 17) {
       const parts: [string, number][] = [
         ['simulation (update loop: AI, movement, collision)', avgSim],
-        ['world rendering JS (Canvas2D entity draws)', avgRender],
-        ['particles (update + draw/dispatch)', avgParticle],
-        ['GPU raster + compositor + GC ("other": frame minus measured JS)', other],
+        ['world rendering JS (instance-list packing + overlay 2D)', avgRender],
+        ['particles (update + quad emission)', avgParticle],
+        ['GPU + compositor + GC ("other": frame minus measured JS)', other],
       ];
       parts.sort((a, b) => b[1] - a[1]);
       bottleneck = `${parts[0][0]} at ${parts[0][1].toFixed(2)}ms of a ${avgFrame.toFixed(2)}ms frame`;
       if (parts[0][0].startsWith('world') && this.peakCounts.enemies > 250) {
         bottleneck += ` — enemy draw count peaked at ${this.peakCounts.enemies}`;
       }
-      if (parts[0][0].startsWith('particles') && this.gpuBackend === 'canvas2d') {
-        bottleneck += ' — no GPU backend available; particles are on the Canvas2D fallback';
-      }
-      if (parts[0][0].startsWith('GPU raster')) {
-        bottleneck += ` — Canvas2D effects rasterize browser-side at ${this.viewW}×${this.viewH}@${this.dpr}x across ${this.layers} composited layers; JS itself only uses ${jsMs.toFixed(2)}ms`;
+      if (parts[0][0].startsWith('GPU')) {
+        bottleneck += ` — WebGPU scene renders at ${Math.round(this.viewW * this.dpr * this.renderScale)}×${Math.round(this.viewH * this.dpr * this.renderScale)}; try a lower resolution preset`;
       }
     } else if (hz >= 80 && this.fps() < hz * 0.9 && other > jsMs * 2) {
-      bottleneck = `GPU/compositor-bound below the display's ${hz}Hz: JS work is only ${jsMs.toFixed(2)}ms but frames average ${avgFrame.toFixed(2)}ms — the ${other.toFixed(2)}ms gap is browser-side Canvas2D rasterization + compositing of ${this.layers} stacked ${this.viewW}×${this.viewH}@${this.dpr}x layers, so ${(100 * (1 - hit1)).toFixed(0)}% of frames miss the ${vsync.toFixed(1)}ms vsync window`;
+      bottleneck = `GPU-bound below the display's ${hz}Hz: JS work is only ${jsMs.toFixed(2)}ms but frames average ${avgFrame.toFixed(2)}ms — ${(100 * (1 - hit1)).toFixed(0)}% of frames miss the ${vsync.toFixed(1)}ms vsync window; a lower resolution preset trims the fill+bloom cost`;
     } else {
       bottleneck = 'none — frame budget comfortably met (avg ' + avgFrame.toFixed(2) + 'ms)';
     }
@@ -217,7 +214,7 @@ export class PerfMonitor {
       worldGPU: {
         instancedQuadsPerFrame: +this.worldQuads.avg(WINDOW).toFixed(0),
         drawCallsPerFrame: +this.worldDrawCalls.avg(WINDOW).toFixed(1),
-        note: 'entire entity world (enemies+gems+projectiles+particles) in this many WebGPU draws',
+        note: 'entire world (background+zones+entities+particles) in this many scene draws (+9 fixed bloom/composite passes)',
       },
       bottleneck,
     };
