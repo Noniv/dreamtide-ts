@@ -964,41 +964,50 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   50% { fill: rgba(180, 140, 255, 0.42); }
 }
 
+/* PERF, learned the hard way: the ignition must animate PAINT-ONLY SVG
+   properties (fill-opacity / stroke-opacity / r), never opacity or transform.
+   Animating opacity/transform promotes every node, halo and edge to its own
+   compositor layer — ~900 layers and tens of thousands of raster+GPU tasks
+   per second, which froze the whole reveal for ~10s on modest machines.
+   Paint-only properties keep the tree inside the single composited camera
+   layer; each frame just repaints the thin ring of stars currently catching.
+   (fill/stroke-opacity inherit, so one animation on the <g> fades the body,
+   icon and label of a node together, like group opacity did.) */
 .tree-overlay.reveal-expanding .tree-node {
   pointer-events: none;
-  animation: igniteFade 0.6s ease-out both;
+  animation: igniteInk 0.6s ease-out both;
   animation-delay: var(--rd, 0ms);
 }
 .tree-overlay.reveal-expanding .tree-node .body {
-  transform-box: fill-box; transform-origin: center;
   animation: ignitePop 0.6s cubic-bezier(0.2, 0.9, 0.3, 1.35) both;
   animation-delay: var(--rd, 0ms);
 }
 /* each star flashes bright as it catches, then settles (fill on the halo —
    no per-node drop-shadow filters, those stutter at 356 nodes) */
 .tree-overlay.reveal-expanding .tree-node .halo {
-  transform-box: fill-box; transform-origin: center;
   animation: igniteHalo 0.9s ease-out both;
   animation-delay: var(--rd, 0ms);
 }
+/* r has no value in the 100% frame, so each circle grows to its own
+   attribute radius — one keyframe block serves every node size */
 @keyframes igniteHalo {
-  0% { transform: scale(0.2); fill: rgba(235, 226, 255, 0.95); }
+  0% { r: 0; fill: rgba(235, 226, 255, 0.95); }
   45% { fill: rgba(190, 155, 255, 0.55); }
-  100% { transform: scale(1); fill: transparent; }
+  100% { fill: transparent; }
 }
 .tree-overlay.reveal-expanding .tree-node.core,
 .tree-overlay.reveal-expanding .tree-node.core .body,
 .tree-overlay.reveal-expanding .tree-node.core .halo { animation: none; opacity: 1; }
 .tree-overlay.reveal-expanding .tree-edge {
-  animation: igniteFade 0.7s ease-out both;
+  animation: igniteInk 0.7s ease-out both;
   animation-delay: var(--rd, 0ms);
 }
 .tree-overlay.reveal-expanding .cluster-label {
-  animation: igniteFade 0.9s ease-out both;
+  animation: igniteInk 0.9s ease-out both;
   animation-delay: 1.7s;
 }
-@keyframes igniteFade { from { opacity: 0; } }
-@keyframes ignitePop { from { transform: scale(0.2); } }
+@keyframes igniteInk { from { fill-opacity: 0; stroke-opacity: 0; } }
+@keyframes ignitePop { from { r: 0; } }
 
 /* the shockwaves racing ahead of the lighting stars: HTML rings scaled on
    the compositor (an svg circle's animated r forced full-tree repaints) */
