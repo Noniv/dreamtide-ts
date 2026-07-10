@@ -714,14 +714,19 @@ function emitProjectile(q: QuadList, eng: Engine, pr: Projectile, alpha: number,
     q.push(true, glowE, x, y, 19, 0, 0.4, 1, 0.70, 0.95, 1);
   } else if (pr.kind === 'fang') {
     const e = q.uv('proj:fang')!;
-    q.push(false, e, x, y, e.half, Math.atan2(pr.vy, pr.vx), 1);
+    // art baked for the base hitbox (r=12); Maw of Night grows pr.r, so the
+    // crescent must grow with it or the hitbox outruns the visual
+    q.push(false, e, x, y, e.half * (pr.r / 12), Math.atan2(pr.vy, pr.vx), 1);
   } else if (pr.kind === 'glaive') {
     // subtle icy halo kept small so the blade silhouette reads as a glaive
     const glowE = q.uv('glow')!;
-    q.push(true, glowE, x, y, 26, 0, 0.28, 0.62, 0.85, 1);
+    q.push(true, glowE, x, y, 21, 0, 0.28, 0.62, 0.85, 1);
     const e = q.uv('proj:glaive')!; // baked twin-bladed star-blade, spinning
-    q.push(false, e, x, y, e.half, pr.spin, 1);
-    q.push(true, e, x, y, e.half, pr.spin, 0.18); // faint additive glint on the edge
+    // drawn slightly under natural size: blade tips at ~23px sit closer to the
+    // effective reach (r=14 + enemy radius) — full size read as misses; any
+    // smaller and it blurs together with Arcane Missiles
+    q.push(false, e, x, y, e.half * 0.78, pr.spin, 1);
+    q.push(true, e, x, y, e.half * 0.78, pr.spin, 0.18); // faint additive glint on the edge
   }
 }
 
