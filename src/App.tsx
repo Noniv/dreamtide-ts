@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { Engine, type HudState, type Choice } from './game/engine';
 import { SPELLS, BOONS, GENERIC, EVOLVE } from './game/spells';
+import { RELICS, type PactDef } from './game/relics';
 import { SpellIcon, SpellIconInner, HAS_ICON } from './game/spellIcons';
 import { audio } from './game/audio';
 import { settings, RESOLUTION_OPTIONS, type Preset, type PerfPresets, type ResolutionScale } from './game/settings';
@@ -10,12 +11,13 @@ import {
   TREE_NODES, TREE_EDGES, NODE_MAP, CLUSTER_INFO, loadMeta, saveMeta,
   canBuy, buyNode, canRefund, refundNode, refundValue, isReachable,
   computeBonuses, dustForRun, setLoadout, loadoutSlots, unlockedSpells,
+  markTreeRevealed,
   type Meta, type TreeNode,
 } from './game/meta';
 
-type Screen = 'menu' | 'playing' | 'levelup' | 'dead' | 'tree' | 'settings';
+type Screen = 'menu' | 'playing' | 'levelup' | 'relic' | 'pact' | 'dead' | 'tree' | 'settings';
 
-interface RunResult { time: number; kills: number; level: number; bonusDust: number; shards: number; record?: boolean }
+interface RunResult { time: number; kills: number; level: number; bonusDust: number; shards: number; relics: string[]; record?: boolean }
 
 interface GameStore {
   screen: Screen;
@@ -24,6 +26,8 @@ interface GameStore {
   newLevel: number;
   banishes: number;
   rerolls: number;
+  relicChoices: string[];
+  pactOffer: PactDef | null;
   result: RunResult | null;
   dustEarned: number;
   meta: Meta;
@@ -38,6 +42,8 @@ const useGame = create<GameStore>((set) => ({
   newLevel: 1,
   banishes: 0,
   rerolls: 0,
+  relicChoices: [],
+  pactOffer: null,
   result: null,
   dustEarned: 0,
   meta: loadMeta(),
@@ -66,7 +72,7 @@ function useSkyState() { return useMemo(skyState, []); }
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
-  const { screen, hud, choices, newLevel, banishes, rerolls, result, dustEarned, meta, set } = useGame();
+  const { screen, hud, choices, newLevel, banishes, rerolls, relicChoices, pactOffer, result, dustEarned, meta, set } = useGame();
   // menu → run cross-fade: the run starts immediately, but the menu stays
   // mounted with a `closing` class so its night-sky dissolves into the live
   // world instead of hard-cutting.
@@ -77,6 +83,8 @@ export default function App() {
     const engine = new Engine(canvasRef.current!, {
       onHud: (h) => set({ hud: h }),
       onLevelUp: (ch, lvl, banishes, rerolls) => set({ screen: 'levelup', choices: ch, newLevel: lvl, banishes, rerolls }),
+      onRelic: (ids) => set({ screen: 'relic', relicChoices: ids }),
+      onPact: (pact) => set({ screen: 'pact', pactOffer: pact }),
       onGameOver: (r) => {
         const st = useGame.getState();
         const bonuses = computeBonuses(st.meta);
@@ -167,13 +175,29 @@ export default function App() {
     if (!more) set({ screen: 'playing' });
   };
 
+  const pickRelic = (id: string) => {
+    engineRef.current!.chooseRelic(id);
+    // the engine may immediately open a queued level-up; only fall back to
+    // playing if it didn't flip the screen through its hook
+    if (useGame.getState().screen === 'relic') set({ screen: 'playing', relicChoices: [] });
+    else set({ relicChoices: [] });
+  };
+
+  const answerPact = (accept: boolean) => {
+    engineRef.current!.resolvePact(accept);
+    if (useGame.getState().screen === 'pact') set({ screen: 'playing', pactOffer: null });
+    else set({ pactOffer: null });
+  };
+
   const renderOverlay = (s: Screen) => {
     if (s === 'settings') return <Settings key="settings" onClose={() => set({ screen: 'menu' })} />;
-    if (s === 'dead' && result) return <GameOver key="dead" result={result} dustEarned={dustEarned} onRetry={begin} onTree={() => set({ screen: 'tree' })} onMenu={() => { audio.menuMood(); set({ screen: 'menu', result: null }); }} />;
+    if (s === 'dead' && result) return <GameOver key="dead" result={result} dustEarned={dustEarned} revealed={meta.treeRevealed} onRetry={begin} onTree={() => set({ screen: 'tree' })} onMenu={() => { audio.menuMood(); set({ screen: 'menu', result: null }); }} />;
     if (s === 'tree') return (
       <SkillTree
         key="tree"
         meta={meta}
+        reveal={!meta.treeRevealed}
+        onRevealed={() => set({ meta: markTreeRevealed(useGame.getState().meta) })}
         onBuy={(id) => set({ meta: buyNode(useGame.getState().meta, id) })}
         onRefund={(id) => set({ meta: refundNode(useGame.getState().meta, id) })}
         onLoadout={(l) => set({ meta: setLoadout(useGame.getState().meta, l) })}
@@ -209,6 +233,12 @@ export default function App() {
           />
         );
       })()}
+      {screen === 'relic' && relicChoices.length > 0 && (
+        <RelicChoice choices={relicChoices} onPick={pickRelic} />
+      )}
+      {screen === 'pact' && pactOffer && (
+        <PactChoice pact={pactOffer} onAnswer={answerPact} />
+      )}
       {/* rendered outside renderOverlay so the same element survives the
           screen flip to 'playing' — the opacity transition needs that */}
       {(screen === 'menu' || menuFading) && (
@@ -277,6 +307,17 @@ function Hud({ hud }: { hud: HudState }) {
             <span className="lv">{lv}</span>
           </div>
         ))}
+        {hud.relics.length > 0 && <div className="dock-divider" />}
+        {hud.relics.map((id) => (
+          <div
+            key={id}
+            className="spell-chip relic"
+            title={`${RELICS[id].name} — ${RELICS[id].desc}`}
+            style={{ '--c': RELICS[id].color } as React.CSSProperties}
+          >
+            <span className="glyph">{RELICS[id].icon}</span>
+          </div>
+        ))}
       </div>
       {firstDream && (
         <div className={`coach${coachGone ? ' gone' : ''}`}>
@@ -317,10 +358,16 @@ function Menu({ onStart, onTree, onSettings, meta, closing }: {
         <div className="menu-subtitle">Reverie of the Last Magus</div>
         <div className="menu-buttons">
           <button className="btn-primary" onClick={onStart}>Fall asleep</button>
-          <button className="btn-secondary" onClick={onTree}>
-            The Constellation
-            <span className="dust-chip">✦ {meta.dust}{(meta.shards || 0) > 0 ? ` · ❖ ${meta.shards}` : ''}</span>
-          </button>
+          {/* the Constellation stays a secret until its discovery has played;
+              after a first death it appears as an unexplained glimmer */}
+          {meta.treeRevealed ? (
+            <button className="btn-secondary" onClick={onTree}>
+              The Constellation
+              <span className="dust-chip">✦ {meta.dust}{(meta.shards || 0) > 0 ? ` · ❖ ${meta.shards}` : ''}</span>
+            </button>
+          ) : (meta.best > 0 || meta.dust > 0) ? (
+            <button className="btn-secondary glimmer" onClick={onTree}>✦ Something glimmers in the dark</button>
+          ) : null}
           <button className="btn-secondary" onClick={onSettings}>Tune the dream</button>
           {isNative && (
             <button className="btn-secondary" onClick={exitApp}>Leave the dream</button>
@@ -577,8 +624,120 @@ function LevelUp({ choices, level, banishes, rerolls, showBanish, showReroll, ma
   );
 }
 
-function GameOver({ result, dustEarned, onRetry, onTree, onMenu }: {
-  result: RunResult; dustEarned: number; onRetry: () => void; onTree: () => void; onMenu: () => void;
+// A fallen boss offers its relic: one of three, each a run-defining law of
+// the dream. Same card language as level-ups, dressed in gold.
+function RelicChoice({ choices, onPick }: { choices: string[]; onPick: (id: string) => void }) {
+  const picked = useRef(false);
+  const pick = (id: string) => {
+    if (picked.current) return;
+    picked.current = true;
+    onPick(id);
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const i = e.key.charCodeAt(0) - 49; // '1' → 0
+      if (i >= 0 && i < choices.length && !e.repeat) pick(choices[i]);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  return (
+    <div className="overlay levelup relic-overlay">
+      <div className="eyebrow">the nightmare leaves a gift</div>
+      <h2>Claim a relic</h2>
+      <div className="orn" aria-hidden="true">✦</div>
+      <div className="cards">
+        {choices.map((id, i) => {
+          const r = RELICS[id];
+          return (
+            <div key={id} className="card-slot">
+              <button
+                className="card relic"
+                style={{ '--c': r.color, '--c2': '#fff2cc' } as React.CSSProperties}
+                onClick={() => pick(id)}
+              >
+                <span className="card-key" aria-hidden="true"><i>{i + 1}</i></span>
+                <div className="card-rank">Relic</div>
+                <div className="card-glyph">{r.icon}</div>
+                <div className="card-name">{r.name}</div>
+                <div className="card-school">Once per dream</div>
+                <div className="card-line" aria-hidden="true" />
+                <div className="card-desc">{r.desc}</div>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// A Whispering Altar's bargain: seal the pact (boon braided to a curse) or
+// refuse it for a small mercy. Both answers are real choices.
+function PactChoice({ pact, onAnswer }: { pact: PactDef; onAnswer: (accept: boolean) => void }) {
+  const picked = useRef(false);
+  const answer = (accept: boolean) => {
+    if (picked.current) return;
+    picked.current = true;
+    onAnswer(accept);
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      if (e.key === '1') answer(true);
+      if (e.key === '2') answer(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  return (
+    <div className="overlay levelup pact-overlay">
+      <div className="eyebrow">the altar whispers</div>
+      <h2>{pact.name}</h2>
+      <div className="orn" aria-hidden="true">❖</div>
+      <div className="cards pact-cards">
+        <div className="card-slot">
+          <button
+            className="card pact"
+            style={{ '--c': '#c48cff', '--c2': '#ff5a7a' } as React.CSSProperties}
+            onClick={() => answer(true)}
+          >
+            <span className="card-key" aria-hidden="true"><i>1</i></span>
+            <div className="card-rank">Seal the pact</div>
+            <div className="card-glyph">{pact.icon}</div>
+            <div className="card-name">{pact.boon}</div>
+            <div className="card-school">for the rest of this dream</div>
+            <div className="card-line" aria-hidden="true" />
+            <div className="card-desc pact-curse">…but {pact.curse}.</div>
+          </button>
+        </div>
+        <div className="card-slot">
+          <button
+            className="card boon"
+            style={{ '--c': '#7dffb0', '--c2': '#e8fbff' } as React.CSSProperties}
+            onClick={() => answer(false)}
+          >
+            <span className="card-key" aria-hidden="true"><i>2</i></span>
+            <div className="card-rank">Refuse</div>
+            <div className="card-glyph">☽</div>
+            <div className="card-name">A quiet blessing</div>
+            <div className="card-school">the cautious road</div>
+            <div className="card-line" aria-hidden="true" />
+            <div className="card-desc">Mend a fifth of your life and gather a scatter of essence. The altar sleeps again.</div>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GameOver({ result, dustEarned, revealed, onRetry, onTree, onMenu }: {
+  result: RunResult; dustEarned: number; revealed: boolean;
+  onRetry: () => void; onTree: () => void; onMenu: () => void;
 }) {
   return (
     <div className="overlay dead">
@@ -593,9 +752,22 @@ function GameOver({ result, dustEarned, onRetry, onTree, onMenu }: {
         <div className="stat"><span className="num dust">+{dustEarned}</span><span className="lbl">stardust</span></div>
         {(result.shards || 0) > 0 && <div className="stat"><span className="num shards">+{result.shards}</span><span className="lbl">shards</span></div>}
       </div>
+      {result.relics.length > 0 && (
+        <div className="go-relics" title="Relics claimed this dream">
+          {result.relics.map((id) => (
+            <span key={id} className="go-relic" style={{ '--c': RELICS[id].color } as React.CSSProperties} title={RELICS[id].name}>
+              {RELICS[id].icon}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="menu-buttons">
         <button className="btn-primary" onClick={onRetry}>Sleep again</button>
-        <button className="btn-secondary" onClick={onTree}>The Constellation</button>
+        {revealed ? (
+          <button className="btn-secondary" onClick={onTree}>The Constellation</button>
+        ) : (
+          <button className="btn-secondary glimmer" onClick={onTree}>✦ Something glimmers in the dark</button>
+        )}
         <button className="btn-secondary" onClick={onMenu}>Return to the menu</button>
       </div>
     </div>
@@ -649,7 +821,11 @@ const TREE_VIEW = 2480;
 // positions taken from getBoundingClientRect must be divided back.
 const uiScale = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')) || 1;
 
-interface EdgeGeom { a: string; b: string; dark: boolean; d: string | null; line: { x1: number; y1: number; x2: number; y2: number } | null }
+interface EdgeGeom { a: string; b: string; dark: boolean; d: string | null; line: { x1: number; y1: number; x2: number; y2: number } | null; rd: string }
+
+// ignition delay for the first-discovery reveal: the light spreads outward
+// from the core, so everything ignites by its distance from the origin
+const igniteDelay = (dist: number) => `${((dist * 1.9 + 120) | 0)}ms`;
 
 const EDGE_GEOM: EdgeGeom[] = TREE_EDGES.map(([a, b, bend]) => {
   const na = NODE_MAP[a], nb = NODE_MAP[b];
@@ -665,7 +841,8 @@ const EDGE_GEOM: EdgeGeom[] = TREE_EDGES.map(([a, b, bend]) => {
     const cx = mx + (-dy / len) * bend, cy = my + (dx / len) * bend;
     d = `M ${na.x} ${na.y} Q ${cx} ${cy} ${nb.x} ${nb.y}`;
   }
-  return { a, b, dark, d, line };
+  const rd = igniteDelay(Math.min(Math.hypot(na.x, na.y), Math.hypot(nb.x, nb.y)));
+  return { a, b, dark, d, line, rd };
 }).filter(Boolean) as EdgeGeom[];
 
 const TreeEdges = React.memo(function TreeEdges({ owned }: { owned: Set<string> }) {
@@ -675,20 +852,30 @@ const TreeEdges = React.memo(function TreeEdges({ owned }: { owned: Set<string> 
         const lit = owned.has(e.a) && owned.has(e.b);
         const half = !lit && (owned.has(e.a) || owned.has(e.b));
         const cls = `tree-edge ${e.dark ? 'dark ' : ''}${lit ? 'lit' : half ? 'half' : ''}`;
+        const st = { '--rd': e.rd } as React.CSSProperties;
         return e.line
-          ? <line key={i} x1={e.line.x1} y1={e.line.y1} x2={e.line.x2} y2={e.line.y2} className={cls} />
-          : <path key={i} d={e.d!} className={cls} />;
+          ? <line key={i} x1={e.line.x1} y1={e.line.y1} x2={e.line.x2} y2={e.line.y2} className={cls} style={st} />
+          : <path key={i} d={e.d!} className={cls} style={st} />;
       })}
     </>
   );
 });
 
-function SkillTree({ meta, onBuy, onRefund, onLoadout, onClose }: {
-  meta: Meta; onBuy: (id: string) => void; onRefund: (id: string) => void;
+function SkillTree({ meta, reveal, onRevealed, onBuy, onRefund, onLoadout, onClose }: {
+  meta: Meta; reveal: boolean; onRevealed: () => void;
+  onBuy: (id: string) => void; onRefund: (id: string) => void;
   onLoadout: (loadout: string[]) => void; onClose: () => void;
 }) {
   const sky = useSkyState();
   const [tip, setTip] = useState<{ id: string; x: number; y: number } | null>(null);
+  // first-discovery choreography: 'seed' shows one lone star up close;
+  // touching it pulls the camera back while the whole web ignites outward
+  // ('expanding'); 'done' is the ordinary tree. Non-reveal visits skip it all.
+  const [phase, setPhase] = useState<'seed' | 'expanding' | 'done'>(reveal ? 'seed' : 'done');
+  const revealTimer = useRef(0);
+  // the reveal camera is pure CSS (a composited scale on the svg element) —
+  // animating the SVG group's transform attribute re-rasterizes all 356 nodes
+  // every frame and visibly stutters. view stays identity until 'done'.
   const [view, setView] = useState({ x: 0, y: 0, z: 1 });
   // one-shot allocation pulse: { id, key } — key bumps each buy so re-buying the
   // same node (after a refund) retriggers the CSS animation. Cleared after the
@@ -719,7 +906,23 @@ function SkillTree({ meta, onBuy, onRefund, onLoadout, onClose }: {
   useEffect(() => () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (pulseTimer.current) clearTimeout(pulseTimer.current);
+    if (revealTimer.current) clearTimeout(revealTimer.current);
   }, []);
+
+  // touch the lone star: the chime sounds, the CSS camera pulls back
+  // (`.reveal-expanding .tree-svg` keyframes) while the constellation
+  // ignites outward from the core (per-element --rd delays)
+  const startReveal = () => {
+    if (phase !== 'seed') return;
+    setPhase('expanding');
+    setTip(null);
+    audio.levelUp();
+    revealTimer.current = window.setTimeout(() => {
+      setPhase('done');
+      audio.bonus();
+      onRevealed();
+    }, 3200);
+  };
 
   // trigger the one-shot allocation pulse on a node, auto-removing it when the
   // CSS animation finishes (keeps exactly one node animated for ~0.7s max).
@@ -731,12 +934,16 @@ function SkillTree({ meta, onBuy, onRefund, onLoadout, onClose }: {
   };
 
   const hover = (n: TreeNode) => (e: React.MouseEvent) => {
+    // no tooltips during the discovery — "✓ awakened" on the lone star would
+    // give the whole mystery away before it's touched
+    if (phase !== 'done') return;
     if (dragRef.current && dragRef.current.moved) return;
     const r = (e.currentTarget as Element).getBoundingClientRect();
     setTip({ id: n.id, x: r.left + r.width / 2, y: r.top });
   };
 
   const onWheel = (e: React.WheelEvent) => {
+    if (phase !== 'done') return; // the camera belongs to the reveal
     const v = viewRef.current;
     const z = Math.min(3.2, Math.max(0.55, v.z * (e.deltaY < 0 ? 1.15 : 0.87)));
     const next = { ...v, z };
@@ -745,6 +952,7 @@ function SkillTree({ meta, onBuy, onRefund, onLoadout, onClose }: {
     setView(next);
   };
   const onMouseDown = (e: React.MouseEvent) => {
+    if (phase !== 'done') return;
     const v = viewRef.current;
     dragRef.current = { sx: e.clientX, sy: e.clientY, ox: v.x, oy: v.y, moved: false };
   };
@@ -771,9 +979,9 @@ function SkillTree({ meta, onBuy, onRefund, onLoadout, onClose }: {
   const wasDrag = () => dragRef.current && dragRef.current.moved;
 
   return (
-    <div className="overlay tree-overlay">
+    <div className={`overlay tree-overlay${phase === 'seed' ? ' reveal-seed' : phase === 'expanding' ? ' reveal-expanding' : ''}`}>
       <div className="tree-bg" aria-hidden="true" style={sky} />
-      <div className="tree-head">
+      <div className={`tree-head${phase !== 'done' ? ' veiled' : ''}`}>
         <div>
           <div className="tree-title">The Constellation</div>
           <div className="tree-sub">Drag to wander, scroll to draw near. Hover a star to read it; click to awaken it — or release an awakened star for half its stardust.</div>
@@ -807,10 +1015,13 @@ function SkillTree({ meta, onBuy, onRefund, onLoadout, onClose }: {
                   key={n.id}
                   className={`tree-node ${n.kind} ${n.currency === 'shards' ? 'dark' : ''} ${isOwned ? 'owned' : buyable ? 'buyable' : reach ? 'reach' : 'locked'} ${refundable ? 'refundable' : ''}`}
                   transform={`translate(${n.x},${n.y})`}
+                  style={{ '--rd': igniteDelay(Math.hypot(n.x, n.y)) } as React.CSSProperties}
                   onMouseEnter={hover(n)}
                   onMouseLeave={() => setTip(null)}
                   onClick={() => {
-                    if (wasDrag()) return;
+                    // during the discovery, the lone star is the only door
+                    if (phase === 'seed') { if (n.id === 'core') startReveal(); return; }
+                    if (phase !== 'done' || wasDrag()) return;
                     if (buyable) { onBuy(n.id); firePulse(n.id); audio.choose(); }
                     else if (refundable) { onRefund(n.id); audio.banish(); }
                   }}
@@ -851,6 +1062,16 @@ function SkillTree({ meta, onBuy, onRefund, onLoadout, onClose }: {
           </g>
         </svg>
 
+        {phase === 'expanding' && (
+          <>
+            {/* the ignition shockwaves racing ahead of the lighting stars —
+                HTML divs scaled on the compositor, so they never force an
+                SVG repaint the way animating a circle's r did */}
+            <div className="reveal-wave" />
+            <div className="reveal-wave w2" />
+          </>
+        )}
+
         {node && tip && (
           <div className="node-tip" style={{ left: tip.x / uiScale(), top: tip.y / uiScale() }}>
             <div className="tip-name">
@@ -885,7 +1106,14 @@ function SkillTree({ meta, onBuy, onRefund, onLoadout, onClose }: {
         )}
       </div>
 
-      <LoadoutBar meta={meta} onLoadout={onLoadout} />
+      {phase === 'seed' && (
+        <div className="reveal-caption">
+          <div className="rc-line">a lone star waits in the dark</div>
+          <div className="rc-hint">touch it</div>
+        </div>
+      )}
+
+      <LoadoutBar meta={meta} onLoadout={onLoadout} veiled={phase !== 'done'} />
     </div>
   );
 }
@@ -893,7 +1121,7 @@ function SkillTree({ meta, onBuy, onRefund, onLoadout, onClose }: {
 // The loadout: which spells the player carries into every run. One slot by
 // default (Arcane Missiles); +1-slot notables add slots up to MAX_LOADOUT. Each
 // slot is a picker over the unlocked spells; picking the blank clears the slot.
-function LoadoutBar({ meta, onLoadout }: { meta: Meta; onLoadout: (l: string[]) => void }) {
+function LoadoutBar({ meta, onLoadout, veiled }: { meta: Meta; onLoadout: (l: string[]) => void; veiled?: boolean }) {
   const slots = loadoutSlots(meta);
   const unlocked = unlockedSpells(meta);
   const loadout = meta.loadout;
@@ -915,7 +1143,7 @@ function LoadoutBar({ meta, onLoadout }: { meta: Meta; onLoadout: (l: string[]) 
   };
 
   return (
-    <div className="loadout">
+    <div className={`loadout${veiled ? ' veiled' : ''}`}>
       <div className="loadout-label">Loadout <span className="loadout-hint">— the spells you carry into sleep</span></div>
       <div className="loadout-slots">
         {Array.from({ length: slots }, (_, i) => {

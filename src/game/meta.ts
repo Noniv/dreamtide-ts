@@ -29,6 +29,10 @@ export interface Meta {
   owned: string[];
   best: number;
   loadout: string[]; // spells carried into every run; length grows with slots
+  // The Constellation stays hidden until its first-discovery reveal has
+  // played (after the player's first death). Existing saves that clearly
+  // interacted with the tree already are treated as revealed.
+  treeRevealed: boolean;
 }
 
 // spells always available in the loadout regardless of unlocks
@@ -665,12 +669,20 @@ export function loadMeta(): Meta {
         owned: Array.isArray(d.owned) ? d.owned.filter((id: string) => NODE_MAP[id]) : ['core'],
         best: d.best || 0,
         loadout: Array.isArray(d.loadout) ? d.loadout : [LOADOUT_BASE],
+        // migration: only saves from BEFORE this field existed fall back to
+        // the heuristic (they've plainly used the tree if they own stars or
+        // hold dust). Saves that carry the field keep it verbatim — a new
+        // player who dies and reloads before touching the glimmer must NOT
+        // be auto-marked as having seen the reveal.
+        treeRevealed: d.treeRevealed !== undefined
+          ? !!d.treeRevealed
+          : (Array.isArray(d.owned) && d.owned.length > 1) || (d.dust || 0) > 0 || (d.best || 0) > 0,
       };
       meta.loadout = sanitizeLoadout(meta);
       return meta;
     }
   } catch { /* corrupted store — start fresh */ }
-  return { dust: 0, shards: 0, owned: ['core'], best: 0, loadout: [LOADOUT_BASE] };
+  return { dust: 0, shards: 0, owned: ['core'], best: 0, loadout: [LOADOUT_BASE], treeRevealed: false };
 }
 
 export function saveMeta(meta: Meta) {
@@ -710,6 +722,14 @@ export function buyNode(meta: Meta, id: string): Meta {
   const cur = nodeCurrency(id);
   const next = { ...meta, [cur]: (meta[cur] || 0) - NODE_MAP[id].cost, owned: [...meta.owned, id] };
   next.loadout = sanitizeLoadout(next); // slot/unlock changes may affect it
+  saveMeta(next);
+  return next;
+}
+
+// the first-discovery reveal has played — the Constellation is now a plain menu
+export function markTreeRevealed(meta: Meta): Meta {
+  if (meta.treeRevealed) return meta;
+  const next = { ...meta, treeRevealed: true };
   saveMeta(next);
   return next;
 }

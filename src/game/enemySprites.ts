@@ -257,8 +257,10 @@ export const WIZARD_HALF = 38;
 function paintWizard(ctx: CanvasRenderingContext2D, ph: number) {
   ctx.translate(0, WIZARD_CY); // paint in original feet-anchored coords
   const hemT = ph * TAU;
-  const robe = (w1: number, w2: number, hY: number, col: string) => {
-    ctx.fillStyle = col;
+
+  // the robe silhouette (unchanged — the engine's hurtbox is tuned to it)
+  const robe = (w1: number, w2: number, hY: number, fill: string | CanvasGradient) => {
+    ctx.fillStyle = fill;
     ctx.beginPath();
     ctx.moveTo(-w1, -26);
     ctx.quadraticCurveTo(-w2 - 2, -6, -w2, hY);
@@ -270,26 +272,112 @@ function paintWizard(ctx: CanvasRenderingContext2D, ph: number) {
     ctx.closePath();
     ctx.fill();
   };
-  robe(9, 16, 8, '#241a4d');
-  robe(8, 13, 5, '#3b2a78');
-  // belt & moon sigil
+  // a piece of the night sky: deeper toward the hem, lighter at the shoulders
+  robe(9, 16, 8, linGrad(ctx, 0, -26, 0, 10, '#2b2058', '#181140'));
+  robe(8, 13, 5, linGrad(ctx, 0, -26, 0, 8, '#46329a', '#2b1f61'));
+
+  // stars woven into the cloth, twinkling out of phase (loop-safe sin terms)
+  ctx.globalCompositeOperation = 'lighter';
+  const SPECKS: [number, number, number, string][] = [
+    [-6, -20, 2.0, '#ffd27a'],
+    [5, -16, 1.6, '#8fe8ff'],
+    [0, -10, 1.3, '#e6d1ff'],
+    [-8, -4, 1.7, '#8fe8ff'],
+    [7, -5, 2.0, '#ffd27a'],
+    [-3, 1, 1.4, '#fff2cc'],
+  ];
+  for (let k = 0; k < SPECKS.length; k++) {
+    const [sx, sy, sr, c] = SPECKS[k];
+    const tw = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(hemT + k * 2.7));
+    ctx.globalAlpha = tw;
+    ctx.fillStyle = c;
+    ctx.beginPath(); // four-point sparkle
+    ctx.moveTo(sx, sy - sr);
+    ctx.lineTo(sx + sr * 0.36, sy);
+    ctx.lineTo(sx, sy + sr);
+    ctx.lineTo(sx - sr * 0.36, sy);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(sx - sr, sy);
+    ctx.lineTo(sx, sy + sr * 0.36);
+    ctx.lineTo(sx + sr, sy);
+    ctx.lineTo(sx, sy - sr * 0.36);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // rim light: a violet whisper on both sides — it lifts the figure out of the
+  // dark like the enemies' own glows do
+  ctx.strokeStyle = 'rgba(180,140,255,0.25)';
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(9, -26);
+  ctx.quadraticCurveTo(18, -6, 16, 7);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(180,140,255,0.25)';
+  ctx.beginPath();
+  ctx.moveTo(-9, -26);
+  ctx.quadraticCurveTo(-18, -6, -16, 7);
+  ctx.stroke();
+  ctx.globalCompositeOperation = 'source-over';
+
+  // belt with a soft gold breath at the buckle
   ctx.fillStyle = '#ffd27a';
   ctx.fillRect(-8, -14, 16, 2.4);
-  ctx.strokeStyle = '#8fe8ff';
+  softGlow(ctx, 0, -12.8, 5, 'rgba(255,210,122,0.4)');
+  ctx.fillStyle = '#fff2cc';
+  ctx.beginPath(); // small diamond buckle
+  ctx.moveTo(0, -15.2); ctx.lineTo(2, -12.8); ctx.lineTo(0, -10.4); ctx.lineTo(-2, -12.8);
+  ctx.closePath(); ctx.fill();
+
+  // moon sigil, luminous now (the bloom pass picks it up)
+  softGlow(ctx, 0, -4, 7, 'rgba(143,232,255,0.4)');
+  ctx.strokeStyle = '#bff1ff';
   ctx.lineWidth = 1.4;
   ctx.beginPath();
   ctx.arc(0, -4, 4.4, 0.7, TAU - 0.7);
   ctx.stroke();
+
+  // staff arm
+  ctx.strokeStyle = '#f2d9c0';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(4, -22); ctx.lineTo(13, -26); ctx.stroke();
+
   // head
   ctx.fillStyle = '#f2d9c0';
   ctx.beginPath(); ctx.arc(1, -32, 6.5, 0, TAU); ctx.fill();
   ctx.fillStyle = '#1a1330';
   ctx.beginPath(); ctx.arc(3.4, -33, 1, 0, TAU); ctx.fill();
-  // hat: wide brim + bent cone with a slowly-spinning star
+
+  // a magus beard: silver-lavender, drifting with the same breeze as the hem
+  const bw = Math.sin(hemT + 1.2) * 0.8;
+  ctx.fillStyle = '#d9d4f2';
+  ctx.beginPath();
+  ctx.moveTo(-3.5, -29.5);
+  ctx.quadraticCurveTo(-4.5, -24, -1.5 + bw, -20);
+  ctx.quadraticCurveTo(1.5 + bw, -18.5, 3.5 + bw * 0.5, -21);
+  ctx.quadraticCurveTo(5.5, -25, 4.8, -28.5);
+  ctx.quadraticCurveTo(1, -26.5, -3.5, -29.5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = 'rgba(150,140,205,0.45)'; // a little depth in the strands
+  ctx.beginPath();
+  ctx.moveTo(-1.5, -27.5);
+  ctx.quadraticCurveTo(-2, -23.5, 0 + bw, -20.5);
+  ctx.quadraticCurveTo(0.8, -24, 0.4, -27);
+  ctx.closePath();
+  ctx.fill();
+
+  // hat: brim with underside depth, gradient cone, gold band, tip star
   const hatBend = Math.sin(hemT * 0.5) * 1.5;
-  ctx.fillStyle = '#2c1f63';
-  ctx.beginPath(); ctx.ellipse(0.5, -36, 13.5, 3.6, -0.06, 0, TAU); ctx.fill();
-  ctx.fillStyle = '#3b2a78';
+  ctx.fillStyle = '#221850';
+  ctx.beginPath(); ctx.ellipse(0.5, -35.6, 13.5, 3.6, -0.06, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#352a70';
+  ctx.beginPath(); ctx.ellipse(0.5, -36.4, 13.2, 3.3, -0.06, 0, TAU); ctx.fill();
+  ctx.fillStyle = linGrad(ctx, 0, -37, 0, -58, '#332566', '#4a37a0');
   ctx.beginPath();
   ctx.moveTo(-7.5, -37);
   ctx.quadraticCurveTo(-3, -52, 2 + hatBend, -56);
@@ -297,10 +385,13 @@ function paintWizard(ctx: CanvasRenderingContext2D, ph: number) {
   ctx.quadraticCurveTo(7, -44, 8, -37.5);
   ctx.closePath();
   ctx.fill();
-  ctx.fillStyle = '#ffd27a';
-  ctx.save();
+  ctx.fillStyle = '#ffd27a'; // hat band at the cone's base
+  ctx.fillRect(-5.5, -39.8, 11.5, 1.9);
+  ctx.save(); // the slowly-spinning tip star, now breathing light
+  softGlow(ctx, 3.5 + hatBend, -54, 6, 'rgba(255,210,122,0.5)');
   ctx.translate(3.5 + hatBend, -54);
   ctx.rotate(ph * TAU);
+  ctx.fillStyle = '#ffd27a';
   ctx.beginPath();
   for (let k = 0; k < 5; k++) {
     const a = (k / 5) * TAU - Math.PI / 2;
@@ -311,16 +402,26 @@ function paintWizard(ctx: CanvasRenderingContext2D, ph: number) {
   ctx.closePath();
   ctx.fill();
   ctx.restore();
-  // staff arm + staff (orb glow/core drawn live so it can pulse with casts)
-  ctx.strokeStyle = '#f2d9c0';
-  ctx.lineWidth = 3;
-  ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(4, -22); ctx.lineTo(13, -26); ctx.stroke();
-  ctx.strokeStyle = '#6b4a2a';
+
+  // staff: driftwood with a moonlit edge and a crescent cradling the orb
+  // (orb glow/core stay LIVE quads at (14,-48) so casts can pulse them)
+  ctx.strokeStyle = '#5a3d22';
   ctx.lineWidth = 2.6;
   ctx.beginPath();
   ctx.moveTo(14, 6);
   ctx.quadraticCurveTo(15.5, -20, 14, -44);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,220,160,0.3)';
+  ctx.lineWidth = 0.9;
+  ctx.beginPath();
+  ctx.moveTo(13.2, 5);
+  ctx.quadraticCurveTo(14.7, -20, 13.3, -43);
+  ctx.stroke();
+  ctx.strokeStyle = '#ffd27a';
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = 'round';
+  ctx.beginPath(); // crescent cup under the orb
+  ctx.arc(14, -47, 5.2, Math.PI * 0.18, Math.PI * 0.82);
   ctx.stroke();
   ctx.fillStyle = '#bff9ff';
   ctx.beginPath(); ctx.arc(14, -48, 3.6, 0, TAU); ctx.fill();

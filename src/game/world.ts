@@ -20,6 +20,9 @@ export interface RangedProfile { range: number; cd: number; projSpeed: number; s
 export interface BossFire {
   cd: number; interval: number; speed: number;
   spin: number; spinV: number; patterns: string[]; pIdx: number;
+  // >0 roots the boss in place (the Colossus plants itself to slam, so its
+  // slow rings stay centred on the body that threw them)
+  hold: number;
 }
 
 export interface Enemy {
@@ -36,6 +39,10 @@ export interface Enemy {
   speed: number; dmg: number; radius: number; xp: number;
   color: string;
   slow: number; slowT: number;
+  // Resonance marks: storm hits leave a charge that discharges on death,
+  // light hits leave a brand that amplifies damage and fuels Eclipse.
+  // reactCd is an absolute sim-time stamp gating reactions per enemy.
+  chargeT: number; chargeDmg: number; brandT: number; reactCd: number;
   hitFlash: number; animT: number; seed: number;
   knbx: number; knby: number;
   goldT: number;
@@ -139,7 +146,7 @@ export interface Pickup {
   dead: boolean;
   x: number; y: number;
   life: number; ph: number;
-  kind: 'heal' | 'gems' | 'dust';
+  kind: 'heal' | 'gems' | 'dust' | 'altar';
 }
 
 export interface Orbital {
@@ -153,7 +160,9 @@ export function makeEnemy(): Enemy {
   return {
     uid: 0, slot: 0, type: 'wisp', boss: false, elite: false, golden: false, dead: false,
     x: 0, y: 0, px: 0, py: 0, hp: 1, maxHp: 1, speed: 0, dmg: 0, radius: 10, xp: 1,
-    color: '#fff', slow: 0, slowT: 0, hitFlash: 0, animT: 0, seed: 0,
+    color: '#fff', slow: 0, slowT: 0,
+    chargeT: 0, chargeDmg: 0, brandT: 0, reactCd: 0,
+    hitFlash: 0, animT: 0, seed: 0,
     knbx: 0, knby: 0, goldT: 0, shootCd: -1, dmgTextT: 0,
     meleeCd: 0, meleeBaseCd: 1, meleeReach: 6, meleeAnim: 0, ranged: null, bossFire: null,
   };

@@ -194,8 +194,9 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
     octx.translate(ax, ay);
     octx.rotate(ang);
     octx.globalAlpha = 0.55 + 0.3 * Math.sin(vt * 5);
-    octx.fillStyle = '#7ff5ff';
-    octx.shadowColor = '#7ff5ff';
+    const arrowC = s.kind === 'altar' ? '#c48cff' : '#7ff5ff';
+    octx.fillStyle = arrowC;
+    octx.shadowColor = arrowC;
     octx.shadowBlur = 10;
     octx.beginPath();
     octx.moveTo(14, 0);
@@ -450,8 +451,10 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
   const mix = flashMix > 0 ? flashMix : frozen ? 0.55 : 0;
 
   const anim = ENEMY_ANIM[e.type];
-  const type = e.boss ? 'eye' : e.type;
-  const sc = e.boss ? e.radius / 18 : e.radius / ENEMY_TYPES[e.type].radius;
+  // bosses wear their archetype's own body (Devourer eye, Colossus golem,
+  // Choir siren), scaled up from the base sprite by their radius
+  const type = e.type;
+  const sc = e.radius / ENEMY_TYPES[e.type].radius;
   const bob = anim.bob(e.animT);
   let fi = ((e.animT * anim.rate + e.seed) / TAU * FRAMES) | 0;
   fi = ((fi % FRAMES) + FRAMES) % FRAMES;
@@ -490,6 +493,28 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
       q.push(false, shE, x + Math.cos(sa) * R, y + Math.sin(sa) * R, shE.half * 0.9, sa + Math.PI / 2, 1, 1, 0.35, 0.48, 0.85);
     }
     drawStats.enemyLiveOps++;
+  } else if (e.boss) {
+    // every nightmare wears a slow corona in its own colour so it reads as a
+    // boss whatever body it took
+    const ringE = q.uv('ring')!;
+    const [br, bg, bb] = rgb(e.color);
+    const coronaR = e.radius + 16 + Math.sin(vt * 3) * 4;
+    q.push(true, ringE, x, y, coronaR / 30 * ringE.half, 0, 0.6, br, bg, bb, 1);
+    drawStats.enemyLiveOps++;
+  }
+
+  // resonance marks — cheap live overlays so combos read at a glance:
+  // charge = white-blue crackle flicker, brand = a steady golden halo
+  if (e.chargeT > 0) {
+    const flick = 0.5 + 0.5 * Math.sin(vt * 22 + e.seed);
+    q.push(true, glowE, x, y - e.radius * 0.3, e.radius * 0.8 + 5, 0, 0.22 + 0.3 * flick, 0.72, 0.9, 1, 1);
+    drawStats.enemyLiveOps++;
+  }
+  if (e.brandT > 0) {
+    const ringE = q.uv('ring')!;
+    const brR = e.radius + 6 + Math.sin(vt * 6 + e.seed) * 1.5;
+    q.push(true, ringE, x, y, brR / 30 * ringE.half, 0, 0.55, 1, 0.92, 0.6, 1);
+    drawStats.enemyLiveOps++;
   }
   // golem: orbiting rock chunks (live quads, smooth)
   if (e.type === 'golem') {
@@ -516,7 +541,9 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
     drawStats.enemyLiveOps++;
   }
   // siren: charging mouth-glow + spark motes (baked frames are at rest)
-  if (e.type === 'siren' && e.ranged && e.shootCd < 0.6) {
+  // (boss sirens never fire this volley — bossFire replaces it — so the
+  // charge glow must not read their frozen shootCd)
+  if (e.type === 'siren' && !e.boss && e.ranged && e.shootCd < 0.6) {
     const hover = Math.sin(e.animT * 4 + e.seed) * 3 * sc;
     const gy = y + bob * sc + hover - 2 * sc;
     q.push(true, glowE, x, gy, (10 + Math.sin(vt * 20) * 3) * sc, 0, 0.75, 0.49, 0.79, 1, 1);
@@ -623,6 +650,19 @@ function emitPickup(q: QuadList, eng: Engine, s: Pickup, camX: number, camY: num
   const beaconE = q.uv('pickup:beacon')!;
   const ringE = q.uv('ring')!;
   const starE = q.uv('pickup:star')!;
+  if (s.kind === 'altar') {
+    // a whispering altar: violet beacon, slow rune wheel, embers of the bargain
+    q.push(true, beaconE, x, y, beaconE.half, 0, urgent * 0.9, 0.77, 0.55, 1, 1);
+    const ringPulse = 0.9 + Math.sin(s.ph * 0.8) * 0.15;
+    q.push(true, ringE, x, y + 6, 14 * ringPulse, 0, 0.55 * urgent, 0.77, 0.55, 1, 1);
+    q.push(true, glowE, x, y - 10, 30, 0, 0.8 * urgent, 0.6, 0.36, 1, 1);
+    const runeE = q.uv('p:rune0')!;
+    for (let i = 0; i < 3; i++) {
+      const ra = s.ph * 0.5 + (i / 3) * TAU;
+      q.push(true, runeE, x + Math.cos(ra) * 20, y - 12 + Math.sin(ra) * 9, 7, ra, 0.85 * urgent, 0.9, 0.7, 1, 1);
+    }
+    return;
+  }
   // vertical beacon rising from the star
   q.push(true, beaconE, x, y, beaconE.half, 0, urgent, 0.5, 0.96, 1, 1);
   // pulsing ground ring where the star rests (cyan, additive)

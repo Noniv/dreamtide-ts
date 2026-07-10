@@ -331,17 +331,43 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 .spell-chip.empty .glyph { font-size: 19px; color: rgba(205, 216, 255, 0.3); filter: none; }
 .spell-chip.boon { --c: var(--gold); }
 .spell-chip.boon .glyph { text-shadow: 0 0 8px var(--gold); filter: none; }
+/* level pip: no plate at all. A single accent hairline runs diagonally
+   across the corner — parallel to the octagon cut — sectioning off a softly
+   tinted wedge that holds the number. The line echoes the chip's own
+   geometry instead of stamping a box over it; the 135deg gradient's 50%
+   stop lands exactly on the box's anti-diagonal, which is the hairline. */
 .spell-chip .lv {
-  position: absolute; right: 1px; bottom: 1px;
+  position: absolute; right: 0; bottom: 0;
+  /* the digit is biased toward the cut, away from the hairline: the bright
+     hairline is the dominant edge, so crowding reads there first — ~5px of
+     air on the hairline side, a snugger fit against the dark cut side */
+  width: 32px; height: 32px;
+  z-index: 1;
+  display: flex; align-items: flex-end; justify-content: flex-end;
+  padding: 0 6px 5px 0; box-sizing: border-box;
   font-family: var(--ui); font-size: 11px; font-weight: 700;
   color: #fff;
-  background: rgba(5, 3, 16, 0.92);
-  border: 1px solid color-mix(in srgb, var(--c, #ffd27a) 60%, transparent);
-  width: 17px; height: 17px;
-  display: flex; align-items: center; justify-content: center;
+  text-shadow: 0 0 5px rgba(5, 3, 16, 0.95), 0 1px 2px rgba(5, 3, 16, 0.9);
+}
+.spell-chip .lv::before {
+  content: '';
+  position: absolute; inset: 0; z-index: -1;
+  clip-path: polygon(0 100%, 100% 0, 100% 100%);
+  background: linear-gradient(135deg,
+    transparent calc(50% - 1.4px),
+    color-mix(in srgb, var(--c, #ffd27a) 80%, #fff) calc(50% - 1.4px) calc(50% + 0.1px),
+    color-mix(in srgb, var(--c, #ffd27a) 30%, rgba(8, 6, 22, 0.72)) calc(50% + 0.1px));
 }
 .spell-chip.evolved { background: linear-gradient(160deg, #ffe9bd, #b98a3c); filter: drop-shadow(0 0 9px rgba(255, 210, 122, 0.6)); }
-.spell-chip.evolved .lv { color: var(--gold); border-color: var(--gold); }
+.spell-chip.evolved .lv { color: #fff2cc; }
+.spell-chip.evolved .lv::before {
+  background: linear-gradient(135deg,
+    transparent calc(50% - 1.4px),
+    #ffe9bd calc(50% - 1.4px) calc(50% + 0.1px),
+    rgba(185, 138, 60, 0.55) calc(50% + 0.1px));
+}
+/* relic chips: no level pip, glyph glows in the relic's colour */
+.spell-chip.relic .glyph { color: var(--c); text-shadow: 0 0 9px var(--c); filter: none; font-size: 18px; }
 .dock-divider {
   width: 1px; height: 34px; margin: 0 3px;
   background: linear-gradient(180deg, transparent, rgba(205, 216, 255, 0.35), transparent);
@@ -646,6 +672,22 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   50% { filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.5)) drop-shadow(0 0 30px rgba(255, 210, 122, 0.5)); }
 }
 
+/* relic card: a nightmare's gift — the evolve card's living glow in the
+   relic's own colour */
+.card.relic {
+  animation: cardIn 0.45s cubic-bezier(0.2, 0.8, 0.3, 1) backwards, relicPulse 2.2s ease-in-out infinite;
+}
+@keyframes relicPulse {
+  50% { filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.5)) drop-shadow(0 0 28px color-mix(in srgb, var(--c) 55%, transparent)); }
+}
+
+/* pact card: the curse line burns under the boon */
+.pact-cards .card { min-height: 300px; }
+.card-desc.pact-curse {
+  color: rgba(255, 138, 178, 0.95);
+  margin-top: 4px;
+}
+
 .banish-btn {
   position: relative; isolation: isolate;
   font-family: var(--display); font-size: 12px; font-weight: 600;
@@ -744,6 +786,17 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 @keyframes recordGlow { 50% { text-shadow: 0 0 26px rgba(255, 210, 122, 0.95); } }
 .dead .orn { margin: 14px auto 26px; }
 .result-row { display: flex; margin-bottom: 36px; }
+/* relics carried when the dream closed */
+.go-relics { display: flex; gap: 14px; margin: -14px 0 30px; }
+.go-relic {
+  width: 38px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 19px; color: var(--c);
+  text-shadow: 0 0 10px var(--c);
+  border: 1px solid color-mix(in srgb, var(--c) 55%, transparent);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--c) 20%, transparent), transparent 72%);
+}
 .stat {
   display: flex; flex-direction: column; gap: 5px;
   padding: 2px 40px;
@@ -882,6 +935,119 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   --pulse-scale: 4.4; --pulse-blur: 4px;
   --pulse-glow: rgba(180, 140, 255, 0.95);
 }
+/* ---------------------------------------------- first-discovery reveal
+   'reveal-seed': the whole web is dark; one star breathes at the centre.
+   'reveal-expanding': touching it pulls the camera back (JS) while nodes,
+   edges and labels ignite outward — each carries --rd, its ignition delay
+   proportional to its distance from the core. */
+/* the reveal camera: a composited CSS scale on the svg ELEMENT. Animating
+   the inner group's transform attribute re-rasterizes the whole 356-node
+   subtree per frame and stutters; this stays on the GPU. The core sits at
+   the viewBox centre, so scaling about the element centre keeps it fixed. */
+.tree-overlay.reveal-seed .tree-svg { transform: scale(2.3); }
+.tree-overlay.reveal-expanding .tree-svg {
+  animation: revealZoom 2.9s cubic-bezier(0.45, 0, 0.55, 1) forwards;
+  will-change: transform;
+}
+@keyframes revealZoom { from { transform: scale(2.3); } to { transform: scale(1); } }
+
+.tree-overlay.reveal-seed .tree-edge,
+.tree-overlay.reveal-seed .cluster-label { opacity: 0; }
+.tree-overlay.reveal-seed .tree-node { opacity: 0; pointer-events: none; }
+.tree-overlay.reveal-seed .tree-node.core { opacity: 1; pointer-events: auto; cursor: pointer; }
+.tree-overlay.reveal-seed .tree-node.core .body { animation: seedBreath 2.6s ease-in-out infinite; }
+.tree-overlay.reveal-seed .tree-node.core .halo { fill: rgba(180, 140, 255, 0.2); animation: seedHalo 2.6s ease-in-out infinite; }
+@keyframes seedBreath {
+  50% { filter: drop-shadow(0 0 16px rgba(180, 140, 255, 0.95)); }
+}
+@keyframes seedHalo {
+  50% { fill: rgba(180, 140, 255, 0.42); }
+}
+
+.tree-overlay.reveal-expanding .tree-node {
+  pointer-events: none;
+  animation: igniteFade 0.6s ease-out both;
+  animation-delay: var(--rd, 0ms);
+}
+.tree-overlay.reveal-expanding .tree-node .body {
+  transform-box: fill-box; transform-origin: center;
+  animation: ignitePop 0.6s cubic-bezier(0.2, 0.9, 0.3, 1.35) both;
+  animation-delay: var(--rd, 0ms);
+}
+/* each star flashes bright as it catches, then settles (fill on the halo —
+   no per-node drop-shadow filters, those stutter at 356 nodes) */
+.tree-overlay.reveal-expanding .tree-node .halo {
+  transform-box: fill-box; transform-origin: center;
+  animation: igniteHalo 0.9s ease-out both;
+  animation-delay: var(--rd, 0ms);
+}
+@keyframes igniteHalo {
+  0% { transform: scale(0.2); fill: rgba(235, 226, 255, 0.95); }
+  45% { fill: rgba(190, 155, 255, 0.55); }
+  100% { transform: scale(1); fill: transparent; }
+}
+.tree-overlay.reveal-expanding .tree-node.core,
+.tree-overlay.reveal-expanding .tree-node.core .body,
+.tree-overlay.reveal-expanding .tree-node.core .halo { animation: none; opacity: 1; }
+.tree-overlay.reveal-expanding .tree-edge {
+  animation: igniteFade 0.7s ease-out both;
+  animation-delay: var(--rd, 0ms);
+}
+.tree-overlay.reveal-expanding .cluster-label {
+  animation: igniteFade 0.9s ease-out both;
+  animation-delay: 1.7s;
+}
+@keyframes igniteFade { from { opacity: 0; } }
+@keyframes ignitePop { from { transform: scale(0.2); } }
+
+/* the shockwaves racing ahead of the lighting stars: HTML rings scaled on
+   the compositor (an svg circle's animated r forced full-tree repaints) */
+.reveal-wave {
+  position: absolute; left: 50%; top: 50%;
+  width: 500px; height: 500px; margin: -250px 0 0 -250px;
+  border-radius: 50%;
+  border: 2px solid rgba(203, 182, 255, 0.9);
+  pointer-events: none;
+  animation: revealWave 2.7s cubic-bezier(0.3, 0.5, 0.5, 1) forwards;
+  will-change: transform, opacity;
+}
+.reveal-wave.w2 { border-color: rgba(127, 245, 255, 0.8); border-width: 1.5px; animation-delay: 0.3s; }
+@keyframes revealWave {
+  from { transform: scale(0.06); opacity: 0.95; }
+  to { transform: scale(4); opacity: 0; }
+}
+
+/* the head/loadout stay mounted (stable layout) but hidden until 'done' */
+.tree-head, .loadout { transition: opacity 0.7s ease; }
+.tree-head.veiled, .loadout.veiled { opacity: 0; pointer-events: none; }
+
+.reveal-caption {
+  position: absolute; left: 50%; bottom: 92px; transform: translateX(-50%);
+  text-align: center; pointer-events: none; z-index: 2;
+}
+.rc-line {
+  font-family: var(--flavor); font-style: italic; font-weight: 500; font-size: 22px;
+  color: rgba(216, 224, 255, 0.92);
+  text-shadow: 0 0 16px rgba(127, 245, 255, 0.3);
+}
+.rc-hint {
+  margin-top: 12px;
+  font-family: var(--display); font-size: 12px; font-weight: 600;
+  letter-spacing: 0.34em; text-transform: uppercase; padding-left: 0.34em;
+  color: rgba(255, 210, 122, 0.9);
+  animation: hintPulse 2.2s ease-in-out infinite;
+}
+@keyframes hintPulse { 50% { opacity: 0.4; } }
+
+/* the unexplained menu entry before the constellation is discovered */
+.btn-secondary.glimmer {
+  color: #ffe9bd;
+  animation: glimmerPulse 2.4s ease-in-out infinite;
+}
+@keyframes glimmerPulse {
+  50% { filter: drop-shadow(0 0 13px rgba(255, 210, 122, 0.6)); }
+}
+
 .tree-node.dark .node-pulse {
   --pulse-col: #ff6f93;
   --pulse-glow: rgba(255, 90, 122, 0.9);
