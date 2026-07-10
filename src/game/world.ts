@@ -100,6 +100,10 @@ export interface BossProjectile {
   vx: number; vy: number;
   life: number; r: number; dmg: number;
   color: string | null;
+  // Mirror Waltz: batted back by a petal — now hunts the horde instead
+  reflected: boolean;
+  // absolute sim-time gate so one petal contact rolls the reflect chance once
+  parryT: number;
 }
 
 export type ZoneKind = 'frostwave' | 'rift' | 'nebula' | 'sigil' | 'scorch' | 'novawave' | 'lantern';
@@ -118,7 +122,8 @@ export interface Zone {
   dvx: number; dvy: number;
   evolved: boolean; boomed: boolean; echo: boolean; echoed: boolean;
   bossChill: boolean; bossPull: boolean; slowIn: number; core: boolean;
-  slowGlow: boolean; heal: number;
+  // dissolve: % chance the wavefront unmakes enemy shots it crosses (0 = off)
+  dissolve: number; heal: number;
   c1: string; c2: string;
   hit: HitMask | null;
 }
@@ -193,7 +198,7 @@ export function makeProjectile(): Projectile {
 }
 
 export function makeBossProjectile(): BossProjectile {
-  return { dead: false, x: 0, y: 0, px: 0, py: 0, vx: 0, vy: 0, life: 0, r: 6, dmg: 0, color: null };
+  return { dead: false, x: 0, y: 0, px: 0, py: 0, vx: 0, vy: 0, life: 0, r: 6, dmg: 0, color: null, reflected: false, parryT: 0 };
 }
 
 export function makeZone(): Zone {
@@ -202,7 +207,7 @@ export function makeZone(): Zone {
     life: 0, maxLife: 1, delay: 0, dmg: 0, dps: 0, slow: 0, slowDur: 0, sleepDur: 0,
     pull: 0, knock: 0, tick: 0, int: 0.8, spin: 0, seed: 0, ph: 0, dvx: 0, dvy: 0,
     evolved: false, boomed: false, echo: false, echoed: false,
-    bossChill: false, bossPull: false, slowIn: 0, core: false, slowGlow: false, heal: 0,
+    bossChill: false, bossPull: false, slowIn: 0, core: false, dissolve: 0, heal: 0,
     c1: '', c2: '', hit: null,
   };
 }

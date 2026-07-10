@@ -49,6 +49,7 @@ export interface StoredSettings {
   perf: PerfPresets;
   resolution: ResolutionScale;
   devEndgame: boolean; // dev-only: start runs in the endgame test scenario
+  devFreeTree: boolean; // dev-only: constellation nodes cost nothing
 }
 
 const DEFAULTS: StoredSettings = {
@@ -57,6 +58,7 @@ const DEFAULTS: StoredSettings = {
   perf: { particles: 'medium', dmgText: 'medium', hpBars: 'medium' },
   resolution: 1,
   devEndgame: false,
+  devFreeTree: false,
 };
 
 // Legacy: render scale used to live under its own key set from the old menu.
@@ -79,6 +81,7 @@ class Settings {
   perf: PerfPresets = { ...DEFAULTS.perf };
   resolution: ResolutionScale = DEFAULTS.resolution; // render scale, 0.5/0.75/1
   devEndgame = DEFAULTS.devEndgame;
+  devFreeTree = DEFAULTS.devFreeTree;
 
   // resolved numeric knobs (recomputed whenever a preset changes)
   particleSoft = PARTICLE_SOFT.medium;
@@ -108,6 +111,7 @@ class Settings {
         if (d.perf) this.perf = { ...DEFAULTS.perf, ...d.perf };
         if (d.resolution === 0.5 || d.resolution === 0.75 || d.resolution === 1) this.resolution = d.resolution;
         if (typeof d.devEndgame === 'boolean') this.devEndgame = d.devEndgame;
+        if (typeof d.devFreeTree === 'boolean') this.devFreeTree = d.devFreeTree;
       } else {
         const migrated = migrateRenderScale();
         if (migrated != null) this.resolution = migrated;
@@ -117,7 +121,7 @@ class Settings {
 
   private save() {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({ musicVol: this.musicVol, sfxVol: this.sfxVol, perf: this.perf, resolution: this.resolution, devEndgame: this.devEndgame } satisfies StoredSettings));
+      localStorage.setItem(STORE_KEY, JSON.stringify({ musicVol: this.musicVol, sfxVol: this.sfxVol, perf: this.perf, resolution: this.resolution, devEndgame: this.devEndgame, devFreeTree: this.devFreeTree } satisfies StoredSettings));
     } catch { /* private mode */ }
   }
 
@@ -132,6 +136,7 @@ class Settings {
   setMusicVol(v: number) { this.musicVol = clamp01(v); this.save(); }
   setSfxVol(v: number) { this.sfxVol = clamp01(v); this.save(); }
   setDevEndgame(v: boolean) { this.devEndgame = v; this.save(); }
+  setDevFreeTree(v: boolean) { this.devFreeTree = v; this.save(); }
 
   // The engine registers this so a resolution change triggers a resize.
   bindResolution(cb: (scale: number) => void) { this.onResolutionChange = cb; }
@@ -156,6 +161,7 @@ class Settings {
     this.perf = { ...DEFAULTS.perf };
     this.resolution = DEFAULTS.resolution;
     this.devEndgame = DEFAULTS.devEndgame;
+    this.devFreeTree = DEFAULTS.devFreeTree;
     this.recompute();
     this.save();
     if (this.onResolutionChange) this.onResolutionChange(this.resolution);

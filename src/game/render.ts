@@ -184,26 +184,32 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
   }
   octx.restore();
 
-  // edge arrows toward off-screen fallen stars — big, outlined, and pulsing
-  // so they read against any ground, with a glowing orb standing in for the
-  // star itself
+  // guide arrows toward fallen stars — orbiting just outside the player,
+  // where the eye already lives, and pointing the way until the star is
+  // actually reached (fading out on final approach so it never sits on it)
   for (const s of eng.pickups) {
-    const sx = s.x - camX, sy = s.y - camY;
-    if (sx >= 0 && sx <= w && sy >= 0 && sy <= h) continue;
-    const ax = clamp(sx, 52, w - 52), ay = clamp(sy, 52, h - 52);
-    const ang = Math.atan2(sy - ay, sx - ax);
+    const dx = s.x - ipx, dy = s.y - ipy;
+    const d = Math.hypot(dx, dy);
+    const near = clamp((d - 110) / 130, 0, 1);
+    if (near <= 0) continue;
+    const ang = Math.atan2(dy, dx);
     const pulse = 0.5 + 0.5 * Math.sin(vt * 5);
+    // the arrow surges toward the star each pulse — motion draws the eye
+    // better than size, so it breathes hard while staying small
+    const orbitR = 80 + 12 * pulse;
+    const ax = ipx - camX + Math.cos(ang) * orbitR;
+    const ay = ipy - camY + Math.sin(ang) * orbitR;
     const arrowC = s.kind === 'altar' ? '#c48cff' : '#7ff5ff';
     octx.save();
     octx.translate(ax, ay);
     octx.rotate(ang);
-    const sc = 1.5 + 0.3 * pulse;
+    const sc = 1.05 + 0.12 * pulse;
     octx.scale(sc, sc);
-    octx.globalAlpha = 0.85 + 0.15 * pulse;
+    octx.globalAlpha = near * (0.92 + 0.08 * pulse);
     // the star, trailing behind the chevron
     octx.fillStyle = arrowC;
     octx.shadowColor = arrowC;
-    octx.shadowBlur = 14;
+    octx.shadowBlur = 18;
     octx.beginPath();
     octx.arc(-13, 0, 3.6, 0, Math.PI * 2);
     octx.fill();
@@ -219,7 +225,7 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
     octx.lineWidth = 4;
     octx.strokeStyle = 'rgba(6,4,16,0.85)';
     octx.stroke();
-    octx.shadowBlur = 14;
+    octx.shadowBlur = 18;
     octx.fill();
     octx.restore();
   }
@@ -796,13 +802,21 @@ function emitBossProjectile(q: QuadList, sh: ShapeList, eng: Engine, bp: BossPro
   // velocity trail (was Canvas2D-only; capsule shape brings it back)
   const sp = Math.hypot(bp.vx, bp.vy) || 1;
   const tl = Math.min(26, sp * 0.045) * s;
+  // a Mirror Waltz reflection turns the entire shot petal-mint — trail, halo
+  // and dart body — so friend/foe reads at a glance
   if (tl > 4) {
-    sh.push(SHAPE_CAPSULE, x - (bp.vx / sp) * tl, y - (bp.vy / sp) * tl, Math.atan2(bp.vy, bp.vx), tl, 1.4 * s, 4 * s, 0, 1, 0.35, 0.39, 0.5, 0.4, 0.10, 0.11);
+    if (bp.reflected) sh.push(SHAPE_CAPSULE, x - (bp.vx / sp) * tl, y - (bp.vy / sp) * tl, Math.atan2(bp.vy, bp.vx), tl, 1.4 * s, 4 * s, 0, 0.45, 1, 0.62, 0.5, 0.10, 0.40, 0.16);
+    else sh.push(SHAPE_CAPSULE, x - (bp.vx / sp) * tl, y - (bp.vy / sp) * tl, Math.atan2(bp.vy, bp.vx), tl, 1.4 * s, 4 * s, 0, 1, 0.35, 0.39, 0.5, 0.4, 0.10, 0.11);
   }
   const glowE = q.uv('glow')!;
-  q.push(true, glowE, x, y, 22 * s * pulse, 0, 0.9, 1, 0.4, 0.44, 1); // hot red halo
   const e = q.uv('proj:bullet')!;
-  q.push(false, e, x, y, e.half * s, Math.atan2(bp.vy, bp.vx), 1);
+  if (bp.reflected) {
+    q.push(true, glowE, x, y, 22 * s * pulse, 0, 0.9, 0.49, 1, 0.69, 1);
+    q.push(false, e, x, y, e.half * s, Math.atan2(bp.vy, bp.vx), 1, 0.5, 1, 0.66, 0.85);
+  } else {
+    q.push(true, glowE, x, y, 22 * s * pulse, 0, 0.9, 1, 0.4, 0.44, 1); // hot red halo
+    q.push(false, e, x, y, e.half * s, Math.atan2(bp.vy, bp.vx), 1);
+  }
 }
 
 // ---------------------------------------------------------------- particles

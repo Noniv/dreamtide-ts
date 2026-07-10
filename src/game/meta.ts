@@ -3,6 +3,7 @@
 // game, so existing progress carries over when served from the same origin).
 
 import { SPELLS, EVOLVE } from './spells';
+import { settings } from './settings';
 
 const STORE_KEY = 'dreamtide_meta_v3';
 
@@ -105,9 +106,9 @@ add({ id: 'core', x: 0, y: 0, cost: 0, name: 'The Waking Eye', desc: 'Where ever
 
 // ================================================================ main web
 const PATH_RADII = [48, 84, 120, 156, 192, 228, 264, 300, 336, 372, 408, 444, 480];
-const PATH_COSTS = [10, 15, 25, 40, 60, 85, 115, 155, 205, 265, 335, 420, 520];
+const PATH_COSTS = [25, 40, 60, 100, 150, 210, 290, 390, 510, 660, 840, 1050, 1300];
 const TWIG_AT = [2, 5, 9];
-const TWIG_COSTS = [80, 220, 450];
+const TWIG_COSTS = [200, 550, 1100];
 const NOTABLE_AT = [3, 7, 11];
 
 interface ArmStep { n: string; d: string; fx: Record<string, number> }
@@ -357,7 +358,7 @@ for (const [key, arm] of Object.entries(ARMS)) {
   const ka = armAngle(arm, 13.2);
   add({
     id: `${key}K`, x: Math.round(Math.cos(ka) * 528), y: Math.round(Math.sin(ka) * 528),
-    cost: 2200, name: arm.end.n, desc: arm.end.d, fx: arm.end.fx,
+    cost: 5500, name: arm.end.n, desc: arm.end.d, fx: arm.end.fx,
     kind: 'keystone', requires: [`${key}12`],
   });
   link(`${key}12`, `${key}K`, -7);
@@ -365,7 +366,7 @@ for (const [key, arm] of Object.entries(ARMS)) {
   const br = (PATH_RADII[8] + PATH_RADII[11]) / 2;
   add({
     id: `${key}B`, x: Math.round(Math.cos(ba) * br), y: Math.round(Math.sin(ba) * br),
-    cost: 1200, name: arm.branch.n, desc: arm.branch.d, fx: arm.branch.fx,
+    cost: 3000, name: arm.branch.n, desc: arm.branch.d, fx: arm.branch.fx,
     kind: 'keystone', requires: [`${key}8`],
   });
   linkOut(`${key}8`, `${key}B`, 14);
@@ -383,7 +384,7 @@ const RING_FX = [
   { d: '+3% move speed', fx: { speed: 3 } },
   { d: '+2% critical chance', fx: { crit: 2 } },
 ];
-[{ idx: 2, cost: 40 }, { idx: 5, cost: 140 }, { idx: 8, cost: 320 }, { idx: 11, cost: 600 }].forEach((ring, ri) => {
+[{ idx: 2, cost: 100 }, { idx: 5, cost: 350 }, { idx: 8, cost: 800 }, { idx: 11, cost: 1500 }].forEach((ring, ri) => {
   ARM_KEYS_SORTED.forEach((key, k) => {
     const nextKey = ARM_KEYS_SORTED[(k + 1) % ARM_KEYS_SORTED.length];
     let a1 = ARMS[key].angle, a2 = ARMS[nextKey].angle;
@@ -406,7 +407,7 @@ for (const n of nodes) for (const r of n.requires) link(r, n.id);
 
 // ================================================================ clusters
 const CLUSTER_DIST = 880;
-const SMALL_COSTS = [90, 110, 130, 150, 170, 190, 210];
+const SMALL_COSTS = [225, 275, 325, 375, 425, 475, 525];
 const AOE_SPELLS = ['ember', 'frost', 'void', 'petals', 'moon', 'starfall', 'nebula', 'sigil', 'lantern', 'nova'];
 const DUR_SPELLS = ['frost', 'void', 'nebula', 'sigil', 'lantern'];
 
@@ -434,7 +435,7 @@ const MEDIUMS: Record<string, MediumDef[]> = {
     { n: 'Inevitable Gravity', d: 'Even bosses are dragged toward the rift.', special: { bossPull: 1 } },
   ],
   petals: [
-    { n: 'Swift Waltz', d: 'Petals orbit 30% faster.', special: { speed: 30 } },
+    { n: 'Mirror Waltz', d: 'Petals bat enemy shots back the way they came (10% chance).', special: { reflect: 10 } },
     { n: 'Heavy Bloom', d: 'Petal knockback is doubled.', special: { knock2: 1 } },
   ],
   moon: [
@@ -467,7 +468,7 @@ const MEDIUMS: Record<string, MediumDef[]> = {
   ],
   nova: [
     { n: 'Riptide Dusk', d: 'Nova knockback +60%.', special: { knock: 60 } },
-    { n: 'Lingering Dusk', d: 'Novas leave a slowing afterglow on all they touch.', special: { novaSlow: 1 } },
+    { n: 'Dissolving Dusk', d: 'The wave unmakes enemy shots it washes over (10% chance).', special: { dissolve: 10 } },
   ],
 };
 
@@ -576,22 +577,22 @@ CLUSTER_ORDER.forEach((spellId, k) => {
   spec.pts.forEach((pt, i) => {
     let def: Omit<TreeNode, 'id' | 'x' | 'y'>;
     if (i === spec.roles.entry) {
-      def = { cost: 100, kind: 'small', name: `Dream of ${s.name}`, desc: `${s.name} appears far more often among your level-up choices.`, fx: { spell: spellId, weight: 1 }, requires: [] };
+      def = { cost: 250, kind: 'small', name: `Dream of ${s.name}`, desc: `${s.name} appears far more often among your level-up choices.`, fx: { spell: spellId, weight: 1 }, requires: [] };
     } else if (i === spec.roles.evo) {
-      def = { cost: 800, kind: 'keystone', name: EVOLVE[spellId].name, desc: `Unlock ${s.name}'s evolution — ${EVOLVE[spellId].desc}`, fx: { spell: spellId, evo: 1 }, requires: [] };
+      def = { cost: 2000, kind: 'keystone', name: EVOLVE[spellId].name, desc: `Unlock ${s.name}'s evolution — ${EVOLVE[spellId].desc}`, fx: { spell: spellId, evo: 1 }, requires: [] };
     } else if (i === spec.roles.start) {
       // Arcane is already the default loadout spell, so its "start" node gives a
       // level head-start instead. Every other cluster's node unlocks that spell
       // for the loadout (chosen in the loadout UI under the tree).
       def = spellId === LOADOUT_BASE
-        ? { cost: 400, kind: 'notable', name: `Waking ${s.icon}`, desc: `Begin every dream with ${s.name} one level stronger.`, fx: { spell: spellId, startLv: 1 }, requires: [] }
-        : { cost: 400, kind: 'notable', name: `Dream-Etched ${s.icon}`, desc: `Unlock ${s.name} for your loadout — carry it into every dream.`, fx: { spell: spellId, unlock: 1 }, requires: [] };
+        ? { cost: 1000, kind: 'notable', name: `Waking ${s.icon}`, desc: `Begin every dream with ${s.name} one level stronger.`, fx: { spell: spellId, startLv: 1 }, requires: [] }
+        : { cost: 1000, kind: 'notable', name: `Dream-Etched ${s.icon}`, desc: `Unlock ${s.name} for your loadout — carry it into every dream.`, fx: { spell: spellId, unlock: 1 }, requires: [] };
     } else if (spec.roles.med.includes(i)) {
       const m = meds[spec.roles.med.indexOf(i)];
       const fx: Record<string, any> = { spell: spellId };
       if (m.scount) fx.scount = m.scount;
       if (m.special) fx.special = m.special;
-      def = { cost: 325, kind: 'notable', name: m.n, desc: m.d, fx, requires: [] };
+      def = { cost: 800, kind: 'notable', name: m.n, desc: m.d, fx, requires: [] };
     } else {
       const t = smallTpl[smallIdx % smallTpl.length];
       def = { cost: SMALL_COSTS[smallIdx % SMALL_COSTS.length], kind: 'small', name: `Mote of ${s.name}`, desc: t.d, fx: { spell: spellId, ...t.fx }, requires: [] };
@@ -614,18 +615,18 @@ CLUSTER_ORDER.forEach((spellId, k) => {
 // ====================================================== the dark bargain
 const DARK_CX = 0, DARK_CY = CLUSTER_DIST;
 const DARK_NODES: { p: [number, number]; kind: TreeNode['kind']; cost: number; n: string; d: string; fx: Record<string, number>; entry?: boolean }[] = [
-  { p: [0, -112], kind: 'small', cost: 1, n: 'The Dark Bargain', d: '+12% stardust earned · enemies have +20% life', fx: { dust: 12, baneHp: 20 }, entry: true },
-  { p: [28, -28], kind: 'small', cost: 1, n: 'Restless Horde', d: '+12% stardust earned · the tide spawns 20% faster', fx: { dust: 12, baneRate: 20 } },
-  { p: [112, 0], kind: 'notable', cost: 2, n: 'Cruel Dawn', d: '+18% stardust earned · the dream begins 120 seconds deeper', fx: { dust: 18, baneAhead: 120 } },
-  { p: [28, 28], kind: 'small', cost: 1, n: 'Sharpened Nightmares', d: '+12% stardust earned · enemies strike 20% harder', fx: { dust: 12, baneDmg: 20 } },
-  { p: [0, 112], kind: 'notable', cost: 2, n: 'Deep Tide', d: '+18% stardust earned · at least 12 more enemies swarm you at all times', fx: { dust: 18, baneFloor: 12 } },
-  { p: [-28, 28], kind: 'small', cost: 1, n: 'Fleet Shadows', d: '+12% stardust earned · enemies move 15% faster', fx: { dust: 12, baneSpeed: 15 } },
-  { p: [-112, 0], kind: 'notable', cost: 2, n: 'Hungry Dark', d: '+18% stardust earned · elites stir 50% more often', fx: { dust: 18, baneElite: 50 } },
-  { p: [-28, -28], kind: 'small', cost: 1, n: 'Iron Dreams', d: '+12% stardust earned · enemies have +22% life', fx: { dust: 12, baneHp: 22 } },
-  { p: [0, 0], kind: 'keystone', cost: 4, n: 'The Black Star', d: '+45% stardust earned · enemies have +30% life and strike 25% harder', fx: { dust: 45, baneHp: 30, baneDmg: 25 } },
-  { p: [0, -64], kind: 'small', cost: 1, n: 'Toll of Night', d: '+12% stardust earned · at least 8 more enemies swarm you at all times', fx: { dust: 12, baneFloor: 8 } },
-  { p: [64, 0], kind: 'notable', cost: 2, n: 'Devourer’s Haste', d: '+18% stardust earned · the Devourer comes 40% sooner', fx: { dust: 18, baneBoss: 40 } },
-  { p: [-64, 0], kind: 'small', cost: 1, n: 'Thin Veil', d: '+12% stardust earned · the tide spawns 18% faster', fx: { dust: 12, baneRate: 18 } },
+  { p: [0, -112], kind: 'small', cost: 2, n: 'The Dark Bargain', d: '+12% stardust earned · enemies have +20% life', fx: { dust: 12, baneHp: 20 }, entry: true },
+  { p: [28, -28], kind: 'small', cost: 2, n: 'Restless Horde', d: '+12% stardust earned · the tide spawns 20% faster', fx: { dust: 12, baneRate: 20 } },
+  { p: [112, 0], kind: 'notable', cost: 5, n: 'Cruel Dawn', d: '+18% stardust earned · the dream begins 120 seconds deeper', fx: { dust: 18, baneAhead: 120 } },
+  { p: [28, 28], kind: 'small', cost: 2, n: 'Sharpened Nightmares', d: '+12% stardust earned · enemies strike 20% harder', fx: { dust: 12, baneDmg: 20 } },
+  { p: [0, 112], kind: 'notable', cost: 5, n: 'Deep Tide', d: '+18% stardust earned · at least 12 more enemies swarm you at all times', fx: { dust: 18, baneFloor: 12 } },
+  { p: [-28, 28], kind: 'small', cost: 2, n: 'Fleet Shadows', d: '+12% stardust earned · enemies move 15% faster', fx: { dust: 12, baneSpeed: 15 } },
+  { p: [-112, 0], kind: 'notable', cost: 5, n: 'Hungry Dark', d: '+18% stardust earned · elites stir 50% more often', fx: { dust: 18, baneElite: 50 } },
+  { p: [-28, -28], kind: 'small', cost: 2, n: 'Iron Dreams', d: '+12% stardust earned · enemies have +22% life', fx: { dust: 12, baneHp: 22 } },
+  { p: [0, 0], kind: 'keystone', cost: 12, n: 'The Black Star', d: '+45% stardust earned · enemies have +30% life and strike 25% harder', fx: { dust: 45, baneHp: 30, baneDmg: 25 } },
+  { p: [0, -64], kind: 'small', cost: 2, n: 'Toll of Night', d: '+12% stardust earned · at least 8 more enemies swarm you at all times', fx: { dust: 12, baneFloor: 8 } },
+  { p: [64, 0], kind: 'notable', cost: 5, n: 'Devourer’s Haste', d: '+18% stardust earned · the Devourer comes 40% sooner', fx: { dust: 18, baneBoss: 40 } },
+  { p: [-64, 0], kind: 'small', cost: 2, n: 'Thin Veil', d: '+12% stardust earned · the tide spawns 18% faster', fx: { dust: 12, baneRate: 18 } },
 ];
 const DARK_EDGES: [number, number, number?][] = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 0], [0, 9], [9, 8], [8, 10], [10, 2], [8, 11], [11, 6], [4, 8]];
 {
@@ -713,14 +714,17 @@ export function nodeCurrency(id: string): 'dust' | 'shards' {
 
 export function canBuy(meta: Meta, id: string): boolean {
   const n = NODE_MAP[id];
-  if (!n || meta.owned.includes(id) || (meta[nodeCurrency(id)] || 0) < n.cost) return false;
+  if (!n || meta.owned.includes(id)) return false;
+  // dev: unlimited currency — only reachability gates the purchase
+  if (!settings.devFreeTree && (meta[nodeCurrency(id)] || 0) < n.cost) return false;
   return isReachable(meta, id);
 }
 
 export function buyNode(meta: Meta, id: string): Meta {
   if (!canBuy(meta, id)) return meta;
   const cur = nodeCurrency(id);
-  const next = { ...meta, [cur]: (meta[cur] || 0) - NODE_MAP[id].cost, owned: [...meta.owned, id] };
+  const cost = settings.devFreeTree ? 0 : NODE_MAP[id].cost;
+  const next = { ...meta, [cur]: (meta[cur] || 0) - cost, owned: [...meta.owned, id] };
   next.loadout = sanitizeLoadout(next); // slot/unlock changes may affect it
   saveMeta(next);
   return next;

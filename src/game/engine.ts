@@ -581,9 +581,10 @@ export class Engine {
   // Alt-Tab / focus loss eats the keyup, leaving movement keys latched on;
   // drop every held key when the window blurs.
   private onBlur = () => { this.keys = {}; };
-  // the OS context menu swallows keyups the same way — suppress it (this is a
-  // game, not a document) and drop held keys in case one already slipped by
-  private onContextMenu = (e: Event) => { e.preventDefault(); this.keys = {}; };
+  // suppress the OS context menu (this is a game, not a document); with the
+  // menu never opening, focus stays put and keyups arrive normally, so held
+  // keys must NOT be cleared here — that would hitch movement on right-click
+  private onContextMenu = (e: Event) => { e.preventDefault(); };
 
   bindInput() {
     window.addEventListener('keydown', this.onKeyDown);
@@ -678,10 +679,18 @@ export class Engine {
     const haste = (this.player.boons.haste || 0) * 10 + (this.meta.cast || 0) + (this.surges.haste > 0 ? 30 : 0) + this.pact.haste;
     return 1 / (1 + haste / 100);
   }
-  magnetR() { return 90 * (1 + 0.45 * (this.player.boons.magnet || 0)) * this.player.metaMagnet * (this.surges.magnet > 0 ? 1.6 : 1); }
+  magnetR() {
+    // combined pull with a soft cap: the first stacks land in full, everything
+    // past 2x diminishes hard so the lure never swallows the whole screen
+    const mul = (1 + 0.45 * (this.player.boons.magnet || 0)) * this.player.metaMagnet * (this.surges.magnet > 0 ? 1.6 : 1);
+    return 90 * (mul <= 2 ? mul : 2 * Math.pow(mul / 2, 0.4));
+  }
   aoeMul() { return (1 + 0.1 * this.player.genericAoe) * (1 + (this.meta.aoe || 0) / 100) * (this.surges.aoe > 0 ? 1.3 : 1) * (1 + this.pact.aoe / 100); }
   // resonance marks last longer under the Prism Heart
   markDur(base: number) { return base * (this.relics.has('prismheart') ? 2 : 1); }
+  // bonus stardust that keeps pace with the run — a flat "+10" reads as an
+  // insult beside a four-digit balance, so rewards grow with the clock
+  dustReward(mult = 1) { return Math.round((20 + this.t / 4) * mult); }
   statCap() { return 5; }
   // 5 slots filled randomly during a run, plus the loadout (1 by default, up to
   // 4 with +1-slot notables). Default cap stays 6.
@@ -715,7 +724,6 @@ export class Engine {
     }
     const S = st.special;
     if (S.seek && st.speed != null) st.speed *= 1 + S.seek / 100;
-    if (S.speed && st.speed != null) st.speed *= 1 + S.speed / 100;
     if (S.range && st.range != null) st.range *= 1 + S.range / 100;
     if (S.pull && st.pull != null) st.pull *= 1 + S.pull / 100;
     if (S.knock && st.knock != null) st.knock *= 1 + S.knock / 100;
@@ -956,8 +964,9 @@ export class Engine {
     this.relicQueue--;
     if (avail.length === 0) {
       // every relic already claimed — the dream pays in stardust instead
-      this.bonusDust += 25;
-      this.setBanner('+25 STARDUST', '#ffd27a');
+      const d = this.dustReward(3);
+      this.bonusDust += d;
+      this.setBanner(`+${d} STARDUST`, '#ffd27a');
       return;
     }
     const picks: string[] = [];
@@ -1122,12 +1131,18 @@ export class Engine {
     return Math.max(0, (T - 420) / 60);
   }
 
+  // Bargain-summoned extras grant no net essence: essence is scaled by the
+  // share of the horde that would exist anyway (Dark Bargain floor nodes and
+  // the Pact of the Deep both count). More action and more stardust for the
+  // player — not more time trapped in upgrade menus. The penalty naturally
+  // relaxes late-run as the extra bodies shrink relative to the true tide.
   baneXpMul() {
     const m = this.meta;
-    const floor = m.baneFloor || 0;
+    const esc = this.endgame();
+    const natural = Math.max(6, this.wave.floor + Math.floor(esc * esc * 2.2));
+    const extra = (m.baneFloor || 0) + this.pact.curseFloor;
     const rate = (m.baneRate || 0) / 100;
-    const mul = 1 / (1 + floor * 0.02 + rate * 0.6);
-    return Math.max(0.5, mul);
+    return Math.max(0.25, (natural / (natural + extra)) / (1 + rate * 0.6));
   }
 
   private computeDifficulty() {
@@ -1247,6 +1262,7 @@ export class Engine {
     bp.vx = Math.cos(ang) * spd;
     bp.vy = Math.sin(ang) * spd;
     bp.life = life; bp.r = r; bp.dmg = dmg; bp.color = color;
+    bp.reflected = false; bp.parryT = 0;
     this.bossProjectiles.push(bp);
   }
 
@@ -2016,7 +2032,7 @@ export class Engine {
           z.delay = delay;
           z.dmg = dmg; z.knock = knock;
           z.hit = maskPool.acquire().begin();
-          z.slowGlow = !!st.special!.novaSlow;
+          z.dissolve = st.special!.dissolve || 0;
           this.zones.push(z);
         };
         mk(R, st.damage! * this.dmgMul(), st.knock!, 0);
@@ -2041,7 +2057,7 @@ export class Engine {
     z.dvx = 0; z.dvy = 0;
     z.evolved = false; z.boomed = false; z.echo = false; z.echoed = false;
     z.bossChill = false; z.bossPull = false;
-    z.slowIn = 0; z.core = false; z.slowGlow = false; z.heal = 0;
+    z.slowIn = 0; z.core = false; z.dissolve = 0; z.heal = 0;
     z.slow = 0; z.slowDur = 0; z.sleepDur = 0;
     z.pull = 0; z.knock = 0;
     z.dmg = 0; z.dps = 0;
@@ -2095,6 +2111,23 @@ export class Engine {
           e.knby += Math.sin(a) * kn;
         }
       });
+      // Mirror Waltz: a petal brushing an enemy shot may bat it straight back
+      if (st.special!.reflect) {
+        for (const bp of this.bossProjectiles) {
+          if (bp.reflected || bp.life <= 0 || bp.parryT > this.t) continue;
+          if (dist2(o.x, o.y, bp.x, bp.y) >= (bp.r + 14) ** 2) continue;
+          bp.parryT = this.t + 0.45;
+          if (Math.random() * 100 >= st.special!.reflect) continue;
+          bp.reflected = true;
+          bp.vx = -bp.vx; bp.vy = -bp.vy;
+          bp.life = Math.max(bp.life, 4);
+          audio.petalTick(this.panOf(bp.x));
+          for (let k = 0; k < 8; k++) {
+            const a = rand(0, TAU);
+            this.particles.spawn({ x: bp.x, y: bp.y, vx: Math.cos(a) * rand(60, 180), vy: Math.sin(a) * rand(60, 180), life: rand(0.2, 0.45), size: rand(2.5, 5), endSize: 0.5, color: Math.random() < 0.5 ? '#7dffb0' : '#ffd1ec', mode: 'petal', rotV: rand(-8, 8), drag: 0.88 });
+          }
+        }
+      }
     }
   }
 
@@ -2255,8 +2288,9 @@ export class Engine {
       // overlay holds the floor
       this.relicQueue++;
     } else if (e.golden) {
-      this.bonusDust += 12;
-      this.setBanner('+12 STARDUST', '#ffd27a');
+      const d = this.dustReward(1.5);
+      this.bonusDust += d;
+      this.setBanner(`+${d} STARDUST`, '#ffd27a');
       audio.bonus();
       for (let i = 0; i < 8; i++) this.spawnGem(e.x + rand(-45, 45), e.y + rand(-45, 45), 5, true, false, false, rand(0, TAU));
     } else {
@@ -2638,7 +2672,17 @@ export class Engine {
       bp.life -= dt;
       bp.x += bp.vx * dt;
       bp.y += bp.vy * dt;
-      if (bp.life > 0 && dist2(bp.x, bp.y, p.x, p.y + PLAYER_HURT_DY) < (PLAYER_HURT_R + bp.r) ** 2 && p.iframes <= 0) {
+      if (bp.reflected) {
+        // Mirror Waltz: the returned shot bursts on the first foe it meets
+        let struck: Enemy | null = null;
+        this.grid.queryCircle(bp.x, bp.y, bp.r + 40, (e) => {
+          if (!struck && dist2(bp.x, bp.y, e.x, e.y) < (e.radius + bp.r) ** 2) struck = e;
+        });
+        if (bp.life > 0 && struck) {
+          this.damageEnemy(struck, bp.dmg * 3, '#7dffb0', 'nature');
+          bp.life = 0;
+        }
+      } else if (bp.life > 0 && dist2(bp.x, bp.y, p.x, p.y + PLAYER_HURT_DY) < (PLAYER_HURT_R + bp.r) ** 2 && p.iframes <= 0) {
         this.hurtPlayer(bp.dmg);
         bp.life = 0;
       }
@@ -2872,8 +2916,9 @@ export class Engine {
           const v = Math.max(2, Math.round(3 * this.diff.hpMul));
           for (let k = 0; k < 10; k++) this.spawnGem(s.x + rand(-60, 60), s.y + rand(-60, 60), v, true, false, false, rand(0, TAU));
         } else {
-          this.bonusDust += 10;
-          this.spawnText(p.x, p.y - 44, '+10 stardust', '#ffd27a', 1, -40, 16);
+          const d = this.dustReward(1);
+          this.bonusDust += d;
+          this.spawnText(p.x, p.y - 44, `+${d} stardust`, '#ffd27a', 1, -40, 16);
         }
         for (let k = 0; k < 40; k++) {
           const a2 = rand(0, TAU);
@@ -3212,11 +3257,28 @@ export class Engine {
               const a = Math.atan2(e.y - z.y, e.x - z.x);
               e.knbx += Math.cos(a) * z.knock;
               e.knby += Math.sin(a) * z.knock;
-              // Lingering Dusk: the wave leaves a slowing afterglow
-              if (z.slowGlow) { e.slow = Math.max(e.slow, 0.35); e.slowT = Math.max(e.slowT, 1.2); }
             }
           }
         });
+        // Dissolving Dusk: shots the wavefront sweeps past may be unmade.
+        // The pr→r band means each projectile is rolled exactly once per wave.
+        if (z.dissolve) {
+          for (const bp of this.bossProjectiles) {
+            if (bp.life <= 0 || bp.reflected) continue;
+            const d = dist2(z.x, z.y, bp.x, bp.y);
+            if (d > z.r * z.r || d <= z.pr * z.pr) continue;
+            if (Math.random() * 100 >= z.dissolve) continue;
+            bp.life = 0;
+            // unmaking: a bright pop, a wide dusk ring, and a slow drift of
+            // star-motes where the shot used to be
+            this.particles.spawn({ x: bp.x, y: bp.y, life: 0.22, size: bp.r * 3.4, endSize: 1, color: '#ffffff', color2: '#ffbfe4', mode: 'glow', drag: 1 });
+            this.particles.spawn({ x: bp.x, y: bp.y, life: 0.5, size: bp.r * 5.5, endSize: 2, color: '#ffbfe4', mode: 'ring' });
+            for (let k = 0; k < 12; k++) {
+              const a = rand(0, TAU);
+              this.particles.spawn({ x: bp.x, y: bp.y, vx: bp.vx * 0.15 + Math.cos(a) * rand(30, 110), vy: bp.vy * 0.15 + Math.sin(a) * rand(30, 110) - 20, life: rand(0.45, 0.9), size: rand(3, 6.5), endSize: 0.5, color: Math.random() < 0.5 ? '#ffbfe4' : '#ffffff', color2: '#ffbfe4', mode: Math.random() < 0.35 ? 'star' : 'glow', rotV: rand(-6, 6), drag: 0.9 });
+            }
+          }
+        }
       } else if (z.kind === 'lantern') {
         z.ph += dt * 4;
         z.tick -= dt;

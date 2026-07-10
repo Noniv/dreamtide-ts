@@ -438,12 +438,14 @@ function Settings({ onClose }: { onClose: () => void }) {
   const [perf, setPerf] = useState<PerfPresets>({ ...settings.perf });
   const [res, setRes] = useState<ResolutionScale>(settings.resolution);
   const [dev, setDev] = useState(settings.devEndgame);
+  const [devTree, setDevTree] = useState(settings.devFreeTree);
 
   const changeMusic = (v: number) => { settings.setMusicVol(v); audio.setMusicVolume(v); setMusic(v); };
   const changeSfx = (v: number) => { settings.setSfxVol(v); audio.setSfxVolume(v); setSfx(v); };
   const changePerf = (k: keyof PerfPresets, p: Preset) => { settings.setPerf(k, p); setPerf({ ...settings.perf }); };
   const changeRes = (v: ResolutionScale) => { settings.setResolution(v); setRes(v); };
   const changeDev = (v: boolean) => { settings.setDevEndgame(v); setDev(v); };
+  const changeDevTree = (v: boolean) => { settings.setDevFreeTree(v); setDevTree(v); };
   const resetDefaults = () => {
     settings.resetDefaults();
     audio.setMusicVolume(settings.musicVol);
@@ -453,6 +455,7 @@ function Settings({ onClose }: { onClose: () => void }) {
     setPerf({ ...settings.perf });
     setRes(settings.resolution);
     setDev(settings.devEndgame);
+    setDevTree(settings.devFreeTree);
   };
 
   return (
@@ -507,6 +510,10 @@ function Settings({ onClose }: { onClose: () => void }) {
             <label className="dev-toggle">
               <input type="checkbox" checked={dev} onChange={(e) => changeDev(e.target.checked)} />
               ⚗ endgame test — start at 6:00 with a full random loadout (lv 5 / evolved)
+            </label>
+            <label className="dev-toggle">
+              <input type="checkbox" checked={devTree} onChange={(e) => changeDevTree(e.target.checked)} />
+              ⚗ endless stardust — constellation nodes cost nothing to awaken
             </label>
           </section>
         </div>
@@ -945,7 +952,9 @@ function SkillTree({ meta, reveal, onRevealed, onBuy, onRefund, onLoadout, onClo
   const onWheel = (e: React.WheelEvent) => {
     if (phase !== 'done') return; // the camera belongs to the reveal
     const v = viewRef.current;
-    const z = Math.min(3.2, Math.max(0.55, v.z * (e.deltaY < 0 ? 1.15 : 0.87)));
+    // 7x lets a single cluster fill the view — nodes stay clearly readable
+    // even on small screens
+    const z = Math.min(7, Math.max(0.55, v.z * (e.deltaY < 0 ? 1.15 : 0.87)));
     const next = { ...v, z };
     viewRef.current = next;
     applyTransform();
@@ -987,8 +996,8 @@ function SkillTree({ meta, reveal, onRevealed, onBuy, onRefund, onLoadout, onClo
           <div className="tree-sub">Drag to wander, scroll to draw near. Hover a star to read it; click to awaken it — or release an awakened star for half its stardust.</div>
         </div>
         <div className="tree-progress" title="Stars awakened">{meta.owned.length - 1} / {TREE_NODES.length - 1} stars</div>
-        <div className="dust-big" title="Stardust — earned each time you wake">✦ {meta.dust}</div>
-        <div className="dust-big shards" title="Nightmare shards — torn from slain bosses, they feed the Dark Bargain">❖ {meta.shards || 0}</div>
+        <div className="dust-big" title="Stardust — earned each time you wake">✦ {settings.devFreeTree ? '∞' : meta.dust}</div>
+        <div className="dust-big shards" title="Nightmare shards — torn from slain bosses, they feed the Dark Bargain">❖ {settings.devFreeTree ? '∞' : (meta.shards || 0)}</div>
         <button className="btn-secondary" onClick={onClose}>Return</button>
       </div>
 
