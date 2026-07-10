@@ -393,8 +393,8 @@ function emitBeam(sh: ShapeList, eng: Engine, b: Beam, alpha: number, camX: numb
   // whose bright extent sits at the collision half-width (w/2) so what you see
   // is what hits, plus a thin hot core. Alphas stay modest so enemies under
   // several stacked lances remain readable.
-  sh.push(SHAPE_CAPSULE, x, y, a, b.len, wNow * 0.5, wNow * 0.4, 0, 1, 0.98, 0.90, 0.27 * t + 0.05, 0.32 * t, 0.34 * t, 0.46 * t);
-  sh.push(SHAPE_CAPSULE, x, y, a, b.len, wNow * 0.16, wNow * 0.22, 0, 1, 0.97, 0.82, 0.50 * t + 0.04, 0.46 * t, 0.33 * t, 0.11 * t);
+  sh.push(SHAPE_CAPSULE, x, y, a, b.len, wNow * 0.5, wNow * 0.4, 0, 1, 0.99, 0.95, 0.27 * t + 0.05, 0.36 * t, 0.38 * t, 0.48 * t);
+  sh.push(SHAPE_CAPSULE, x, y, a, b.len, wNow * 0.16, wNow * 0.22, 0, 1, 0.99, 0.92, 0.50 * t + 0.04, 0.46 * t, 0.38 * t, 0.22 * t);
   // origin crescent: fades + expands as the lance dissipates
   const cf = t;
   const cr = 18 + (1 - cf) * 10;
