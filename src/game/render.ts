@@ -14,13 +14,14 @@
 
 import type { Engine } from './engine';
 import { ENEMY_TYPES, MELEE_ANIM_DUR, BLINK_IN, PLAYER_HURT_DY, PLAYER_HURT_R, STEP, BOSS_RAGE_START, BOSS_RAGE_FULL, LUCID_DUR } from './engine';
-import { TAU, clamp, type Enemy, type Zone, type Projectile, type BossProjectile, type Beam, type Bolt, type Gem, type Pickup } from './world';
+import { TAU, clamp, serpentPoint, type Enemy, type Zone, type Projectile, type BossProjectile, type Beam, type Bolt, type Gem, type Pickup } from './world';
 import { enemyFrameId, wizardFrameId, FRAMES, WIZARD_CY } from './enemySprites';
 import { SHAPE_RING, SHAPE_DISC, SHAPE_SPIRAL, SHAPE_CAPSULE, type QuadList, type ShapeList } from './worldGPU';
 import { drawStats } from './perf';
 import { settings } from './settings';
 
 const lerp = (a: number, b: number, f: number) => a + (b - a) * f;
+const _serp = { x: 0, y: 0 }; // scratch for serpent spine sampling
 
 // generic colour parse → [r,g,b,a] 0..1 (cached). The alpha of rgba() strings
 // MUST be honoured: the Canvas2D era baked it into each glow sprite's
@@ -136,10 +137,12 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
   for (const b of eng.bolts) emitBolt(sh, b, alpha, camX, camY);
   for (const s of eng.pickups) emitPickup(q, eng, s, camX, camY);
   for (const g of eng.gems) emitGem(q, cam, g, alpha, camX, camY);
+  emitDefenseUnder(sh, eng, ipx - camX, ipy - camY);
   emitPlayer(q, eng, ipx - camX, ipy - camY);
   for (const e of eng.enemies) emitEnemy(q, shOver, eng, e, alpha, camX, camY);
   emitOrbitals(q, eng, alpha, camX, camY);
   emitWisps(q, eng, alpha, camX, camY);
+  emitDefenseOver(q, eng, ipx - camX, ipy - camY);
   for (const pr of eng.projectiles) emitProjectile(q, eng, pr, alpha, camX, camY);
   for (const bp of eng.bossProjectiles) emitBossProjectile(q, sh, eng, bp, alpha, camX, camY);
   emitParticles(q, eng, camX, camY);
@@ -451,17 +454,25 @@ function emitZone(sh: ShapeList, q: QuadList, eng: Engine, z: Zone, alpha: numbe
     }
   } else if (z.kind === 'serpent') {
     // Dream Serpent: a weaving ribbon of deep water — overlapping translucent
-    // segments trailing the head, each riding its own phase of the same wave
+    // segments trailing the head along the path it actually swam, so the body
+    // bends through the serpent's turns rather than snapping to its heading
     const fade = Math.max(0, Math.min(1, lifeI * 2, (z.maxLife - lifeI) * 1.5));
     const g = z.grow;
     const ca = Math.cos(z.spin), sa = Math.sin(z.spin);
-    const L = z.maxR * g; // body length — the same capsule the sim damages along
+    const L = z.maxR * g; // body length — the arc the sim damages along
     const segs = 7;
     for (let i = segs - 1; i >= 0; i--) {
       const f = i / (segs - 1);
-      const wig = Math.sin(vt * 6 - f * 4.2 + z.seed) * (5 + 11 * f) * g;
-      const sx2 = x - ca * L * f - sa * wig;
-      const sy2 = y - sa * L * f + ca * wig;
+      // spine point at this arc-distance behind the head, and a slightly nearer
+      // one to read the local tangent (so the wiggle rides the curve)
+      serpentPoint(z, zx, zy, L * f, _serp);
+      const bxp = _serp.x - camX, byp = _serp.y - camY;
+      serpentPoint(z, zx, zy, Math.max(0, L * f - 10), _serp);
+      let tx = (_serp.x - camX) - bxp, ty = (_serp.y - camY) - byp;
+      const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+      const wig = Math.sin(vt * 6 - f * 4.2 + z.seed) * (4 + 8 * f) * g;
+      const sx2 = bxp - ty * wig; // offset along the local perpendicular (-ty,tx)
+      const sy2 = byp + tx * wig;
       const r2 = zr * g * (1 - f * 0.55);
       sh.push(SHAPE_DISC, sx2, sy2, 0, r2, 0.72, 0.95, 0, 0.35, 0.84, 0.79, (0.42 - f * 0.22) * fade, 0.10, 0.28, 0.38);
     }
@@ -848,6 +859,44 @@ function emitPlayer(q: QuadList, eng: Engine, x: number, y: number) {
   const oy = y - 48 - bob;
   q.push(true, glowE, ox, oy, pulse * 2.6, 0, 0.9 * alpha, 0.50, 0.96, 1, 1);
   q.push(true, glowE, ox, oy, pulse * 1.05, 0, alpha, 0.94, 1, 1, 1);
+}
+
+// Defensive spells drawn around the player. The Hush veil belongs under the
+// swarm (a fog on the ground); the Somnal Ward's panes ride in front of it.
+function emitDefenseUnder(sh: ShapeList, eng: Engine, x: number, y: number) {
+  const p = eng.player;
+  const vt = eng.vt;
+  const hush = p.spells.find((s) => s.id === 'hush');
+  if (!hush) return;
+  const st = eng.spellStats('hush', hush.level, hush.mastery || 0);
+  const R = st.radius! * eng.aoeMul();
+  const breath = 0.5 + 0.5 * Math.sin(vt * 1.1);
+  // a soft lilac fog pooled on the ground, a slow rune ring turning at its rim
+  sh.push(SHAPE_DISC, x, y, 0, R, 0.55, 1.7, 0, 0.72, 0.65, 1, 0.045 + breath * 0.02, 0.30, 0.24, 0.55);
+  sh.push(SHAPE_RING, x, y, vt * 0.25, R * 0.97, 1.3, 7, 0, 0.82, 0.72, 1, 0.10 + breath * 0.05, 0.28, 0.22, 0.5);
+}
+
+function emitDefenseOver(q: QuadList, eng: Engine, x: number, y: number) {
+  const p = eng.player;
+  if (!p.shieldMax || !p.spells.some((s) => s.id === 'ward')) return;
+  const frac = clamp(p.shield / p.shieldMax, 0, 1);
+  const mending = p.shieldT > 0; // the silent phase after a break
+  const base = frac > 0 ? 0.15 + 0.85 * frac : (mending ? 0.05 : 0.12);
+  const R = 34;
+  const glowE = q.uv('glow')!;
+  const shardE = q.uv('p:shard')!;
+  const oy = y - 14;
+  // a faint glass halo, brightening as the ward fills
+  q.push(true, glowE, x, oy, R * 1.5, 0, 0.14 * base, 0.56, 0.72, 1, 1);
+  const panes = 3;
+  const a0 = p.shieldPh;
+  for (let i = 0; i < panes; i++) {
+    const a = a0 + (i / panes) * TAU;
+    const px = x + Math.cos(a) * R;
+    const py = oy + Math.sin(a) * R * 0.55; // squashed ring — a shallow orbit
+    q.push(true, shardE, px, py, 11, a + Math.PI / 2, base * 0.9, 0.70, 0.82, 1, 1);
+    q.push(true, glowE, px, py, 7, 0, base * 0.4, 0.90, 0.95, 1, 1);
+  }
 }
 
 function emitGem(q: QuadList, cam: Engine['cam'], g: Gem, alpha: number, camX: number, camY: number) {

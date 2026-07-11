@@ -585,6 +585,33 @@ class AudioEngine {
     this.tone({ freq: nt(12), to: nt(-12), glide: 0.35, type: 'sine', d: 0.45, peak: 0.12 });
   }
 
+  // Somnal Ward: a glassy chime as a pane drinks a blow
+  wardHit(pan = 0) {
+    if (this.throttled('wardHit', 70)) return;
+    const rg = this.busy('wardHit', 350);
+    const f = vary(nt(36), 0.01); // A5
+    this.tone({ freq: f, type: 'sine', d: 0.14, peak: 0.03 * rg, pan, verb: 0.4 });
+    this.tone({ freq: f * 1.5, type: 'sine', d: 0.1, peak: 0.016 * rg, pan, verb: 0.4 });
+    this.noise({ dur: 0.06, peak: 0.02 * rg, freq: 6800, q: 2, type: 'highpass', pan });
+  }
+
+  // Somnal Ward breaking: a bright shatter of glass over a soft dark boom
+  wardBreak(pan = 0) {
+    if (this.throttled('wardBreak', 200)) return;
+    [nt(36), nt(43), nt(48), nt(52)].forEach((f, i) =>
+      this.tone({ freq: vary(f, 0.02), type: 'sine', d: 0.4 - i * 0.05, peak: 0.045 - i * 0.008, at: i * 0.012, pan, verb: 0.55, pri: 1 }));
+    this.noise({ dur: 0.4, a: 0.005, peak: 0.06, freq: 5200, to: 1200, q: 0.8, type: 'highpass', pan, verb: 0.4 });
+    this.tone({ freq: nt(0), to: nt(-7), glide: 0.3, type: 'sine', d: 0.35, peak: 0.05, pan });
+  }
+
+  // Hush: a slow breath out — soft filtered swell under a low fading dyad
+  hushSigh(pan = 0) {
+    if (this.throttled('hushSigh', 300)) return;
+    this.noise({ dur: 0.7, a: 0.25, peak: 0.04, freq: 900, to: 300, q: 0.6, type: 'lowpass', pan, verb: 0.5 });
+    this.tone({ freq: nt(7), to: nt(2), glide: 0.5, type: 'sine', d: 0.6, peak: 0.03, pan, verb: 0.55 });
+    this.tone({ freq: vary(nt(14)), type: 'sine', d: 0.4, peak: 0.014, at: 0.05, pan, verb: 0.6 });
+  }
+
   petalTick(pan = 0) {
     if (this.throttled('petal', 120)) return;
     const rg = this.busy('petal', 350);

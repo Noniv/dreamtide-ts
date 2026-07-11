@@ -126,6 +126,17 @@ export const ICON_PARTS: Record<string, IconPart[]> = {
     { d: 'M2.5 15.5 H7.5', opacity: 0.9 },
     { d: 'M16 12.5 L22 11 M16.4 14 L22.4 14 M16 15.5 L22 17', opacity: 0.9 },
   ],
+  // Somnal Ward — a heraldic shield with a central boss (the drinking glass)
+  ward: [
+    { d: 'M12 2.4 L20 5.6 V12 C20 17 16.6 20.6 12 21.9 C7.4 20.6 4 17 4 12 V5.6 Z' },
+    { c: [12, 11.4, 2.5] },
+    { c: [12, 11.4, 0.9], fill: true },
+  ],
+  // Hush — a sleeping crescent moon with a drowsy 'z'
+  hush: [
+    { d: 'M13.4 4 a8.6 8.6 0 1 0 0 16 a10.6 10.6 0 0 1 0-16 Z' },
+    { d: 'M17.3 5.4 H21 L17.3 9 H21', opacity: 0.9 },
+  ],
 };
 
 // raw glyph body for embedding in a caller-controlled <svg> (e.g. tree nodes)

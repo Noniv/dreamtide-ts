@@ -287,7 +287,10 @@ function Hud({ hud }: { hud: HudState }) {
           <div className="hud-bars">
             <div className="bar hp">
               <div className="fill" style={{ width: `${(100 * hud.hp) / hud.maxHp}%` }} />
-              <span>{Math.ceil(hud.hp)} / {hud.maxHp}</span>
+              {hud.shieldMax > 0 && hud.shield > 0 && (
+                <div className="fill shield" style={{ width: `${Math.min(100, (100 * hud.shield) / hud.maxHp)}%` }} />
+              )}
+              <span>{Math.ceil(hud.hp)} / {hud.maxHp}{hud.shieldMax > 0 ? ` ⛨${Math.ceil(hud.shield)}` : ''}</span>
             </div>
           </div>
         </div>
@@ -615,7 +618,7 @@ function LevelUp({ choices, level, banishes, rerolls, showBanish, showReroll, ma
                 <div className="card-school">{school}</div>
                 <div className="card-line" aria-hidden="true" />
                 <div className="card-desc">
-                  {isEvolve ? EVOLVE[c.id].desc : c.kind === 'generic' ? def.desc : (isSpell ? (c.isNew ? spellDef!.desc : c.mastery ? `Power beyond its final form — +${masteryPer}% damage, diminishing with each rank.` : spellDef!.levelText(c.level!)) : def.desc)}
+                  {isEvolve ? EVOLVE[c.id].desc : c.kind === 'generic' ? def.desc : (isSpell ? (c.isNew ? spellDef!.desc : c.mastery ? `Power beyond its final form — +${masteryPer}% ${spellDef!.kind === 'defense' ? 'strength' : 'damage'}, diminishing with each rank.` : spellDef!.levelText(c.level!)) : def.desc)}
                 </div>
               </button>
               {showBanish && (

@@ -1,5 +1,6 @@
-// Fourteen schools of magic. Each spell keeps a unique identity in color,
-// motion, sound and particle language. Cast logic lives in the engine.
+// The schools of the dream. Each spell keeps a unique identity in color,
+// motion, sound and particle language. Most strike the horde; a few (kind:
+// 'defense') only shelter the dreamer. Cast logic lives in the engine.
 
 export interface SpellStats {
   cooldown: number;
@@ -21,6 +22,10 @@ export interface SpellStats {
   knock?: number;
   interval?: number;
   turns?: number;
+  // defensive spells (kind: 'defense'):
+  shield?: number;        // harm the ward can drink before it breaks
+  recharge?: number;      // shield mended per second
+  rechargeDelay?: number; // stillness after a break before mending resumes
   // folded in by Engine.spellStats:
   special?: Record<string, number>;
   evolved?: boolean;
@@ -35,6 +40,9 @@ export interface SpellDef {
   icon: string;
   desc: string;
   maxLevel: number;
+  // most spells strike foes; 'defense' spells only shelter the dreamer, and the
+  // tree words their motes (strength / mending / radius / hold) accordingly
+  kind?: 'attack' | 'defense';
   stats: (lv: number) => SpellStats;
   levelText: (lv: number) => string;
 }
@@ -297,6 +305,36 @@ export const SPELLS: Record<string, SpellDef> = {
     }),
     levelText: (lv) => (lv === 3 || lv === 6 ? 'Another name is written' : 'A heavier debt'),
   },
+  ward: {
+    id: 'ward', name: 'Somnal Ward', school: 'Aegis',
+    color: '#8fb8ff', color2: '#e6f0ff', icon: '⛨',
+    desc: 'Panes of dream-glass wheel about you, drinking harm; when they break they shatter the horde outward.',
+    maxLevel: 6, kind: 'defense',
+    stats: (lv) => ({
+      cooldown: 0,
+      shield: 28 + lv * 13,                            // harm the glass can drink
+      recharge: 5 + lv * 1.8,                          // mended per second
+      rechargeDelay: Math.max(2.2, 3.8 - lv * 0.24),   // stillness after a break
+      radius: 118 + lv * 12,                           // shatter reach
+      knock: 240,
+    }),
+    levelText: (lv) => (lv % 2 === 0 ? 'Tougher glass, wider shatter' : 'Swifter mending, shorter silence'),
+  },
+  hush: {
+    id: 'hush', name: 'Hush', school: 'Lullaby',
+    color: '#b7a7ff', color2: '#e9dcff', icon: '☾',
+    desc: 'A drowsy veil settles around you; all who wander in grow heavy-limbed, and each soft sigh pushes them back.',
+    maxLevel: 6, kind: 'defense',
+    stats: (lv) => ({
+      cooldown: 0,
+      radius: 116 + lv * 15,
+      slow: 0.30 + lv * 0.03,
+      slowDur: 0.5,                      // brief but constantly refreshed while inside
+      knock: 120 + lv * 16,              // the sigh's push
+      interval: Math.max(1.3, 2.3 - lv * 0.14), // seconds between sighs
+    }),
+    levelText: (lv) => (lv % 2 === 0 ? 'A wider, heavier hush' : 'Deeper drowse, quicker sighs'),
+  },
   prism: {
     id: 'prism', name: 'Kaleidoscope', school: 'Chromamancy',
     color: '#f4c9ff', color2: '#9fffe0', icon: '◭',
@@ -337,6 +375,8 @@ export const EVOLVE: Record<string, { name: string; desc: string }> = {
   eye: { name: 'Aurora Crown', desc: 'A second gaze wheels against the first, and the light lingers on the ground.' },
   brand: { name: 'The Devouring Name', desc: 'When a branded foe dies, the name leaps to three of its kin.' },
   prism: { name: 'The Unblinking Prism', desc: 'Rays refract through their first victim into two splinters.' },
+  ward: { name: 'Looking-Glass Aegis', desc: 'The glass mends twice as fast, and each shatter throws back every enemy shot and veils you from harm for a moment.' },
+  hush: { name: 'Deep Hush', desc: 'The drowse deepens almost to sleep, and you mend life while you stand within your own quiet.' },
 };
 
 export interface BoonDef { id: string; name: string; icon: string; desc: string; max: number }

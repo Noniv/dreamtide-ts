@@ -589,11 +589,11 @@ for (let t = 0; t < 8; t++) {
 // twenty schools of the dream and counting.
 const AOE_SPELLS = [
   'ember', 'frost', 'void', 'petals', 'moon', 'starfall', 'nebula', 'sigil', 'lantern', 'nova',
-  'serpent', 'chime', 'eye',
+  'serpent', 'chime', 'eye', 'ward', 'hush',
 ];
 const DUR_SPELLS = [
   'frost', 'void', 'nebula', 'sigil', 'lantern',
-  'serpent', 'eye', 'brand', 'prism',
+  'serpent', 'eye', 'brand', 'prism', 'hush',
 ];
 
 interface MediumDef { n: string; d: string; scount?: number; special?: Record<string, number> }
@@ -678,6 +678,14 @@ const MEDIUMS: Record<string, MediumDef[]> = {
   prism: [
     { n: 'Twin Facet', d: 'The prism fires two rays a volley, at different foes.', special: { facet: 1 } },
     { n: 'Patient Light', d: 'The prism hangs in the air 2 seconds longer.', special: { vigil: 2 } },
+  ],
+  ward: [
+    { n: 'Bright Facets', d: 'The glass drinks a third more harm before it breaks.', special: { temper: 33 } },
+    { n: 'Answering Glass', d: 'Even bosses are hurled back when the ward shatters.', special: { bossKnock: 1 } },
+  ],
+  hush: [
+    { n: 'Leaden Limbs', d: 'The hush weighs a third heavier on all it holds.', special: { leaden: 33 } },
+    { n: 'Distant Dreaming', d: 'Each sigh throws the horde far and staggers it.', special: { stun: 1 } },
   ],
 };
 
@@ -790,6 +798,19 @@ const SHAPES: Record<string, Shape> = {
     edges: [[0, 1], [1, 2], [2, 3], [2, 4], [3, 6], [6, 5], [4, 7], [7, 5], [2, 11], [11, 5], [5, 8], [5, 9], [5, 10]],
     roles: { entry: 0, evo: 9, start: 5, med: [8, 10] },
   },
+  // a heraldic shield: point below faces the heart, crowned above, a boss at
+  // its centre (the evolution) and two flanks (the notables)
+  ward: {
+    pts: [[0, 115], [42, 72], [72, 22], [80, -40], [58, -92], [0, -112], [-58, -92], [-80, -40], [-72, 22], [-42, 72], [0, -30], [0, 34]],
+    edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9], [9, 0], [11, 0], [10, 11], [5, 10], [10, 2], [10, 8]],
+    roles: { entry: 0, evo: 10, start: 5, med: [2, 8] },
+  },
+  // a sleeping crescent moon cupping two drifting sleep-motes to the right
+  hush: {
+    pts: [[0, 115], [-42, 92], [-72, 52], [-86, 2], [-74, -48], [-38, -92], [6, -112], [-10, -64], [-34, -14], [-40, 40], [50, -82], [74, -40]],
+    edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9], [9, 0], [6, 10], [10, 11]],
+    roles: { entry: 0, evo: 10, start: 6, med: [8, 11] },
+  },
 };
 
 // Moorings are spread perfectly evenly around the rim, so the rim-walk
@@ -798,9 +819,9 @@ const SHAPES: Record<string, Shape> = {
 // spacing recomputes itself. Ordered so thematic siblings sit side by side
 // (moths beside the moon, the wake beside the stars, the brand in the dark…)
 const CLUSTER_ORDER = [
-  'starfall', 'moon', 'frost', 'serpent', 'storm', 'chime',
+  'starfall', 'moon', 'hush', 'frost', 'serpent', 'storm', 'chime',
   'arcane', 'ember', 'void', 'brand', 'umbra', 'glaive',
-  'prism', 'nebula', 'eye', 'sigil', 'lantern', 'wisps', 'petals', 'nova',
+  'prism', 'nebula', 'eye', 'sigil', 'ward', 'lantern', 'wisps', 'petals', 'nova',
 ];
 
 {
@@ -822,14 +843,22 @@ const CLUSTER_ORDER = [
     ] as [number, number]);
     const hasAoe = AOE_SPELLS.includes(spellId);
     const hasDur = DUR_SPELLS.includes(spellId);
+    const isDef = s.kind === 'defense';
+    // defensive spells have no "damage"; the same mote slots (sdmg/scd/saoe/sdur)
+    // instead read as strength / quickening / radius / hold and are folded onto
+    // the ward's shield & mending (see Engine.spellStats)
+    const dmgWord = isDef ? 'strength' : 'damage';
+    const cdWord = isDef ? 'quickens' : 'haste';
+    const aoeWord = isDef ? 'radius' : 'area';
+    const durWord = isDef ? 'hold' : 'duration';
     const smallTpl = [
-      { d: `+8% ${s.name} damage`, fx: { sdmg: 8 } },
-      { d: `+6% ${s.name} haste`, fx: { scd: 6 } },
-      hasAoe ? { d: `+8% ${s.name} area`, fx: { saoe: 8 } } : { d: `+8% ${s.name} damage`, fx: { sdmg: 8 } },
-      { d: `+8% ${s.name} damage`, fx: { sdmg: 8 } },
-      hasDur ? { d: `+12% ${s.name} duration`, fx: { sdur: 12 } } : (hasAoe ? { d: `+8% ${s.name} area`, fx: { saoe: 8 } } : { d: `+6% ${s.name} haste`, fx: { scd: 6 } }),
-      { d: `+6% ${s.name} haste`, fx: { scd: 6 } },
-      { d: `+10% ${s.name} damage`, fx: { sdmg: 10 } },
+      { d: `+8% ${s.name} ${dmgWord}`, fx: { sdmg: 8 } },
+      { d: `+6% ${s.name} ${cdWord}`, fx: { scd: 6 } },
+      hasAoe ? { d: `+8% ${s.name} ${aoeWord}`, fx: { saoe: 8 } } : { d: `+8% ${s.name} ${dmgWord}`, fx: { sdmg: 8 } },
+      { d: `+8% ${s.name} ${dmgWord}`, fx: { sdmg: 8 } },
+      hasDur ? { d: `+12% ${s.name} ${durWord}`, fx: { sdur: 12 } } : (hasAoe ? { d: `+8% ${s.name} ${aoeWord}`, fx: { saoe: 8 } } : { d: `+6% ${s.name} ${cdWord}`, fx: { scd: 6 } }),
+      { d: `+6% ${s.name} ${cdWord}`, fx: { scd: 6 } },
+      { d: `+10% ${s.name} ${dmgWord}`, fx: { sdmg: 10 } },
     ];
     let smallIdx = 0;
     world.forEach((pt, i) => {

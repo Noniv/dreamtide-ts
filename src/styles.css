@@ -272,6 +272,13 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   background: linear-gradient(90deg, #ff5a7a, #ff9ad5);
   box-shadow: 0 0 14px rgba(255, 90, 122, 0.7);
 }
+/* Somnal Ward absorb, a pane of glass laid over the life bar from the left */
+.bar.hp .fill.shield {
+  position: absolute; inset: 0 auto 0 0;
+  background: linear-gradient(90deg, rgba(143, 184, 255, 0.92), rgba(230, 240, 255, 0.82));
+  box-shadow: 0 0 12px rgba(143, 184, 255, 0.8);
+  mix-blend-mode: screen;
+}
 /* faint segment notches every fifth of the bar */
 .bar::after {
   content: '';

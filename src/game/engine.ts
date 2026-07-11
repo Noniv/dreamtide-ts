@@ -17,7 +17,7 @@ import {
   type Bolt, type Gem, type FloatText, type Pickup, type Orbital,
   makeEnemy, makeProjectile, makeBossProjectile, makeZone, makeBeam, makeBolt,
   makeGem, makeText, Pool, swapRemove, HitMask, HitTimer, maskPool, timerPool,
-  SpatialGrid,
+  SpatialGrid, serpentPoint, SERPENT_PATH_N, SERPENT_PATH_SPACING,
 } from './world';
 import { renderFrame } from './render';
 import { prebakeSprites } from './enemySprites';
@@ -78,6 +78,16 @@ const TARGET_PRI_ELITE = 6.25; // ~2.5× effective reach
 // circle centred at -15 hugs the visible silhouette.)
 export const PLAYER_HURT_DY = -15;
 export const PLAYER_HURT_R = 18;
+
+// shortest distance from point (px,py) to the segment (ax,ay)-(bx,by)
+function distToSeg(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const abx = bx - ax, aby = by - ay;
+  const len2 = abx * abx + aby * aby;
+  let t = len2 > 1e-6 ? ((px - ax) * abx + (py - ay) * aby) / len2 : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const dx = px - (ax + abx * t), dy = py - (ay + aby * t);
+  return Math.sqrt(dx * dx + dy * dy);
+}
 
 // ---------------------------------------------------------------- enemy types
 export interface EnemyDef {
@@ -193,7 +203,7 @@ const BOSS_ARCHS: BossArch[] = [
 
 // spells that live outside the cooldown loop: petals orbit, wisps hover and
 // dart on their own clocks
-const CONTINUOUS = new Set(['petals', 'wisps']);
+const CONTINUOUS = new Set(['petals', 'wisps', 'ward', 'hush']);
 
 // player position history: 512 steps ≈ 8.5 s at 60 Hz. Powers the Wisp
 // Choir's trailing procession.
@@ -225,6 +235,10 @@ export interface Player {
   castPulse: number;
   genericPower: number; genericAoe: number; genericVital: number;
   metaMagnet: number;
+  // Somnal Ward: an absorb pool that drinks harm before life, with a break
+  // delay before it mends. Hush: the sigh clock. shieldPh drives the panes' spin.
+  shield: number; shieldMax: number; shieldT: number; shieldDelay: number; shieldPh: number;
+  hushT: number;
 }
 
 export interface Choice {
@@ -237,6 +251,7 @@ export interface Choice {
 
 export interface HudState {
   hp: number; maxHp: number; xp: number; xpNext: number; level: number;
+  shield: number; shieldMax: number;
   time: number; kills: number;
   ahead: number; // Dark Bargain head start baked into the clock
   spells: { id: string; level: number; evolved: boolean }[];
@@ -399,6 +414,9 @@ export class Engine {
   private visT = -1;
   private densCand: Enemy[] = [];
   private densOut = { x: 0, y: 0 };
+  private serpOut = { x: 0, y: 0 };
+  private serpSpineX = new Float32Array(9); // serpent damage spine scratch
+  private serpSpineY = new Float32Array(9);
   private clampOut = { x: 0, y: 0 };
   private viewOut = { left: 0, right: 0, top: 0, bottom: 0 };
   private wave: WaveState = { ...WAVES[0], idx: 0 };
@@ -553,6 +571,8 @@ export class Engine {
       castPulse: 0,
       genericPower: 0, genericAoe: 0, genericVital: 0,
       metaMagnet: 1,
+      shield: 0, shieldMax: 0, shieldT: 0, shieldDelay: 0, shieldPh: 0,
+      hushT: 0,
     };
     // constellation (meta tree) bonuses
     const m = this.meta;
@@ -789,6 +809,14 @@ export class Engine {
       const bonus = per * Math.sqrt(mastery);
       if (st.damage != null) st.damage *= 1 + bonus;
       if (st.dps != null) st.dps *= 1 + bonus;
+      // defensive spells carry no damage — mastery tempers ward & drowse instead
+      // (folded here, before the no-mods early-return below can skip it)
+      if (SPELLS[id].kind === 'defense') {
+        if (st.shield != null) st.shield *= 1 + bonus;
+        if (st.recharge != null) st.recharge *= 1 + bonus;
+        if (st.knock != null) st.knock *= 1 + bonus;
+        if (st.slow != null) st.slow = Math.min(0.92, st.slow * (1 + bonus));
+      }
     }
     const m = this.meta.spellMods && this.meta.spellMods[id];
     st.special = (m && m.special) || {};
@@ -817,6 +845,20 @@ export class Engine {
     if (S.vigil && st.duration != null) st.duration += S.vigil;
     if (S.wide && st.width != null) st.width *= 1 + S.wide / 100;
     if (S.reach && st.length != null) st.length *= 1 + S.reach / 100;
+    // defensive spells reuse the mote vocabulary: "strength" (m.dmg) tempers the
+    // ward / weighs the hush, "quickens" (m.cd — cooldown is 0 for these) speeds
+    // mending and sighs. Notables temper the shield (temper) or deepen the drowse
+    // (leaden). Mastery is folded above; radius (m.aoe) & hold (m.dur) came through
+    // the shared folding. (This branch only runs when the spell has tree mods.)
+    if (SPELLS[id].kind === 'defense') {
+      const strength = 1 + m.dmg / 100 + (S.temper || 0) / 100;
+      const quicken = 1 + m.cd / 100;
+      if (st.shield != null) st.shield *= strength;
+      if (st.recharge != null) st.recharge *= quicken;
+      if (st.knock != null) st.knock *= strength;
+      if (st.slow != null && S.leaden) st.slow = Math.min(0.92, st.slow * (1 + S.leaden / 100));
+      if (st.interval != null) st.interval /= quicken;
+    }
     return st;
   }
 
@@ -1823,6 +1865,131 @@ export class Engine {
     }
     this.updateOrbitals(dt);
     this.updateWisps(dt);
+    this.updateDefense(dt);
+  }
+
+  // Somnal Ward (an absorb pool that mends) and Hush (a drowsy slow-veil that
+  // sighs the horde back). Both are purely defensive — no damage is ever dealt.
+  private updateDefense(dt: number) {
+    const p = this.player;
+
+    // ---- Somnal Ward: mend the glass, spin the panes
+    const ward = p.spells.find((s) => s.id === 'ward');
+    if (ward) {
+      const st = this.spellStats('ward', ward.level, ward.mastery || 0);
+      p.shieldMax = st.shield!;
+      p.shieldDelay = st.rechargeDelay!;
+      p.shieldPh += dt * 0.9;
+      const rechargeMul = ward.evolved ? 2 : 1;
+      if (p.shield > p.shieldMax) p.shield = p.shieldMax; // a level-down clamp
+      if (p.shieldT > 0) {
+        p.shieldT = Math.max(0, p.shieldT - dt);
+      } else if (p.shield < p.shieldMax) {
+        p.shield = Math.min(p.shieldMax, p.shield + st.recharge! * rechargeMul * dt);
+      }
+    } else {
+      p.shieldMax = 0; p.shield = 0; p.shieldT = 0;
+    }
+
+    // ---- Hush: hold everything inside the veil, and sigh on the beat
+    const hush = p.spells.find((s) => s.id === 'hush');
+    if (hush) {
+      const st = this.spellStats('hush', hush.level, hush.mastery || 0);
+      const R = st.radius! * this.aoeMul();
+      const evolved = !!hush.evolved;
+      const slow = evolved ? Math.max(0.9, st.slow!) : st.slow!;
+      const R2 = R * R;
+      // constant drowse: bosses shrug it off (bane balance), everything else
+      // grows heavy-limbed while it lingers inside
+      this.grid.queryCircle(p.x, p.y, R, (e) => {
+        if (e.boss || e.dead) return;
+        if (dist2(p.x, p.y, e.x, e.y) < R2) {
+          if (e.slow < slow) e.slow = slow;
+          e.slowT = Math.max(e.slowT, st.slowDur!);
+        }
+      });
+      // Deep Hush: the dreamer mends while standing within their own quiet
+      if (evolved && p.hp < p.maxHp) {
+        p.hp = Math.min(p.maxHp, p.hp + 2 * dt); // 2 life/sec, smooth
+      }
+      // a slow drift of dream-motes marking the veil's edge
+      if (Math.random() < 0.5) {
+        const a = rand(0, TAU);
+        this.particles.spawn({ x: p.x + Math.cos(a) * R * rand(0.85, 1), y: p.y + Math.sin(a) * R * rand(0.85, 1), vx: -Math.sin(a) * 14, vy: Math.cos(a) * 14 - 10, life: rand(0.7, 1.4), size: rand(1.5, 3), color: pick(['#b7a7ff', '#e9dcff', '#cabaff']), mode: 'glow', drag: 0.98 });
+      }
+      // the sigh: a gentle pulse shoving the horde back out to the veil's edge
+      p.hushT -= dt;
+      if (p.hushT <= 0) {
+        p.hushT = st.interval!;
+        audio.hushSigh(this.panOf(p.x));
+        const stun = !!st.special!.stun;
+        this.grid.queryCircle(p.x, p.y, R, (e) => {
+          if (e.boss || e.dead) return;
+          const dd = dist2(p.x, p.y, e.x, e.y);
+          if (dd < R2 && dd > 1) {
+            const D = Math.sqrt(dd);
+            if (this.hardCC(e, stun ? CC_HIT : CC_HIT * 0.5)) {
+              e.knbx += ((e.x - p.x) / D) * st.knock!;
+              e.knby += ((e.y - p.y) / D) * st.knock!;
+              if (stun) { e.slow = Math.max(e.slow, 0.9); e.slowT = Math.max(e.slowT, 0.5); }
+            }
+          }
+        });
+        this.particles.spawn({ x: p.x, y: p.y, life: 0.5, size: R * 1.05, color: 'rgba(183,167,255,0.4)', mode: 'ring' });
+        for (let k = 0; k < 16; k++) {
+          const a = (k / 16) * TAU;
+          this.particles.spawn({ x: p.x + Math.cos(a) * 12, y: p.y + Math.sin(a) * 12, vx: Math.cos(a) * rand(120, R * 1.8), vy: Math.sin(a) * rand(120, R * 1.8), life: rand(0.3, 0.6), size: rand(2, 5), endSize: 0.5, color: '#e9dcff', color2: '#b7a7ff', mode: 'glow', drag: 0.9 });
+        }
+      }
+    } else {
+      p.hushT = 0;
+    }
+  }
+
+  // the Somnal Ward breaking: no damage — it hurls the horde outward, unmakes
+  // enemy shots caught in the burst, and (evolved) veils the dreamer for a beat
+  private wardShatter() {
+    const p = this.player;
+    const ward = p.spells.find((s) => s.id === 'ward');
+    if (!ward) return;
+    const st = this.spellStats('ward', ward.level, ward.mastery || 0);
+    const R = st.radius! * this.aoeMul();
+    const R2 = R * R;
+    const evolved = !!ward.evolved;
+    const bossKnock = !!st.special!.bossKnock;
+    audio.wardBreak(this.panOf(p.x));
+    this.shake = Math.min(9, this.shake + 5);
+    this.flash = { color: '143,184,255', a: 0.3 };
+    this.grid.queryCircle(p.x, p.y, R, (e) => {
+      if (e.dead) return;
+      if (e.boss && !bossKnock) return;
+      const dd = dist2(p.x, p.y, e.x, e.y);
+      if (dd < R2) {
+        const a = dd > 1 ? Math.atan2(e.y - p.y, e.x - p.x) : rand(0, TAU);
+        const k = st.knock! * (e.boss ? 0.4 : 1);
+        if (this.hardCC(e, CC_HIT)) { e.knbx += Math.cos(a) * k; e.knby += Math.sin(a) * k; }
+      }
+    });
+    // unmake enemy bullets swept up in the shatter (evolved reaches full radius,
+    // the base ward only clears the shards right around the dreamer)
+    const bulletR2 = evolved ? R2 : (R * 0.6) ** 2;
+    for (const bp of this.bossProjectiles) {
+      if (bp.life <= 0 || bp.reflected) continue;
+      if (dist2(p.x, p.y, bp.x, bp.y) < bulletR2) {
+        bp.life = 0;
+        this.particles.spawn({ x: bp.x, y: bp.y, life: 0.24, size: bp.r * 3.2, endSize: 1, color: '#ffffff', color2: '#8fb8ff', mode: 'glow', drag: 1 });
+      }
+    }
+    if (evolved) {
+      p.invuln = Math.max(p.invuln, 1.2);
+      this.spawnText(p.x, p.y - 60, 'AEGIS', '#8fb8ff', 1.4, -22, 18);
+    }
+    // the glass flying apart: a bright ring and a spray of pale shards
+    this.particles.spawn({ x: p.x, y: p.y - 14, life: 0.5, size: R * 1.1, color: '#e6f0ff', mode: 'ring' });
+    for (let k = 0; k < 34; k++) {
+      const a = rand(0, TAU);
+      this.particles.spawn({ x: p.x + Math.cos(a) * 16, y: p.y - 14 + Math.sin(a) * 16, vx: Math.cos(a) * rand(160, 460), vy: Math.sin(a) * rand(160, 460), life: rand(0.35, 0.8), size: rand(3, 7), endSize: 0.5, color: Math.random() < 0.5 ? '#e6f0ff' : '#8fb8ff', mode: 'shard', rotV: rand(-10, 10), drag: 0.87 });
+    }
   }
 
   // where the player stood `secondsAgo` seconds ago (shared out-object)
@@ -2292,6 +2459,14 @@ export class Engine {
         z.evolved = !!st.evolved;
         z.core = !!st.special!.feed; // Salt Hunger: kills extend its life
         z.seed = rand(0, TAU);
+        // seed a straight tail behind the head so the body has full length from
+        // the first frame; it curves naturally as the trail fills with real path
+        for (let k = SERPENT_PATH_N; k >= 1; k--) {
+          z.pathHead = (z.pathHead + 1) % SERPENT_PATH_N;
+          z.pathX[z.pathHead] = z.x - Math.cos(a) * SERPENT_PATH_SPACING * k;
+          z.pathY[z.pathHead] = z.y - Math.sin(a) * SERPENT_PATH_SPACING * k;
+        }
+        z.pathN = SERPENT_PATH_N;
         this.zones.push(z);
         break;
       }
@@ -2432,6 +2607,7 @@ export class Engine {
     z.c1 = ''; z.c2 = '';
     z.hit = null;
     z.tick2 = 0; z.grow = 1; z.ox = 0; z.oy = 0;
+    z.pathN = 0; z.pathHead = 0; z.pathAcc = 0;
   }
 
   private spawnBolt(x1: number, y1: number, x2: number, y2: number) {
@@ -2771,6 +2947,16 @@ export class Engine {
     if (p.dead || p.invuln > 0) return;
     if (!melee && p.iframes > 0) return;
     if (iframeDur > 0) p.iframes = iframeDur;
+    // Somnal Ward drinks the blow before it reaches your life
+    if (p.shield > 0) {
+      const soak = Math.min(p.shield, dmg);
+      p.shield -= soak;
+      dmg -= soak;
+      audio.wardHit(this.panOf(p.x));
+      for (let i = 0; i < 10; i++) this.particles.spawn({ x: p.x + rand(-16, 16), y: p.y - 20 + rand(-16, 16), vx: rand(-150, 150), vy: rand(-170, 40), life: rand(0.2, 0.5), size: rand(2, 5), endSize: 0.5, color: Math.random() < 0.5 ? '#e6f0ff' : '#8fb8ff', mode: 'shard', rotV: rand(-8, 8), drag: 0.86 });
+      if (p.shield <= 0) { p.shield = 0; p.shieldT = p.shieldDelay; this.wardShatter(); }
+      if (dmg <= 0.001) return; // the glass caught it whole — no life lost
+    }
     p.hp -= dmg;
     audio.hurt();
     // a light, brief kick — camera shake is otherwise reserved for boss moments
@@ -2842,6 +3028,7 @@ export class Engine {
     const p = this.player;
     this.hooks.onHud({
       hp: p.hp, maxHp: p.maxHp, xp: p.xp, xpNext: p.xpNext, level: p.level,
+      shield: p.shield, shieldMax: p.shieldMax,
       time: this.t, kills: this.kills,
       ahead: this.meta.baneAhead || 0,
       spells: p.spells.map((s) => ({ id: s.id, level: s.level, evolved: !!s.evolved })),
@@ -3801,6 +3988,13 @@ export class Engine {
         const weave = Math.sin(this.t * 5 + z.seed) * 0.3;
         z.x += Math.cos(z.spin + weave) * z.knock * dt;
         z.y += Math.sin(z.spin + weave) * z.knock * dt;
+        // record the head's swum path so the body bends through its turns
+        z.pathAcc += Math.hypot(z.x - z.px, z.y - z.py);
+        while (z.pathAcc >= SERPENT_PATH_SPACING) {
+          z.pathAcc -= SERPENT_PATH_SPACING;
+          z.pathHead = (z.pathHead + 1) % SERPENT_PATH_N;
+          z.pathX[z.pathHead] = z.x; z.pathY[z.pathHead] = z.y;
+        }
         // bow-wave bubbles off the head, wake behind
         if (Math.random() < 0.8) {
           this.particles.spawn({ x: z.x + rand(-6, 6), y: z.y + rand(-6, 6), vx: rand(-24, 24), vy: rand(-46, -12), life: rand(0.4, 0.9), size: rand(2, 4.5), color: Math.random() < 0.6 ? '#5ad7c9' : '#bffff4', mode: 'glow', drag: 0.94 });
@@ -3810,14 +4004,23 @@ export class Engine {
           z.tick = 0.12;
           const R = z.r * z.grow;
           const L = z.maxR * z.grow;
-          const ca = Math.cos(z.spin), sa = Math.sin(z.spin);
-          const bx = z.x - ca * L * 0.5, by = z.y - sa * L * 0.5;
-          this.grid.queryCircle(bx, by, L * 0.5 + R + 60, (e) => {
-            const ex = e.x - z.x, ey = e.y - z.y;
-            const proj = ex * ca + ey * sa; // + = ahead of the head
-            if (proj > R || proj < -L) return;
-            const perp = Math.abs(-ex * sa + ey * ca);
-            if (perp < R + e.radius) {
+          // sample the spine along the swum path, then test enemies against the
+          // nearest body segment — so a curved tail rakes where it actually lies
+          const segs = 8;
+          const sx = this.serpSpineX, sy = this.serpSpineY;
+          for (let i = 0; i <= segs; i++) {
+            serpentPoint(z, z.x, z.y, (L * i) / segs, this.serpOut);
+            sx[i] = this.serpOut.x; sy[i] = this.serpOut.y;
+          }
+          const mid = segs >> 1;
+          this.grid.queryCircle(sx[mid], sy[mid], L * 0.6 + R + 70, (e) => {
+            let best = Infinity;
+            for (let i = 0; i < segs; i++) {
+              const d = distToSeg(e.x, e.y, sx[i], sy[i], sx[i + 1], sy[i + 1]);
+              if (d < best) best = d;
+              if (best < R + e.radius) break;
+            }
+            if (best < R + e.radius) {
               this.damageEnemy(e, z.dps * 0.12, '#5ad7c9', 'frost');
               if (e.dead) {
                 // Leviathan of Sleep grows; Salt Hunger lingers

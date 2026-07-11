@@ -141,6 +141,39 @@ export interface Zone {
   // serpent: second timer (steering cadence), growth multiplier (Leviathan),
   // and its current steering target (ox/oy)
   tick2: number; grow: number; ox: number; oy: number;
+  // serpent: a ring buffer of recent head positions so the body bends through
+  // turns instead of extruding straight. pathHead indexes the newest sample;
+  // pathAcc carries sub-spacing head travel between samples.
+  pathX: Float32Array; pathY: Float32Array; pathN: number; pathHead: number; pathAcc: number;
+}
+
+// Dream Serpent head-trail: a fixed-length ring of samples spaced ~SPACING world
+// units apart. 128 × 8 px ≈ 1024 px of body, more than the longest serpent.
+export const SERPENT_PATH_N = 128;
+export const SERPENT_PATH_SPACING = 8;
+
+// World-space point at arc-distance `d` behind the serpent head (hx,hy), walking
+// back through the recorded trail from newest to oldest. Clamps to the tail if
+// `d` overruns the recorded path.
+export function serpentPoint(z: Zone, hx: number, hy: number, d: number, out: { x: number; y: number }) {
+  let prevX = hx, prevY = hy;
+  let remaining = d;
+  let idx = z.pathHead;
+  for (let k = 0; k < z.pathN; k++) {
+    const cx = z.pathX[idx], cy = z.pathY[idx];
+    const dx = cx - prevX, dy = cy - prevY;
+    const segLen = Math.sqrt(dx * dx + dy * dy);
+    if (segLen >= remaining) {
+      const t = segLen > 1e-4 ? remaining / segLen : 0;
+      out.x = prevX + dx * t;
+      out.y = prevY + dy * t;
+      return;
+    }
+    remaining -= segLen;
+    prevX = cx; prevY = cy;
+    idx = (idx - 1 + SERPENT_PATH_N) % SERPENT_PATH_N;
+  }
+  out.x = prevX; out.y = prevY;
 }
 
 export interface Beam {
@@ -232,6 +265,8 @@ export function makeZone(): Zone {
     bossChill: false, bossPull: false, slowIn: 0, core: false, dissolve: 0, heal: 0,
     c1: '', c2: '', hit: null,
     tick2: 0, grow: 1, ox: 0, oy: 0,
+    pathX: new Float32Array(SERPENT_PATH_N), pathY: new Float32Array(SERPENT_PATH_N),
+    pathN: 0, pathHead: 0, pathAcc: 0,
   };
 }
 
