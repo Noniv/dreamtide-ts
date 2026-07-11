@@ -38,6 +38,10 @@ export const BLINK_IN = 0.35;
 // the dream turns lucid: the horde crawls and essence doubles for these seconds.
 // Shared with the renderer so the veil fades cleanly in and out over the window.
 export const LUCID_DUR = 6;
+// how slow everything hostile runs while lucid — movement, fire cadence AND
+// bullets already in flight all scale by this, so the whole battlefield visibly
+// dilates into slow-motion rather than just the horde ambling a touch slower.
+export const LUCID_SLOW = 0.4;
 
 // boss enrage: after a grace period on screen, a lingering nightmare looses its
 // volleys ever faster (up to 1 + MAX × the base rate) so fights can't be kited
@@ -1324,7 +1328,9 @@ export class Engine {
     const p = this.player;
     const bf = e.bossFire || (e.bossFire = { cd: 0, interval: 1.6, speed: 130, spin: 0, spinV: 0.6, patterns: ['aimed'], pIdx: 0, hold: 0, blinkT: 0, blinkDur: BLINK_WINDUP, blinkIn: 0, bx: 0, by: 0, gapAng: null, gapDir: 1 });
     const n = this.bossCount;
-    bf.spin += bf.spinV * dt;
+    // lucid dilates the boss too: its spin and volley clock crawl with everything else
+    const lucid = this.lucidT > 0 ? LUCID_SLOW : 1;
+    bf.spin += bf.spinV * dt * lucid;
     bf.hold = Math.max(0, bf.hold - dt);
     // enrage: the longer a nightmare lingers, the faster it fires — a soft push
     // to finish the fight rather than kite it. A one-shot roar marks the turn.
@@ -1335,7 +1341,7 @@ export class Engine {
     // a blink in progress owns the turn: the fire clock pauses while the
     // Shade folds away, steps, and unfolds (see updateBlink)
     if (this.updateBlink(e, bf, dt)) return;
-    bf.cd -= dt;
+    bf.cd -= dt * lucid;
     if (bf.cd > 0) return;
     bf.cd = (bf.interval / rage) * rand(0.9, 1.1);
     const pat = bf.patterns[bf.pIdx % bf.patterns.length];
@@ -2634,15 +2640,17 @@ export class Engine {
       e.chargeT = Math.max(0, e.chargeT - dt);
       e.brandT = Math.max(0, e.brandT - dt);
       if (e.chargeT <= 0) e.chargeDmg = 0;
-      // lucid moments: the whole horde wades through syrup
-      const slowMul = (e.slowT > 0 ? 1 - e.slow : 1) * (this.lucidT > 0 ? 0.55 : 1);
-      // golden wisp: flees, never attacks, escapes when its time runs out
+      // lucid moments: the whole battlefield dilates into slow motion
+      const lucid = this.lucidT > 0 ? LUCID_SLOW : 1;
+      const slowMul = (e.slowT > 0 ? 1 - e.slow : 1) * lucid;
+      // golden wisp: flees, never attacks, escapes when its time runs out — and
+      // the lucid dream slows its flight too, so it's far easier to run down
       if (e.golden) {
         e.goldT -= dt;
         if (e.goldT <= 0) { e.dead = true; continue; }
         const fa = Math.atan2(e.y - p.y, e.x - p.x) + Math.sin(e.animT * 4 + e.seed) * 0.6;
-        e.x += (Math.cos(fa) * e.speed + e.knbx) * dt;
-        e.y += (Math.sin(fa) * e.speed + e.knby) * dt;
+        e.x += (Math.cos(fa) * e.speed * lucid + e.knbx) * dt;
+        e.y += (Math.sin(fa) * e.speed * lucid + e.knby) * dt;
         e.knbx *= Math.pow(0.02, dt);
         e.knby *= Math.pow(0.02, dt);
         if (Math.random() < 0.5) this.particles.spawn({ x: e.x, y: e.y, vx: rand(-20, 20), vy: rand(-40, -10), life: rand(0.4, 0.8), size: rand(2, 4), color: '#ffd27a', mode: 'star', rotV: rand(-5, 5), drag: 0.94 });
@@ -2661,7 +2669,7 @@ export class Engine {
         else { moveA = a + Math.PI / 2 * (e.seed > 500 ? 1 : -1); sp *= 0.5; }
         e.x += (Math.cos(moveA) * sp * slowMul + e.knbx) * dt;
         e.y += (Math.sin(moveA) * sp * slowMul + e.knby) * dt;
-        e.shootCd -= dt;
+        e.shootCd -= dt * lucid; // fire cadence dilates too — fewer shots while lucid
         if (e.shootCd <= 0 && D < rangedDef.range * 1.15 && e.slowT <= 0) {
           e.shootCd = rangedDef.cd * rand(0.85, 1.15);
           audio.enemyShot(this.panOf(e.x));
@@ -2681,7 +2689,7 @@ export class Engine {
       // melee: each enemy strikes on its own cooldown (no shared i-frames), so
       // several foes can land hits independently. Reach is a small bonus beyond
       // the touching distance, larger for later/bigger types.
-      if (e.meleeCd > 0) e.meleeCd -= dt;
+      if (e.meleeCd > 0) e.meleeCd -= dt * lucid; // swings come slower while lucid
       if (e.meleeAnim > 0) e.meleeAnim -= dt;
       // hard-frozen foes (Absolute Winter, sigil sleep, comet stun — slow ≥ 0.9)
       // can't strike; ordinary chills only slow movement. Ranged fire is gated
@@ -2751,12 +2759,16 @@ export class Engine {
     this.grid.rebuild(this.enemies);
 
     // boss projectiles
+    // lucid slows every hostile bullet mid-air (reflected shots are the player's
+    // now, so they keep their speed and still hunt the horde)
+    const bulletDt = this.lucidT > 0 ? dt * LUCID_SLOW : dt;
     for (let i = 0; i < this.bossProjectiles.length;) {
       const bp = this.bossProjectiles[i];
       bp.px = bp.x; bp.py = bp.y;
       bp.life -= dt;
-      bp.x += bp.vx * dt;
-      bp.y += bp.vy * dt;
+      const bdt = bp.reflected ? dt : bulletDt;
+      bp.x += bp.vx * bdt;
+      bp.y += bp.vy * bdt;
       if (bp.reflected) {
         // Mirror Waltz: the returned shot bursts on the first foe it meets
         let struck: Enemy | null = null;

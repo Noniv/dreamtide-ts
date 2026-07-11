@@ -914,8 +914,13 @@ function SkillTree({ meta, reveal, onRevealed, onMeta, onLoadout, onClose }: {
   const clickNode = (id: string) => {
     const m = useGame.getState().meta;
     if (phase === 'seed') {
-      // during the discovery, the lone star is the only door
-      if (id === 'core') { setPhase('expanding'); setTip(null); audio.levelUp(); }
+      // during the discovery, the lone star is the only door — and this first
+      // touch of the Waking Eye also forges the free opening point, so the
+      // player doesn't have to click it a second time to claim it
+      if (id === 'core') {
+        if (canBuyPoint(m)) onMeta(buyPoint(m));
+        setPhase('expanding'); setTip(null); audio.levelUp();
+      }
       return;
     }
     if (phase !== 'done') return;
@@ -1012,11 +1017,12 @@ function DarkBargain({ meta, reveal, onRevealed, onMeta, onClose }: {
     const m = useGame.getState().meta;
     if (phase === 'seed') {
       if (id === 'dark-core') {
-        // the first touch: the Wound drinks a shard and yields the first drop
+        // the first touch: the Wound drinks a shard and yields the first drop —
+        // and the corrupted swell wells up right on the click, riding the reveal
         if (canBuyDarkPoint(m)) onMeta(buyDarkPoint(m));
         setPhase('expanding');
         setTip(null);
-        audio.levelUp();
+        audio.darkReveal();
       }
       return;
     }
@@ -1074,7 +1080,7 @@ function DarkBargain({ meta, reveal, onRevealed, onMeta, onClose }: {
           pulse={pulse}
           onNodeClick={clickNode}
           onHoverNode={hoverNode}
-          onRevealDone={() => { setPhase('done'); audio.darkReveal(); onRevealed(); }}
+          onRevealDone={() => { setPhase('done'); onRevealed(); }}
         />
         {tip && phase === 'done' && <NodeTip tip={tip} meta={meta} dark frontier={frontier} removable={removable} />}
       </div>
