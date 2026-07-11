@@ -463,7 +463,10 @@ for (let i = 0; i < NSPOKE; i++) { // ring C — gaps at i%4==1
     ids.push(ringNode(`rC${i}-${k}`, SPOKE_R[8], a, nextGen(GEN)));
   }
   linkArc(`s${i}-8`, ids[0], 7);
-  linkArc(ids[0], ids[1], 7);
+  // at the four spell-slot arcs the notable is spliced onto the ring between
+  // these two stars (below), so skip the plain chord there — the road runs
+  // rC-0 → notable → rC-1 instead
+  if (i % 4 !== 3) linkArc(ids[0], ids[1], 7);
   linkArc(ids[1], `s${(i + 1) % NSPOKE}-8`, 7);
 }
 
@@ -547,17 +550,22 @@ const GAP_CHAINS: { id: string; steps: Stat[]; end: Stat }[] = [
     const chain = GAP_CHAINS[gi];
     let prev = `s${i}-5`;
     const baseA = spokeAngle(i, 6) + 11.25;
+    // two smalls climb the band between ring B and ring C, evenly spaced
     chain.steps.forEach((st, k) => {
-      const r = 386 + k * 42;
+      const r = 384 + k * 44; // 384, 428
       const id = add({ id: `${chain.id}-${k}`, x: Math.round(Math.cos(deg(baseA)) * r), y: Math.round(Math.sin(deg(baseA)) * r), name: st.n, desc: st.d, fx: st.fx, kind: 'small' });
       link(prev, id, -5);
       prev = id;
     });
-    // the loop back to ring C runs through the last small, so the notable
-    // stays a pendant tip with clear space and full-length edges around it
-    if (i % 4 !== 1) linkArc(prev, `rC${i}-0`);
-    const id = add({ id: `${chain.id}-N`, x: Math.round(Math.cos(deg(baseA)) * 470), y: Math.round(Math.sin(deg(baseA)) * 470), name: chain.end.n, desc: chain.end.d, fx: chain.end.fx, kind: 'notable' });
+    // the notable is woven straight INTO ring C, taking the road's midpoint
+    // between the arc's two ring stars (rC-0 at +7.5°, rC-1 at +15°): a prominent
+    // station ON the highway rather than a squished stub dangling inside it. The
+    // chain climbs up to it from below; the ring now runs rC-0 → notable → rC-1,
+    // so no radial edge ever crosses the ring road.
+    const id = add({ id: `${chain.id}-N`, x: Math.round(Math.cos(deg(baseA)) * SPOKE_R[8]), y: Math.round(Math.sin(deg(baseA)) * SPOKE_R[8]), name: chain.end.n, desc: chain.end.d, fx: chain.end.fx, kind: 'notable' });
     link(prev, id);
+    linkArc(`rC${i}-0`, id);
+    linkArc(id, `rC${i}-1`);
   });
 }
 
@@ -970,9 +978,10 @@ export function saveMeta(meta: Meta) {
 }
 
 // -------------------------------------------------------- skill point forge
-// The core of each web mints skill points. Constellation: 20 ✦, then +10 ✦
-// per point ever bought. Dark Bargain: 1 ❖, then +1 ❖ per point.
-export function nextPointCost(meta: Meta): number { return 20 + 10 * meta.pointsBought; }
+// The core of each web mints skill points. Constellation: the very first is a
+// gift (so the first touch of the Waking Eye always wakes a point), then 30 ✦
+// and +10 ✦ per point ever bought after. Dark Bargain: 1 ❖, then +1 ❖ per point.
+export function nextPointCost(meta: Meta): number { return meta.pointsBought === 0 ? 0 : 20 + 10 * meta.pointsBought; }
 export function nextDarkPointCost(meta: Meta): number { return 1 + meta.darkPointsBought; }
 
 export function canBuyPoint(meta: Meta): boolean {

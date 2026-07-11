@@ -13,7 +13,7 @@
 //                     hidden behind the body that swings it
 
 import type { Engine } from './engine';
-import { ENEMY_TYPES, MELEE_ANIM_DUR, BLINK_IN, PLAYER_HURT_DY, PLAYER_HURT_R, STEP } from './engine';
+import { ENEMY_TYPES, MELEE_ANIM_DUR, BLINK_IN, PLAYER_HURT_DY, PLAYER_HURT_R, STEP, BOSS_RAGE_START, BOSS_RAGE_FULL, LUCID_DUR } from './engine';
 import { TAU, clamp, type Enemy, type Zone, type Projectile, type BossProjectile, type Beam, type Bolt, type Gem, type Pickup } from './world';
 import { enemyFrameId, wizardFrameId, FRAMES, WIZARD_CY } from './enemySprites';
 import { SHAPE_RING, SHAPE_DISC, SHAPE_SPIRAL, SHAPE_CAPSULE, type QuadList, type ShapeList } from './worldGPU';
@@ -252,6 +252,10 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
     octx.restore();
   }
 
+  // the dream turns lucid: a breathing cyan veil + drifting motes for the whole
+  // window, so the slowed horde and doubled essence are *felt*, not just captioned
+  if (eng.lucidT > 0) drawLucidVeil(octx, w, h, eng.lucidT, vt);
+
   if (eng.flash) {
     octx.fillStyle = `rgba(${eng.flash.color},${Math.max(0, eng.flash.a)})`;
     octx.fillRect(0, 0, w, h);
@@ -259,6 +263,47 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
 
   // perf overlay always sits on the topmost 2D layer
   eng.perf.draw(octx, w);
+}
+
+// Lucid-moment overlay: a cool wash, a breathing vignette, rising dream-motes and
+// a persistent line naming the boon. Fades in over the first half-second and out
+// over the last, so the whole 6s reads as a distinct, dreamy altered state.
+function drawLucidVeil(octx: CanvasRenderingContext2D, w: number, h: number, lucidT: number, vt: number) {
+  const a = Math.min(clamp((LUCID_DUR - lucidT) / 0.5, 0, 1), clamp(lucidT / 1.2, 0, 1));
+  if (a <= 0) return;
+  const pulse = 0.5 + 0.5 * Math.sin(vt * 2.2);
+  octx.save();
+  // a faint cool wash cools the whole dream
+  octx.fillStyle = `rgba(125,245,255,${0.05 * a})`;
+  octx.fillRect(0, 0, w, h);
+  // breathing cyan vignette drawn from the edges inward
+  const g = octx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.max(w, h) * 0.72);
+  g.addColorStop(0, 'rgba(127,245,255,0)');
+  g.addColorStop(1, `rgba(127,245,255,${(0.16 + 0.08 * pulse) * a})`);
+  octx.fillStyle = g;
+  octx.fillRect(0, 0, w, h);
+  // rising dream-motes: slow, twinkling, wrapping up the screen
+  octx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 16; i++) {
+    const mx = (i * 97.13 + vt * (6 + (i % 4) * 3)) % w;
+    const my = h - ((i * 61.7 + vt * (16 + (i % 5) * 6)) % (h + 60));
+    const tw = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(vt * 3 + i * 1.7));
+    const r = 1.4 + (i % 3) * 0.8;
+    octx.fillStyle = `rgba(205,250,255,${0.55 * tw * a})`;
+    octx.beginPath(); octx.arc(mx, my, r, 0, Math.PI * 2); octx.fill();
+  }
+  octx.globalCompositeOperation = 'source-over';
+  // name the boon, held for the whole window so its effect is unmistakable
+  const uiS = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')) || 1;
+  octx.globalAlpha = a * 0.92;
+  octx.textAlign = 'center';
+  octx.font = `600 ${13 * uiS}px Cinzel, 'Palatino Linotype', serif`;
+  try { (octx as unknown as { letterSpacing: string }).letterSpacing = '0.16em'; } catch { /* older engines */ }
+  octx.fillStyle = '#dffcff';
+  octx.shadowColor = '#7ff5ff';
+  octx.shadowBlur = 12 * uiS;
+  octx.fillText('THE HORDE CRAWLS · ESSENCE FLOWS TWOFOLD', w / 2, 206 * uiS);
+  octx.restore();
 }
 
 // ==================================================== zone / beam / bolt SDFs
@@ -559,11 +604,20 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
     drawStats.enemyLiveOps++;
   } else if (e.boss) {
     // every nightmare wears a slow corona in its own colour so it reads as a
-    // boss whatever body it took
+    // boss whatever body it took. As it enrages the corona quickens, swells and
+    // bleeds toward angry red — a visible tell that its fire is ramping up.
     const ringE = q.uv('ring')!;
-    const [br, bg, bb] = rgb(e.color);
-    const coronaR = e.radius + 16 + Math.sin(vt * 3) * 4;
-    q.push(true, ringE, x, y, coronaR / 30 * ringE.half, 0, 0.6 * bodyA, br, bg, bb, 1);
+    let [br, bg, bb] = rgb(e.color);
+    const rage = clamp((e.rageT - BOSS_RAGE_START) / BOSS_RAGE_FULL, 0, 1);
+    const pulseSpd = 3 + rage * 7;
+    const coronaR = e.radius + 16 + rage * 8 + Math.sin(vt * pulseSpd) * (4 + rage * 5);
+    if (rage > 0) { br = lerp(br, 1, rage * 0.7); bg = lerp(bg, 0.18, rage * 0.6); bb = lerp(bb, 0.24, rage * 0.6); }
+    q.push(true, ringE, x, y, coronaR / 30 * ringE.half, 0, (0.6 + rage * 0.35) * bodyA, br, bg, bb, 1);
+    if (rage > 0.35) {
+      // a second, hotter ring flares in as the fury peaks
+      const r2 = e.radius + 26 + Math.sin(vt * pulseSpd + 1.5) * 6;
+      q.push(true, ringE, x, y, r2 / 30 * ringE.half, 0, 0.4 * rage * bodyA, 1, 0.3, 0.32, 1);
+    }
     drawStats.enemyLiveOps++;
   }
 
@@ -592,8 +646,16 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
     }
     drawStats.enemyLiveOps++;
   }
-  // warlock: orbiting charge-orbs brighten as the volley nears (live additive)
+  // warlock: floating grimoire + orbiting charge-orbs, both on the smooth clock
+  // (the book used to be baked into the frames, which read choppy at boss scale)
   if (e.type === 'warlock') {
+    const grimE = q.uv('grimoire');
+    if (grimE) {
+      const gph = vt * 1.6 + e.seed;
+      const gx = x + 12 * sc;
+      const gy = y + bob * sc + (-4 + Math.sin(gph) * 2) * sc;
+      q.push(false, grimE, gx, gy, grimE.half * sc, -0.3 + Math.sin(gph) * 0.15, 1, tr, tg, tb, mix);
+    }
     const orbE = q.uv('orb')!;
     const charge = e.ranged ? clamp(1 - e.shootCd / 1.2, 0, 1) : 0;
     for (let i = 0; i < 3; i++) {
@@ -609,7 +671,7 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
   // charge glow must not read their frozen shootCd)
   if (e.type === 'siren' && !e.boss && e.ranged && e.shootCd < 0.6) {
     const hover = Math.sin(e.animT * 4 + e.seed) * 3 * sc;
-    const gy = y + bob * sc + hover - 2 * sc;
+    const gy = y + bob * sc + hover - 4 * sc; // sits on the open singing mouth
     q.push(true, glowE, x, gy, (10 + Math.sin(vt * 20) * 3) * sc, 0, 0.75, 0.49, 0.79, 1, 1);
     q.push(true, glowE, x, gy, 3.5 * sc, 0, 0.95, 0.92, 0.97, 1, 1);
     if (Math.random() < 0.4) {

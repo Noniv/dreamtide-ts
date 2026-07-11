@@ -49,6 +49,12 @@ export interface Enemy {
   speed: number; dmg: number; radius: number; xp: number;
   color: string;
   slow: number; slowT: number;
+  // hard-CC saturation for elites/golden/ranged: repeated pull/freeze/sleep/knock
+  // fills ccSat; at 1 it flips to a brief immunity window (ccImmT) and the meter
+  // resets, so the endgame CC-blanket can't perma-lock the real threats.
+  ccSat: number; ccImmT: number;
+  // seconds this boss has been alive-and-onscreen; drives enrage (fire rate ramp)
+  rageT: number;
   // Resonance marks: storm hits leave a charge that discharges on death,
   // light hits leave a brand that amplifies damage and fuels Eclipse.
   // reactCd is an absolute sim-time stamp gating reactions per enemy.
@@ -175,7 +181,7 @@ export function makeEnemy(): Enemy {
   return {
     uid: 0, slot: 0, type: 'wisp', boss: false, elite: false, golden: false, dead: false,
     x: 0, y: 0, px: 0, py: 0, hp: 1, maxHp: 1, speed: 0, dmg: 0, radius: 10, xp: 1,
-    color: '#fff', slow: 0, slowT: 0,
+    color: '#fff', slow: 0, slowT: 0, ccSat: 0, ccImmT: 0, rageT: 0,
     chargeT: 0, chargeDmg: 0, brandT: 0, reactCd: 0,
     hitFlash: 0, animT: 0, seed: 0,
     knbx: 0, knby: 0, goldT: 0, shootCd: -1, dmgTextT: 0,

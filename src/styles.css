@@ -56,6 +56,24 @@
     100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%,
     var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut));
 
+  /* the Dark Bargain's torn, asymmetric mirror of the octagon — edges that look
+     bitten out rather than cleanly forged */
+  --octagon-corrupt: polygon(
+    8px 1px, 57% 0, calc(100% - 10px) 2px, 100% 8px, calc(100% - 1px) 53%,
+    100% calc(100% - 9px), calc(100% - 8px) calc(100% - 1px), 43% 100%,
+    9px calc(100% - 1px), 1px calc(100% - 8px), 0 45%, 1px 8px);
+
+  /* theme cursors, drawn as inline SVG (no assets): an arrow of aurora light for
+     the default, a glowing four-point sparkle over anything clickable. Hotspots
+     sit at the arrow tip / the sparkle centre. */
+  --cursor-default: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30'%3E%3Cdefs%3E%3ClinearGradient id='a' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23eafaff'/%3E%3Cstop offset='.55' stop-color='%237ff5ff'/%3E%3Cstop offset='1' stop-color='%23b48cff'/%3E%3C/linearGradient%3E%3Cfilter id='g' x='-60%25' y='-60%25' width='220%25' height='220%25'%3E%3CfeDropShadow dx='0' dy='0' stdDeviation='1.5' flood-color='%237ff5ff' flood-opacity='.9'/%3E%3C/filter%3E%3C/defs%3E%3Cpath d='M4 3 L4 22 L9.5 16.5 L12.7 23 L15.7 21.8 L12.5 15.3 L20 15.3 Z' fill='url(%23a)' stroke='%230a0820' stroke-width='1.1' stroke-linejoin='round' filter='url(%23g)'/%3E%3C/svg%3E") 4 3, auto;
+  /* one cursor everywhere: buttons, hovers and the star-map drag all wear the
+     same arrow of light (these alias the default so every existing reference
+     resolves to it) */
+  --cursor-point: var(--cursor-default);
+  --cursor-grab: var(--cursor-default);
+  --cursor-grabbing: var(--cursor-default);
+
   /* UI scale: the interface is designed for 1920×1080 and, like any game UI,
      grows with the output resolution. The world canvas is NOT scaled. */
   --ui-scale: 1;
@@ -71,6 +89,7 @@ body {
   font-family: var(--ui);
   color: var(--mist);
   user-select: none;
+  cursor: var(--cursor-default);
 }
 
 .stage { position: relative; width: 100vw; height: 100vh; }
@@ -139,7 +158,7 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   position: relative;
   isolation: isolate;
   border: none;
-  cursor: pointer;
+  cursor: var(--cursor-point);
   clip-path: var(--octagon);
   font-family: var(--display);
   text-transform: uppercase;
@@ -571,7 +590,7 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
     color-mix(in srgb, var(--c) 22%, rgba(205, 216, 255, 0.1)) 45%,
     color-mix(in srgb, var(--c) 55%, rgba(205, 216, 255, 0.2)));
   color: var(--mist);
-  cursor: pointer;
+  cursor: var(--cursor-point);
   text-align: center;
   filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.5)) drop-shadow(0 0 14px color-mix(in srgb, var(--c) 22%, transparent));
   transition: transform 0.16s ease, filter 0.16s ease;
@@ -703,7 +722,7 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   color: rgba(255, 138, 178, 0.95);
   background: rgba(255, 122, 168, 0.45);
   border: none;
-  padding: 8px 19px 7px; cursor: pointer;
+  padding: 8px 19px 7px; cursor: var(--cursor-point);
   clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 6px 100%, 0 50%);
   transition: background 0.12s, color 0.12s;
 }
@@ -716,7 +735,7 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 }
 .banish-btn:hover:not(:disabled) { background: rgba(255, 122, 168, 0.8); color: #ffb3cb; }
 .banish-btn:hover:not(:disabled)::before { background: rgba(64, 20, 40, 0.92); }
-.banish-btn:disabled { opacity: 0.25; cursor: default; }
+.banish-btn:disabled { opacity: 0.25; cursor: var(--cursor-default); }
 
 .levelup-tools { margin-top: 20px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .reroll-btn {
@@ -727,7 +746,7 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   background: rgba(127, 245, 255, 0.5);
   border: none;
   clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 8px 100%, 0 50%);
-  padding: 13px 35px 12px; cursor: pointer;
+  padding: 13px 35px 12px; cursor: var(--cursor-point);
   transition: transform 0.15s, background 0.15s, filter 0.15s;
 }
 .reroll-btn::before {
@@ -743,7 +762,7 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   filter: drop-shadow(0 0 14px rgba(127, 245, 255, 0.5));
 }
 .reroll-btn:hover:not(:disabled)::before { background: rgba(24, 42, 62, 0.94); }
-.reroll-btn:disabled { opacity: 0.25; cursor: default; }
+.reroll-btn:disabled { opacity: 0.25; cursor: var(--cursor-default); }
 .banish-count {
   font-family: var(--flavor); font-style: italic; font-weight: 500; font-size: 16.5px;
   color: rgba(205, 216, 255, 0.75);
@@ -816,10 +835,8 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 }
 .stat .num.dust { color: var(--gold); text-shadow: 0 0 16px rgba(255, 210, 122, 0.5); }
 .stat .lbl { font-size: 12px; font-weight: 600; letter-spacing: 0.3em; text-transform: uppercase; color: rgba(205, 216, 255, 0.75); }
-.dead .menu-buttons { flex-direction: row; flex-wrap: wrap; justify-content: center; align-items: center; }
-.dead .menu-buttons .btn-primary, .dead .menu-buttons .btn-secondary { min-width: 0; }
-/* in a row, all buttons share one height — the gradient alone marks the CTA */
-.dead .menu-buttons .btn-primary { padding: 15px 38px 14px; font-size: 15px; }
+/* stacked in one vertical column, like the main menu — a clear reading order */
+.dead .menu-buttons { flex-direction: column; }
 
 /* ============================================================== constellation
    The web itself (stars, edges, reveal, pulses) is drawn on a canvas — see
@@ -862,10 +879,11 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   font-family: var(--display); font-weight: 700; font-size: 27px;
   color: var(--gold); text-shadow: 0 0 18px rgba(255, 210, 122, 0.55);
 }
-/* unspent skill points — the number that makes stars clickable */
+/* unspent skill points — the number that makes stars clickable. Stardust-gold,
+   to match the ◈ shown in the menu header and in every node tooltip */
 .point-chip {
   font-family: var(--display); font-weight: 700; font-size: 27px;
-  color: var(--arcane); text-shadow: 0 0 18px rgba(180, 140, 255, 0.55);
+  color: var(--gold); text-shadow: 0 0 18px rgba(255, 210, 122, 0.55);
 }
 .point-chip.dark { color: #ff7ab0; text-shadow: 0 0 18px rgba(255, 90, 122, 0.5); }
 /* the Dark Bargain's promise, mirrored by the in-run clock */
@@ -874,7 +892,7 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   letter-spacing: 0.1em;
   color: #ffb3cb; text-shadow: 0 0 12px rgba(255, 90, 122, 0.5);
 }
-.forge-btn:disabled { opacity: 0.45; cursor: default; }
+.forge-btn:disabled { opacity: 0.45; cursor: var(--cursor-default); }
 .forge-btn.hot { color: #ffe9bd; animation: glimmerPulse 2.4s ease-in-out infinite; }
 .forge-btn.dark.hot { color: #ffb3cb; animation: glimmerDarkPulse 2.4s ease-in-out infinite; }
 
@@ -882,7 +900,7 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 .tree-canvas {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
-  cursor: grab;
+  cursor: var(--cursor-grab);
   touch-action: none;
 }
 
@@ -926,6 +944,38 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   50% { filter: drop-shadow(0 0 13px rgba(255, 90, 122, 0.65)); }
 }
 .dust-chip.shards { color: #ff7ab0; }
+
+/* ---- corrupted buttons: every choice the Dark Bargain offers looks torn from
+   the wound, not forged — crimson metal, a bitten silhouette, a seeping pulse.
+   Covers the game-over entry (.dark-btn) and every button inside the web. ---- */
+.btn-secondary.dark-btn,
+.btn-secondary.glimmer-dark,
+.dark-overlay .btn-secondary {
+  clip-path: var(--octagon-corrupt);
+  background: linear-gradient(158deg, rgba(255, 90, 122, 0.72), rgba(122, 20, 52, 0.22) 46%, rgba(200, 40, 92, 0.55));
+  filter: drop-shadow(0 0 10px rgba(255, 40, 80, 0.2));
+  color: #ffccd6;
+}
+.btn-secondary.dark-btn::before,
+.btn-secondary.glimmer-dark::before,
+.dark-overlay .btn-secondary::before {
+  background: linear-gradient(172deg, rgba(40, 8, 18, 0.97), rgba(15, 4, 10, 0.98));
+}
+.btn-secondary.dark-btn:hover,
+.btn-secondary.glimmer-dark:hover,
+.dark-overlay .btn-secondary:hover {
+  color: #fff;
+  filter: drop-shadow(0 0 17px rgba(255, 40, 80, 0.55));
+}
+.btn-secondary.dark-btn .dust-chip,
+.dark-overlay .btn-secondary .dust-chip { border-left-color: rgba(255, 90, 122, 0.4); }
+/* the game-over entry has no other animation, so it seeps a slow, uneven crimson
+   (the forge button keeps its own 'hot' pulse; the reveal keeps its glimmer) */
+.btn-secondary.dark-btn { animation: corruptSeep 4.6s ease-in-out infinite; }
+@keyframes corruptSeep {
+  32% { filter: drop-shadow(0 0 15px rgba(255, 40, 80, 0.45)); }
+  58% { filter: drop-shadow(0 0 7px rgba(150, 18, 48, 0.28)); }
+}
 
 /* ---- the Dark Bargain: a corrupted mirror of the constellation screen ---- */
 .dark-overlay {
@@ -1007,7 +1057,7 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 .loadout-slots { display: flex; align-items: center; gap: 12px; }
 .loadout-slot-wrap { position: relative; }
 .loadout-slot {
-  width: 58px; height: 58px; cursor: pointer;
+  width: 58px; height: 58px; cursor: var(--cursor-point);
   clip-path: polygon(9px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 9px), calc(100% - 9px) 100%, 9px 100%, 0 calc(100% - 9px), 0 9px);
   display: flex; align-items: center; justify-content: center;
   position: relative; isolation: isolate;
@@ -1047,7 +1097,7 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 }
 .lm-item {
   display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 9px 11px; cursor: pointer; text-align: left;
+  padding: 9px 11px; cursor: var(--cursor-point); text-align: left;
   background: transparent; border: none; color: rgba(222, 228, 255, 0.95);
   font-family: var(--ui); font-size: 15px;
 }
@@ -1139,7 +1189,7 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   background: rgba(205, 216, 255, 0.25);
   border: none;
   clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px), 0 5px);
-  padding: 9px 16px 8px; cursor: pointer;
+  padding: 9px 16px 8px; cursor: var(--cursor-point);
   transition: color 0.15s, background 0.15s;
 }
 .preset-btn::before {
@@ -1163,7 +1213,7 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   width: 260px; max-width: 46vw; height: 5px;
   background:
     linear-gradient(90deg, var(--aurora), var(--arcane) var(--val), rgba(205, 216, 255, 0.18) var(--val));
-  border-radius: 999px; cursor: pointer;
+  border-radius: 999px; cursor: var(--cursor-point);
   outline: none;
 }
 .vol-slider::-webkit-slider-thumb {
@@ -1173,7 +1223,7 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   transform: rotate(45deg);
   background: linear-gradient(135deg, #eafcff, var(--aurora));
   border: 1px solid rgba(11, 10, 30, 0.8);
-  box-shadow: 0 0 10px rgba(127, 245, 255, 0.7); cursor: pointer;
+  box-shadow: 0 0 10px rgba(127, 245, 255, 0.7); cursor: var(--cursor-point);
 }
 .vol-slider::-moz-range-thumb {
   width: 15px; height: 15px;
@@ -1181,7 +1231,7 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   transform: rotate(45deg);
   background: linear-gradient(135deg, #eafcff, var(--aurora));
   border: 1px solid rgba(11, 10, 30, 0.8);
-  box-shadow: 0 0 10px rgba(127, 245, 255, 0.7); cursor: pointer;
+  box-shadow: 0 0 10px rgba(127, 245, 255, 0.7); cursor: var(--cursor-point);
 }
 .vol-num {
   font-variant-numeric: tabular-nums; font-size: 14.5px;
@@ -1193,11 +1243,11 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 .dev-toggle {
   display: flex; align-items: center; gap: 8px;
   font-family: var(--flavor); font-style: italic; font-weight: 500; font-size: 15.5px;
-  color: rgba(205, 216, 255, 0.7); cursor: pointer;
+  color: rgba(205, 216, 255, 0.7); cursor: var(--cursor-point);
   user-select: none;
 }
 .dev-toggle:hover { color: rgba(205, 216, 255, 0.9); }
-.dev-toggle input { accent-color: #7ff5ff; cursor: pointer; }
+.dev-toggle input { accent-color: #7ff5ff; cursor: var(--cursor-point); }
 
 /* ============================================================== a11y & small screens */
 @media (prefers-reduced-motion: reduce) {

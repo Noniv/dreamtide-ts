@@ -35,6 +35,38 @@ export const MELEE_ANIM_DUR = 0.22;
 export const BLINK_WINDUP = 0.55;
 export const BLINK_IN = 0.35;
 
+// the dream turns lucid: the horde crawls and essence doubles for these seconds.
+// Shared with the renderer so the veil fades cleanly in and out over the window.
+export const LUCID_DUR = 6;
+
+// boss enrage: after a grace period on screen, a lingering nightmare looses its
+// volleys ever faster (up to 1 + MAX × the base rate) so fights can't be kited
+// out forever. Fire cadence only — projectile speed stays dodgeable.
+// The first minute on screen is a normal fight; over the SECOND minute the fury
+// climbs smoothly from 1× to the 3× cap. A player killing at any reasonable pace
+// never feels it — only a stalled/kited fight runs into the fangs.
+export const BOSS_RAGE_START = 60; // seconds of grace before the fury builds
+const BOSS_RAGE_RATE = 1 / 30; // +1× fire rate per 30s → reaches +2× (3× total) after 60s
+const BOSS_RAGE_MAX = 2.0;    // caps at 3× base fire rate
+export const BOSS_RAGE_FULL = 60; // seconds past START for the tell to peak
+
+// hard-CC saturation: elites, golden wisps and ranged foes shrug free of the
+// endgame lock-blanket once they've eaten enough pull/freeze/sleep/knock. Trash
+// is never resisted (locking the fodder IS the fantasy) and bosses stay on their
+// own per-site gating.
+const CC_IMMUNE = 1.6;     // seconds a saturated threat is immune to hard CC
+const CC_PULL_RATE = 0.55; // saturation gained per second of being pulled
+const CC_HIT = 0.5;        // saturation per discrete freeze / sleep / knock
+const CC_DECAY = 0.35;     // saturation bled off per second when free of CC
+
+// Single-target spell priority, expressed as a squared-distance discount: a
+// high-value foe reads as if it were sqrt(pri)× closer, so spells favour bosses
+// far above golden wisps and elites, which sit well above trash. (Golden wisps
+// flee and pay stardust, so they edge out elites.)
+const TARGET_PRI_BOSS = 16;   // ~4× effective reach
+const TARGET_PRI_GOLDEN = 9;  // ~3× effective reach
+const TARGET_PRI_ELITE = 6.25; // ~2.5× effective reach
+
 // Player hurtbox: a circle offset above the sprite origin (feet) so it encloses
 // the wizard's body — head through robe — rather than a small patch on the
 // chest. Collision checks AND the debug outline both read these, so they can
@@ -1206,6 +1238,7 @@ export class Engine {
     e.xp = Math.max(1, Math.round(def.xp * (1 + Math.min(2.2, (d.hpMul - 1) * 0.3)) / (1 + d.esc * 0.12))) * (elite ? 6 : 1);
     e.color = def.color;
     e.slow = 0; e.slowT = 0; e.hitFlash = 0;
+    e.ccSat = 0; e.ccImmT = 0; e.rageT = 0;
     e.chargeT = 0; e.chargeDmg = 0; e.brandT = 0; e.reactCd = 0;
     e.animT = Math.random() * 10;
     e.seed = Math.random() * 1000;
@@ -1234,6 +1267,19 @@ export class Engine {
           projSpeed: rdef.projSpeed * speedF,
           shots: rdef.shots + extraShots,
         };
+      }
+      // deep endgame: a share of the melee tide (drifting eyes, slipping shades)
+      // learns to spit from range, harrying from beyond rift reach so the CC-
+      // blanket can never neutralise the whole screen at once
+      if (esc > 1.5 && !e.ranged && (typeId === 'eye' || typeId === 'shade') && !elite) {
+        if (Math.random() < Math.min(0.4, (esc - 1.5) * 0.09)) {
+          e.ranged = {
+            range: 300 + rand(0, 120),
+            cd: 2.8 / (1 + Math.min(0.5, esc * 0.03)),
+            projSpeed: 165 + rand(0, 40),
+            shots: 1 + (Math.random() < esc * 0.05 ? 1 : 0),
+          };
+        }
       }
     }
     e.maxHp = e.hp;
@@ -1280,12 +1326,18 @@ export class Engine {
     const n = this.bossCount;
     bf.spin += bf.spinV * dt;
     bf.hold = Math.max(0, bf.hold - dt);
+    // enrage: the longer a nightmare lingers, the faster it fires — a soft push
+    // to finish the fight rather than kite it. A one-shot roar marks the turn.
+    const wasEnraged = e.rageT > BOSS_RAGE_START;
+    e.rageT += dt;
+    if (!wasEnraged && e.rageT > BOSS_RAGE_START) audio.bossEnrage(this.panOf(e.x));
+    const rage = 1 + Math.min(BOSS_RAGE_MAX, Math.max(0, e.rageT - BOSS_RAGE_START) * BOSS_RAGE_RATE);
     // a blink in progress owns the turn: the fire clock pauses while the
     // Shade folds away, steps, and unfolds (see updateBlink)
     if (this.updateBlink(e, bf, dt)) return;
     bf.cd -= dt;
     if (bf.cd > 0) return;
-    bf.cd = bf.interval * rand(0.9, 1.1);
+    bf.cd = (bf.interval / rage) * rand(0.9, 1.1);
     const pat = bf.patterns[bf.pIdx % bf.patterns.length];
     bf.pIdx++;
     const baseA = Math.atan2(p.y - e.y, p.x - e.x);
@@ -1509,18 +1561,29 @@ export class Engine {
 
     this.eliteTimer -= dt;
     if (this.eliteTimer <= 0) {
+      const esc = this.endgame();
       this.eliteTimer = Math.max(32, 50 - this.t / 40)
         / (1 + ((this.meta.baneElite || 0) + this.pact.curseElite) / 100)
+        / (1 + Math.min(1.4, esc * 0.14)) // elites press harder the deeper the dream unravels
         / this.intensity;
       this.spawnEnemy(this.pickType(), true);
+      // deep endgame: elites begin arriving in pairs so the CC-blanket always
+      // has a resistant body it can't simply neutralise
+      if (esc > 2 && Math.random() < Math.min(0.55, (esc - 2) * 0.11)) this.spawnEnemy(this.pickType(), true);
     }
-    // dread swells in the last seconds before the Devourer breaks through
-    if (this.bossTimer > 3 && this.bossTimer - dt <= 3) audio.bossOmen();
+    // the dream will not admit a second nightmare while the first still walks:
+    // the omen and the arrival both hold until the arena is clear again
+    const bossAlive = this.enemies.some((e) => e.boss && !e.dead);
+    if (!bossAlive && this.bossTimer > 3 && this.bossTimer - dt <= 3) audio.bossOmen();
     this.bossTimer -= dt;
     if (this.bossTimer <= 0) {
-      this.bossTimer = 115 / (1 + (this.meta.baneBoss || 0) / 100);
-      this.bossCount++;
-      this.spawnEnemy('eye', false, true);
+      if (bossAlive) {
+        this.bossTimer = 6; // re-arm a short retry; the omen replays once it clears
+      } else {
+        this.bossTimer = 115 / (1 + (this.meta.baneBoss || 0) / 100);
+        this.bossCount++;
+        this.spawnEnemy('eye', false, true);
+      }
     }
   }
 
@@ -1584,6 +1647,7 @@ export class Engine {
     e.hp = 70 * d.hpMul; e.maxHp = 70 * d.hpMul;
     e.speed = 150; e.dmg = 0; e.radius = 14; e.xp = 4; e.color = '#ffd27a';
     e.slow = 0; e.slowT = 0; e.hitFlash = 0;
+    e.ccSat = 0; e.ccImmT = 0; e.rageT = 0;
     e.chargeT = 0; e.chargeDmg = 0; e.brandT = 0; e.reactCd = 0;
     e.animT = Math.random() * 10;
     e.seed = Math.random() * 1000;
@@ -1649,13 +1713,23 @@ export class Engine {
     return best;
   }
 
+  // Single-target picker: the nearest foe, but bosses, golden wisps and elites
+  // pull their effective distance in so spells snap to the real threats instead
+  // of chipping the fodder around them (see TARGET_PRI_* for the weights).
   pickTarget(x: number, y: number, maxR = Infinity): Enemy | null {
-    const nearest = this.nearestEnemy(x, y, maxR);
-    if (nearest && !nearest.boss) {
-      const boss = this.enemies.find((e) => e.boss && !e.dead && this.inView(e.x, e.y) && dist2(x, y, e.x, e.y) < maxR * maxR);
-      if (boss && Math.random() < 0.35) return boss;
+    const { left, right, top, bottom } = this.viewRect(0);
+    const maxR2 = maxR * maxR;
+    let best: Enemy | null = null, bestScore = Infinity;
+    for (const e of this.enemies) {
+      if (e.dead) continue;
+      if (e.x < left || e.x > right || e.y < top || e.y > bottom) continue;
+      const d = dist2(x, y, e.x, e.y);
+      if (d > maxR2) continue;
+      const pri = e.boss ? TARGET_PRI_BOSS : e.golden ? TARGET_PRI_GOLDEN : e.elite ? TARGET_PRI_ELITE : 1;
+      const score = d / pri;
+      if (score < bestScore) { bestScore = score; best = e; }
     }
-    return nearest;
+    return best;
   }
 
   densestPoint(radius: number): { x: number; y: number } | null {
@@ -1672,7 +1746,7 @@ export class Engine {
     for (const e of cand) {
       let score = 0;
       for (const o of vis) {
-        if (dist2(e.x, e.y, o.x, o.y) < r2) score += o.boss ? 3 : o.elite ? 2 : 1;
+        if (dist2(e.x, e.y, o.x, o.y) < r2) score += o.boss ? 4 : o.golden ? 3 : o.elite ? 2.5 : 1;
       }
       if (score > bestScore) { bestScore = score; best = e; }
     }
@@ -2555,6 +2629,8 @@ export class Engine {
       e.animT += dt;
       e.hitFlash = Math.max(0, e.hitFlash - dt);
       e.slowT = Math.max(0, e.slowT - dt);
+      e.ccImmT = Math.max(0, e.ccImmT - dt);
+      if (e.ccImmT <= 0 && e.ccSat > 0) e.ccSat = Math.max(0, e.ccSat - dt * CC_DECAY);
       e.chargeT = Math.max(0, e.chargeT - dt);
       e.brandT = Math.max(0, e.brandT - dt);
       if (e.chargeT <= 0) e.chargeDmg = 0;
@@ -2870,7 +2946,7 @@ export class Engine {
     this.lucidTimer -= dt;
     if (this.lucidTimer <= 0) {
       this.lucidTimer = rand(150, 220);
-      this.lucidT = 6;
+      this.lucidT = LUCID_DUR;
       this.flash = { color: '125,245,255', a: 0.3 };
       this.setBanner('THE DREAM TURNS LUCID', '#7ff5ff', 3.4, 30);
       audio.bonus();
@@ -3138,6 +3214,23 @@ export class Engine {
   }
 
   // -------------------------------------------------------------- zones
+  // Apply hard CC (pull/freeze/sleep/knock) through the saturation gate. Trash
+  // and bosses pass straight through (bosses are gated separately at each call
+  // site); elites/golden/ranged build saturation and, once full, shrug free for
+  // a moment so overlapping rifts and blooms can't hold them forever.
+  private hardCC(e: Enemy, amount: number): boolean {
+    if (e.boss || !(e.elite || e.golden || e.ranged)) return true;
+    if (e.ccImmT > 0) return false;
+    e.ccSat += amount;
+    if (e.ccSat >= 1) {
+      e.ccSat = 0;
+      e.ccImmT = CC_IMMUNE;
+      e.slowT = 0; // break free of whatever holds it this instant
+      this.particles.spawn({ x: e.x, y: e.y, life: 0.4, size: e.radius * 2.4, color: '#ffffff', mode: 'ring' });
+    }
+    return true;
+  }
+
   private updateZones(dt: number) {
     const p = this.player;
     for (let i = 0; i < this.zones.length;) {
@@ -3154,8 +3247,12 @@ export class Engine {
             z.hit!.mark(e.slot);
             this.damageEnemy(e, z.dmg, '#bff1ff', 'frost');
             if (!e.boss) {
-              e.slow = z.slow;
-              e.slowT = z.slowDur;
+              // Absolute Winter freezes solid (hard CC); an ordinary chill only
+              // slows and never saturates
+              if (z.slow < 0.9 || this.hardCC(e, CC_HIT)) {
+                e.slow = z.slow;
+                e.slowT = z.slowDur;
+              }
             } else if (z.bossChill) {
               // Creeping Cold: even bosses feel the bloom, at half strength
               e.slow = z.slow * 0.5;
@@ -3182,6 +3279,7 @@ export class Engine {
           if (e.boss && !z.bossPull) return;
           const dd = dist2(z.x, z.y, e.x, e.y);
           if (dd < (z.r * 1.6) ** 2 && dd > 4) {
+            if (!this.hardCC(e, dt * CC_PULL_RATE)) return; // saturated: it claws free
             const D = Math.sqrt(dd);
             const pull = z.pull * (e.boss ? 0.35 : 1);
             e.x += ((z.x - e.x) / D) * pull * dt;
@@ -3236,7 +3334,7 @@ export class Engine {
           this.grid.queryCircle(z.x, z.y, z.r + 60, (e) => {
             if (dist2(z.x, z.y, e.x, e.y) < (z.r + e.radius) ** 2) {
               this.damageEnemy(e, z.dmg, '#ffe9bd', 'light');
-              if (!e.boss) { e.slow = 0.92; e.slowT = z.sleepDur; }
+              if (!e.boss && this.hardCC(e, CC_HIT)) { e.slow = 0.92; e.slowT = z.sleepDur; }
             }
           });
           // The Great Seal sounds twice
@@ -3262,7 +3360,7 @@ export class Engine {
           if (dist2(z.x, z.y, e.x, e.y) < z.r * z.r) {
             z.hit!.mark(e.slot);
             this.damageEnemy(e, z.dmg, '#ffbfe4', 'shadow');
-            if (!e.boss) {
+            if (!e.boss && this.hardCC(e, CC_HIT)) {
               const a = Math.atan2(e.y - z.y, e.x - z.x);
               e.knbx += Math.cos(a) * z.knock;
               e.knby += Math.sin(a) * z.knock;

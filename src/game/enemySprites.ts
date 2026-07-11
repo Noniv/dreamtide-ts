@@ -183,38 +183,62 @@ const PAINTERS: Record<string, Painter> = {
     ctx.fill();
   },
 
-  // siren: bake the resting (non-charging) look; the charging mouth-glow +
-  // note motes are handled live by the caller. Veil sway is baked.
+  // siren: a spectral pale chorister — a veiled, gowned wraith singing, hollow
+  // mournful eyes and an open mouth where the charging glow (drawn live by the
+  // caller) blooms. The gown hem and side veils sway; the rest is baked at rest.
   siren(ctx, ph) {
     const a = ph * TAU;
-    ctx.fillStyle = 'rgba(125,201,255,0.4)';
+    const sway = Math.sin(a);
+    // trailing veils streaming to either side
+    ctx.fillStyle = 'rgba(125,201,255,0.32)';
     for (const side of [-1, 1]) {
       ctx.beginPath();
-      ctx.moveTo(side * 4, -6);
-      ctx.quadraticCurveTo(side * 16, 2 + Math.sin(a + side) * 3, side * 10, 14);
-      ctx.quadraticCurveTo(side * 6, 6, side * 2, 8);
+      ctx.moveTo(side * 5, -4);
+      ctx.quadraticCurveTo(side * 17, 3 + sway * side * 3, side * 11, 18);
+      ctx.quadraticCurveTo(side * 7, 8, side * 2, 8);
       ctx.closePath(); ctx.fill();
     }
-    ctx.fillStyle = linGrad(ctx, 0, -16, 0, 12, '#bfe4ff', '#3a6ea8');
+    // gown: a tall spectral bell, pale at the crown, deepening below, hem waving
+    ctx.fillStyle = linGrad(ctx, 0, -18, 0, 20, '#eaf6ff', '#4f86c0');
     ctx.beginPath();
-    ctx.moveTo(0, -16);
-    ctx.quadraticCurveTo(9, -6, 7, 6);
-    ctx.quadraticCurveTo(4, 13, 0, 14);
-    ctx.quadraticCurveTo(-4, 13, -7, 6);
-    ctx.quadraticCurveTo(-9, -6, 0, -16);
+    ctx.moveTo(0, -20);
+    ctx.quadraticCurveTo(10, -13, 9, -2);
+    for (let i = 0; i <= 6; i++) {
+      const fr = i / 6;
+      ctx.lineTo(9 - fr * 18, 12 + Math.sin(a + fr * 6.5) * 2.4 + fr * 4);
+    }
+    ctx.quadraticCurveTo(-10, -13, 0, -20);
     ctx.fill();
-    ctx.fillStyle = '#0b2a3a';
-    ctx.beginPath(); ctx.ellipse(0, -2, 2.4, 3.4, 0, 0, TAU); ctx.fill();
-    ctx.strokeStyle = '#0b2a3a';
-    ctx.lineWidth = 1.1;
+    // a translucent veil framing the face
+    ctx.fillStyle = 'rgba(184,222,255,0.5)';
     ctx.beginPath();
-    ctx.arc(-3.4, -8, 1.8, 0.2, Math.PI - 0.2);
-    ctx.arc(3.4, -8, 1.8, 0.2, Math.PI - 0.2);
-    ctx.stroke();
+    ctx.moveTo(0, -22);
+    ctx.quadraticCurveTo(11, -18, 8, -6);
+    ctx.quadraticCurveTo(0, -9, -8, -6);
+    ctx.quadraticCurveTo(-11, -18, 0, -22);
+    ctx.fill();
+    // luminous face
+    ctx.fillStyle = '#f2fbff';
+    ctx.beginPath(); ctx.ellipse(0, -12, 5.4, 6.6, 0, 0, TAU); ctx.fill();
+    // hollow, mournful eyes: soft cyan glow around dark vertical cores
+    softGlow(ctx, -2.4, -13, 5, 'rgba(120,200,255,0.8)');
+    softGlow(ctx, 2.4, -13, 5, 'rgba(120,200,255,0.8)');
+    ctx.fillStyle = '#0b2530';
+    ctx.beginPath();
+    ctx.ellipse(-2.4, -13, 1.2, 2.3, 0, 0, TAU);
+    ctx.ellipse(2.4, -13, 1.2, 2.3, 0, 0, TAU);
+    ctx.fill();
+    // open singing mouth — a dark oval that widens with the song, faint inner light
+    softGlow(ctx, 0, -4, 3.4, 'rgba(150,220,255,0.45)');
+    ctx.fillStyle = '#08202e';
+    ctx.beginPath(); ctx.ellipse(0, -4, 1.9, 2.8 + Math.abs(sway) * 1.1, 0, 0, TAU); ctx.fill();
+    // a faint choir-halo above the crown
+    ctx.strokeStyle = 'rgba(205,240,255,0.45)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.ellipse(0, -22, 6, 2.1, 0, 0, TAU); ctx.stroke();
   },
 
-  warlock(ctx, ph) {
-    const a = ph * TAU;
+  warlock(ctx, _ph) {
     ctx.fillStyle = linGrad(ctx, 0, -20, 0, 16, '#7a3aa8', '#2a1040');
     ctx.beginPath();
     ctx.moveTo(0, -22);
@@ -230,18 +254,10 @@ const PAINTERS: Record<string, Painter> = {
     softGlow(ctx, 2.4, -13, 6, 'rgba(255,154,213,0.75)');
     ctx.fillStyle = '#ff9ad5';
     ctx.beginPath(); ctx.arc(-2.4, -13, 1.3, 0, TAU); ctx.arc(2.4, -13, 1.3, 0, TAU); ctx.fill();
-    // floating grimoire (slow bob/tilt so 24 frames stay smooth)
-    const pf = Math.sin(a) * 0.15;
-    ctx.save();
-    ctx.translate(12, -4 + Math.sin(a) * 2);
-    ctx.rotate(-0.3 + pf);
-    ctx.fillStyle = '#3d2159';
-    ctx.fillRect(-5, -3.5, 10, 7);
-    ctx.fillStyle = '#e3bfff';
-    ctx.fillRect(-4, -2.5, 4, 5);
-    ctx.fillRect(0.5, -2.5, 3.5, 5);
-    ctx.restore();
-    // orbiting charge-orbs are emitted as LIVE quads by the caller (smooth)
+    // the floating grimoire + orbiting charge-orbs are emitted as LIVE quads by
+    // the caller: a hard-edged book baked into 24 frames read as choppy at boss
+    // scale (unlike the soft glows other bosses hide their stepping behind), so
+    // the body sheet is now fully static and the book rides the smooth clock.
   },
 };
 
@@ -678,6 +694,19 @@ function extraSprites(): ExtraSprite[] {
       const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 5);
       g.addColorStop(0, '#ffd9f2'); g.addColorStop(1, 'rgba(217,140,255,0)');
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 5, 0, TAU); ctx.fill();
+    },
+  });
+  // warlock floating grimoire (live quad, tinted per-instance — bobs/tilts on
+  // the smooth clock instead of being baked into the body frames)
+  out.push({
+    id: 'grimoire', half: 7, paint(ctx) {
+      ctx.fillStyle = '#3d2159';
+      ctx.fillRect(-5, -3.5, 10, 7);
+      ctx.fillStyle = '#e3bfff';
+      ctx.fillRect(-4, -2.5, 4, 5);
+      ctx.fillRect(0.5, -2.5, 3.5, 5);
+      ctx.fillStyle = 'rgba(255,154,213,0.7)';
+      ctx.beginPath(); ctx.arc(2.2, 0, 1.1, 0, TAU); ctx.fill();
     },
   });
   // fallen-star pickup: the five-pointed cyan star core (rotates live)

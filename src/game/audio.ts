@@ -668,6 +668,16 @@ class AudioEngine {
     this.duck(this.duckSfx, 0.7, 0.05, 0.5, 0.8);
   }
 
+  bossEnrage(pan = 0) {
+    // the nightmare's patience snaps: a rising dissonant snarl, sharper than the
+    // arrival roar, warning the dreamer to end this now
+    this.tone({ freq: vary(88, 0.05), to: 220, glide: 0.5, type: 'sawtooth', d: 0.6, peak: 0.14, filter: 'lowpass', ff: 700, fto: 1800, pan, pri: 3 });
+    this.tone({ freq: nt(1), to: nt(8), glide: 0.5, type: 'square', a: 0.02, d: 0.5, peak: 0.05, filter: 'lowpass', ff: 1400, pan, pri: 3 });
+    this.tone({ freq: nt(2), to: nt(10), glide: 0.5, type: 'sawtooth', a: 0.02, d: 0.5, peak: 0.04, filter: 'lowpass', ff: 1400, pan, pri: 3 }); // semitone rub climbing
+    this.noise({ dur: 0.4, peak: 0.08, freq: 600, to: 2400, q: 0.7, type: 'bandpass', pan, pri: 3 });
+    this.duck(this.duckSfx, 0.7, 0.03, 0.3, 0.4);
+  }
+
   bossDown() {
     // relief and triumph: impact, then an A-major swell and a sparkling run
     this.tone({ freq: 120, to: 40, glide: 0.4, type: 'sine', d: 0.55, peak: 0.2, pri: 3 });
@@ -729,6 +739,18 @@ class AudioEngine {
     this.tone({ freq: nt(43), type: 'sine', d: 0.28, peak: 0.055, verb: 0.4, pri: 3 });
     this.tone({ freq: nt(48), type: 'sine', d: 0.35, peak: 0.045, at: 0.05, verb: 0.4, pri: 3 });
     this.noise({ dur: 0.25, peak: 0.025, freq: 7000, q: 1.2, type: 'highpass', verb: 0.4, pri: 3 });
+  }
+
+  darkReveal() {
+    // the Wound opens — the Constellation's bright flourish, soured: a low swell
+    // curdling into an unresolved crimson cluster and a gritty, breathing exhale
+    this.duck(this.duckSfx, 0.4, 0.05, 0.9, 0.7);
+    this.tone({ freq: nt(-24), to: nt(-5), glide: 1.0, type: 'sawtooth', a: 0.4, d: 1.5, peak: 0.13, filter: 'lowpass', ff: 380, fto: 1100, verb: 0.5, pri: 3 });
+    this.tone({ freq: nt(3), type: 'triangle', a: 0.16, d: 1.2, peak: 0.06, verb: 0.6, pri: 3 });   // C5
+    this.tone({ freq: nt(4), type: 'sine', a: 0.16, d: 1.2, peak: 0.05, verb: 0.6, pri: 3 });        // C#5 — a minor-second rub that won't resolve
+    this.tone({ freq: nt(-2), type: 'sawtooth', a: 0.2, d: 1.0, peak: 0.045, filter: 'lowpass', ff: 900, verb: 0.5, pri: 3 }); // F#4 tritone tension
+    this.noise({ dur: 1.2, a: 0.5, peak: 0.06, freq: 190, to: 720, q: 0.5, type: 'bandpass', verb: 0.55, pri: 3 });
+    this.tone({ freq: nt(-17), type: 'sine', d: 1.5, peak: 0.05, at: 0.45, verb: 0.7, pri: 3 }); // a slow toll waking beneath
   }
 
   goldenWisp() {

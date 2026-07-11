@@ -956,7 +956,7 @@ function SkillTree({ meta, reveal, onRevealed, onMeta, onLoadout, onClose }: {
           onClick={() => clickNode('core')}
           title="Forge a skill point from stardust — each costs more than the last"
         >
-          Forge a point — ✦ {nextPointCost(meta)}
+          {nextPointCost(meta) === 0 ? 'Forge a point — free' : `Forge a point — ✦ ${nextPointCost(meta)}`}
         </button>
         <button className="btn-secondary" onClick={onClose}>Return</button>
       </div>
@@ -1074,7 +1074,7 @@ function DarkBargain({ meta, reveal, onRevealed, onMeta, onClose }: {
           pulse={pulse}
           onNodeClick={clickNode}
           onHoverNode={hoverNode}
-          onRevealDone={() => { setPhase('done'); audio.bonus(); onRevealed(); }}
+          onRevealDone={() => { setPhase('done'); audio.darkReveal(); onRevealed(); }}
         />
         {tip && phase === 'done' && <NodeTip tip={tip} meta={meta} dark frontier={frontier} removable={removable} />}
       </div>

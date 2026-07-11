@@ -495,7 +495,7 @@ export function TreeCanvas(props: TreeCanvasProps) {
         const k = s.w / rect.width;
         s.camX = s.ox - (dx * k) / s.z;
         s.camY = s.oy - (dy * k) / s.z;
-        canvasRef.current!.style.cursor = 'grabbing';
+        canvasRef.current!.style.cursor = 'var(--cursor-grabbing, grabbing)';
       }
       return;
     }
@@ -513,14 +513,14 @@ export function TreeCanvas(props: TreeCanvasProps) {
       }
     }
     const clickable = n && (n.kind === 'core' || p.allocatable.has(n.id) || (p.owned.has(n.id) && p.removable.has(n.id)));
-    canvasRef.current!.style.cursor = clickable ? 'pointer' : 'grab';
+    canvasRef.current!.style.cursor = clickable ? 'var(--cursor-point, pointer)' : 'var(--cursor-grab, grab)';
   };
 
   const endDrag = (e: React.MouseEvent) => {
     const s = st.current;
     const wasDrag = s.dragging && s.dragMoved;
     s.dragging = false;
-    canvasRef.current!.style.cursor = 'grab';
+    canvasRef.current!.style.cursor = 'var(--cursor-grab, grab)';
     if (wasDrag) return;
     if (propsRef.current.phase === 'expanding') return;
     const { wx, wy } = toWorld(e);
