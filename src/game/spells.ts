@@ -238,14 +238,14 @@ export const SPELLS: Record<string, SpellDef> = {
   },
   wisps: {
     id: 'wisps', name: 'Wisp Choir', school: 'Spiritism',
-    color: '#ffe9b0', color2: '#a8ffe8', icon: '⁂',
+    color: '#8cf7e2', color2: '#35c9b8', icon: '⁂',
     desc: 'Singing wisps trail behind you and dart at whatever draws near.',
     maxLevel: 6,
     stats: (lv) => ({
-      cooldown: Math.max(0.85, 1.75 - lv * 0.12), // per-wisp dart cadence
-      damage: 8 + lv * 4,
+      cooldown: Math.max(0.8, 1.65 - lv * 0.12), // per-wisp dart cadence
+      damage: 10 + lv * 5,
       count: 2 + Math.floor(lv / 2),
-      range: 300,
+      range: 340,
     }),
     levelText: (lv) => (lv % 2 === 0 ? `+1 wisp (${2 + Math.floor(lv / 2)} total)` : 'Quicker, hungrier darts'),
   },

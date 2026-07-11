@@ -768,11 +768,18 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
     }
     const orbE = q.uv('orb')!;
     const charge = e.ranged ? clamp(1 - e.shootCd / 1.2, 0, 1) : 0;
-    for (let i = 0; i < 3; i++) {
-      const oa = vt * 2.4 + (i / 3) * TAU;
-      const ox = x + Math.cos(oa) * 17 * sc;
-      const oy = y + bob * sc + Math.sin(oa) * 8 * sc - 22 * sc;
-      q.push(true, orbE, ox, oy, (5 + charge * 4) * sc, 0, 0.65 + charge * 0.35);
+    // the charge-orb crown. On a boss the small additive orbs sat ON the huge
+    // bright body and vanished into it — so the crown rises clear above the
+    // head, gains two orbs, and each wears its own glow so it reads at scale.
+    const nOrb = e.boss ? 5 : 3;
+    const crownY = y + bob * sc - (e.boss ? 30 * sc + 8 : 22 * sc);
+    const crownR = (e.boss ? 22 : 17) * sc;
+    for (let i = 0; i < nOrb; i++) {
+      const oa = vt * 2.4 + (i / nOrb) * TAU;
+      const ox = x + Math.cos(oa) * crownR;
+      const oy = crownY + Math.sin(oa) * 8 * sc;
+      if (e.boss) q.push(true, glowE, ox, oy, 10 * sc, 0, 0.30, 1, 0.62, 0.95, 1);
+      q.push(true, orbE, ox, oy, (5 + charge * 4) * sc, 0, (e.boss ? 0.9 : 0.65) + charge * 0.35);
     }
     drawStats.enemyLiveOps++;
   }
@@ -958,17 +965,28 @@ function emitOrbitals(q: QuadList, eng: Engine, alpha: number, camX: number, cam
   }
 }
 
-// the Wisp Choir: soft gold-green spirits trailing the player
+// the Wisp Choir: teal spirit-flames trailing the player — kin to the Soul
+// Lanterns and the Dream Serpent, not anonymous white dots. Each is a soft
+// aura around a hot core with a flickering tail streaming behind its motion.
 function emitWisps(q: QuadList, eng: Engine, alpha: number, camX: number, camY: number) {
   if (!eng.wisps.length) return;
   const glowE = q.uv('glow')!;
   const starE = q.uv('p:star')!;
+  const sparkE = q.uv('p:spark')!;
   for (const w of eng.wisps) {
     const x = lerp(w.px, w.x, alpha) - camX, y = lerp(w.py, w.y, alpha) - camY;
     const tw = 0.5 + 0.5 * Math.sin(eng.vt * 4 + w.seed);
-    q.push(true, glowE, x, y, 11 + tw * 3, 0, 0.5, 1, 0.91, 0.69, 1);
-    q.push(true, glowE, x, y, 4.5, 0, 0.95, 1, 0.98, 0.9, 1);
-    q.push(true, starE, x, y - 2, 5 + tw * 2, eng.vt * 1.5 + w.seed, 0.45 + 0.4 * tw, 0.66, 1, 0.91, 1);
+    // the tail streams opposite the motion; a hovering wisp lets it hang low
+    const dx = w.x - w.px, dy = w.y - w.py;
+    const moving = dx * dx + dy * dy > 0.25;
+    const ta = moving ? Math.atan2(dy, dx) + Math.PI : Math.PI / 2 + Math.sin(eng.vt * 2.6 + w.seed) * 0.35;
+    const tlen = 9 + tw * 4 + (moving ? 6 : 0);
+    q.push(true, sparkE, x + Math.cos(ta) * tlen * 0.8, y + Math.sin(ta) * tlen * 0.8, tlen, ta, 0.4 + 0.2 * tw, 0.45, 1, 0.87, 1, 0.32);
+    // aura → inner glow → white-hot heart
+    q.push(true, glowE, x, y, 13 + tw * 4, 0, 0.55, 0.42, 1, 0.86, 1);
+    q.push(true, glowE, x, y, 6, 0, 0.9, 0.66, 1, 0.93, 1);
+    q.push(true, glowE, x, y, 3, 0, 1, 0.94, 1, 1, 1);
+    q.push(true, starE, x, y - 2, 5 + tw * 2, eng.vt * 1.5 + w.seed, 0.5 + 0.4 * tw, 0.62, 1, 0.92, 1);
   }
 }
 

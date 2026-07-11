@@ -1089,7 +1089,16 @@ export function saveMeta(meta: Meta) {
 // The core of each web mints skill points. Constellation: the very first is a
 // gift (so the first touch of the Waking Eye always wakes a point), then 30 ✦
 // and +10 ✦ per point ever bought after. Dark Bargain: 1 ❖, then +1 ❖ per point.
-export function nextPointCost(meta: Meta): number { return meta.pointsBought === 0 ? 0 : 20 + 10 * meta.pointsBought; }
+// The price of the nth skill point: free opener, then a gentle 5-per-point
+// slope through the first 25 so the early web opens quickly, +7 per point to
+// 50, +10 per point beyond.
+export function nextPointCost(meta: Meta): number {
+  const n = meta.pointsBought;
+  if (n === 0) return 0;
+  if (n <= 25) return 5 * n;
+  if (n <= 50) return 125 + 7 * (n - 25);
+  return 300 + 10 * (n - 50);
+}
 export function nextDarkPointCost(meta: Meta): number { return 1 + meta.darkPointsBought; }
 
 export function canBuyPoint(meta: Meta): boolean {

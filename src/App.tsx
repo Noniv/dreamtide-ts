@@ -290,7 +290,10 @@ function Hud({ hud }: { hud: HudState }) {
               {hud.shieldMax > 0 && hud.shield > 0 && (
                 <div className="fill shield" style={{ width: `${Math.min(100, (100 * hud.shield) / hud.maxHp)}%` }} />
               )}
-              <span>{Math.ceil(hud.hp)} / {hud.maxHp}{hud.shieldMax > 0 ? ` ⛨${Math.ceil(hud.shield)}` : ''}</span>
+              <span>
+                {Math.ceil(hud.hp)} / {hud.maxHp}
+                {hud.shieldMax > 0 && <em className="shield-num">⛨{Math.ceil(hud.shield)}</em>}
+              </span>
             </div>
           </div>
         </div>
@@ -905,12 +908,28 @@ function SkillTree({ meta, reveal, onRevealed, onMeta, onLoadout, onClose }: {
   const [phase, setPhase] = useState<TreePhase>(reveal ? 'seed' : 'done');
   const [tip, setTip] = useState<TipState | null>(null);
   const [pulse, setPulse] = useState<{ id: string; key: number } | null>(null);
+  const [query, setQuery] = useState('');
   const pulseKey = useRef(0);
 
   const owned = useMemo(() => new Set(meta.owned), [meta.owned]);
   const frontier = useMemo(() => frontierOf(meta.owned, false), [meta.owned]);
   const removable = useMemo(() => removableSet(meta.owned, 'core'), [meta.owned]);
   const allocatable = meta.points > 0 || settings.devFreeTree ? frontier : EMPTY_SET;
+
+  // stat search: every term must appear in a star's name or effect text, so
+  // "move" lights every movement-speed star, "crit dmg" narrows to crit damage
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return null;
+    const terms = q.split(/\s+/);
+    const out = new Set<string>();
+    for (const n of CONST_NODES) {
+      if (n.kind === 'core') continue;
+      const hay = `${n.name} ${n.desc}`.toLowerCase();
+      if (terms.every((t) => hay.includes(t))) out.add(n.id);
+    }
+    return out;
+  }, [query]);
 
   const firePulse = (id: string) => { pulseKey.current += 1; setPulse({ id, key: pulseKey.current }); };
 
@@ -955,6 +974,18 @@ function SkillTree({ meta, reveal, onRevealed, onMeta, onLoadout, onClose }: {
           <div className="tree-title">The Constellation</div>
           <div className="tree-sub">Every star costs one skill point; a star only wakes beside a lit one. Release a star to take its point back.</div>
         </div>
+        <div className="tree-search-wrap">
+          <input
+            className="tree-search"
+            type="search"
+            placeholder="Search stars… (move, crit, aoe)"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            spellCheck={false}
+            title="Every star whose name or effect mentions this lights up in blue"
+          />
+          {matches && <span className="tree-search-count">{matches.size}</span>}
+        </div>
         <div className="tree-progress" title="Stars awakened">{meta.owned.length - 1} / {CONST_NODES.length - 1} stars</div>
         <div className="point-chip" title="Unspent skill points — spend them on any star touching your lit web">◈ {settings.devFreeTree ? '∞' : meta.points}</div>
         <div className="dust-big" title="Stardust — earned each time you wake">✦ {settings.devFreeTree ? '∞' : meta.dust}</div>
@@ -974,6 +1005,7 @@ function SkillTree({ meta, reveal, onRevealed, onMeta, onLoadout, onClose }: {
           nodes={CONST_NODES} edges={CONST_EDGES} nodeMap={NODE_MAP}
           owned={owned} allocatable={allocatable} removable={removable} reachable={frontier}
           phase={phase} coreHot={phase === 'done' && canBuyPoint(meta)}
+          highlight={matches}
           variant="arcane" fitRadius={1055}
           pulse={pulse}
           onNodeClick={clickNode}

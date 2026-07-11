@@ -128,6 +128,7 @@ export interface TreeCanvasProps {
   reachable: Set<string>;   // has a lit neighbour (regardless of points)
   phase: TreePhase;
   coreHot: boolean;         // the core can mint a point right now
+  highlight?: Set<string> | null; // search matches — ringed in blue, the rest dimmed
   variant: 'arcane' | 'dark';
   fitRadius: number;
   pulse?: { id: string; key: number } | null;
@@ -316,8 +317,12 @@ export function TreeCanvas(props: TreeCanvasProps) {
         const isCore = n.kind === 'core';
         if (seed && !isCore) continue;
         if (!inView(n.x, n.y)) continue;
-        const a = isCore ? 1 : revealA(g.nDist[i]);
+        let a = isCore ? 1 : revealA(g.nDist[i]);
         if (a <= 0) continue;
+        // an active search dims everything that doesn't match so hits pop
+        const hl = p.highlight && p.highlight.size ? p.highlight : null;
+        const hlHit = hl ? hl.has(n.id) : false;
+        if (hl && !hlHit && !isCore) a *= 0.35;
         const owned = p.owned.has(n.id);
         const buy = p.allocatable.has(n.id);
         const reach = !owned && !buy && p.reachable.has(n.id);
@@ -374,6 +379,20 @@ export function TreeCanvas(props: TreeCanvasProps) {
           ctx.strokeStyle = owned ? '#ffffff' : pal.stroke;
           ctx.lineWidth = 1;
           ctx.stroke();
+        }
+
+        // search hit: a pulsing blue ring — a colour no other node state wears
+        if (hlHit) {
+          const pulse = 0.7 + 0.3 * Math.sin(now / 280 + i * 0.9);
+          ctx.globalAlpha = a * 0.5 * pulse;
+          ctx.drawImage(glowSprite('#4da6ff'), n.x - r * 2.6, n.y - r * 2.6, r * 5.2, r * 5.2);
+          ctx.globalAlpha = a * (0.6 + 0.4 * pulse);
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, r + 3.5, 0, Math.PI * 2);
+          ctx.strokeStyle = '#6fc2ff';
+          ctx.lineWidth = Math.max(2 / z, 1.7);
+          ctx.stroke();
+          ctx.globalAlpha = a;
         }
 
         // icon (zoom-gated: unreadable specks are just noise)

@@ -110,6 +110,9 @@ export interface BossProjectile {
   vx: number; vy: number;
   life: number; r: number; dmg: number;
   color: string | null;
+  // Colossus stones leave the hand slow and gather speed as they travel:
+  // accel is px/s² added along the flight path, capped at maxSpd
+  accel: number; maxSpd: number;
   // Mirror Waltz: batted back by a petal — now hunts the horde instead
   reflected: boolean;
   // absolute sim-time gate so one petal contact rolls the reflect chance once
@@ -253,7 +256,7 @@ export function makeProjectile(): Projectile {
 }
 
 export function makeBossProjectile(): BossProjectile {
-  return { dead: false, x: 0, y: 0, px: 0, py: 0, vx: 0, vy: 0, life: 0, r: 6, dmg: 0, color: null, reflected: false, parryT: 0 };
+  return { dead: false, x: 0, y: 0, px: 0, py: 0, vx: 0, vy: 0, life: 0, r: 6, dmg: 0, color: null, accel: 0, maxSpd: 0, reflected: false, parryT: 0 };
 }
 
 export function makeZone(): Zone {

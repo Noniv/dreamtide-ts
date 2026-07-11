@@ -171,8 +171,11 @@ const BOSS_ARCHS: BossArch[] = [
     type: 'golem', title: '☽  THE SUNKEN COLOSSUS WAKES  ☾', color: '#8fe8ff',
     hp: 62, dmg: 34, speed: 34, radius: 72,
     fire: {
+      // one signature attack: the double stone ring with a walking gap. The
+      // stones leave the body slow, then gather speed as they travel (see the
+      // accel handling in the boss-projectile update)
       interval: 2.6, speed: 95,
-      patterns: (n) => n <= 1 ? ['slam'] : n <= 3 ? ['slam', 'ring'] : ['slam', 'ring', 'cross'],
+      patterns: () => ['slam'],
     },
   },
   {
@@ -195,8 +198,10 @@ const BOSS_ARCHS: BossArch[] = [
     type: 'warlock', title: '☽  THE HOLLOW COURT CONVENES  ☾', color: '#d98cff',
     hp: 52, dmg: 22, speed: 42, radius: 62,
     fire: {
-      interval: 2.2, speed: 130,
-      patterns: (n) => n <= 2 ? ['summon', 'aimed'] : ['summon', 'aimed', 'ring'],
+      // 'volley' — the crown of charge-orbs discharges at the player — is the
+      // court's signature; summons alone left it far softer than its peers
+      interval: 1.7, speed: 148,
+      patterns: (n) => n <= 1 ? ['volley', 'aimed', 'summon'] : n <= 3 ? ['volley', 'aimed', 'summon', 'ring'] : ['volley', 'aimed', 'ring', 'summon', 'spiral'],
     },
   },
 ];
@@ -362,7 +367,7 @@ export class Engine {
   private hudTimer = 0;
   private spawnTimer = 1.2;
   private eliteTimer = 35;
-  private bossTimer = 95;
+  private bossTimer = 130;
   private levelUpActive = false;
   private choices: Choice[] = [];
   private burstGuard = false;
@@ -553,7 +558,7 @@ export class Engine {
     this.hudTimer = 0;
     this.spawnTimer = 1.2;
     this.eliteTimer = 35 / (1 + (this.meta.baneElite || 0) / 100);
-    this.bossTimer = 95 / (1 + (this.meta.baneBoss || 0) / 100);
+    this.bossTimer = 130 / (1 + (this.meta.baneBoss || 0) / 100);
     this.bossCount = 0;
     this.flash = null;
     this.levelUpActive = false;
@@ -1182,9 +1187,9 @@ export class Engine {
   // test doesn't end on first contact.
   devEndgame(t = 360) {
     this.t = t;
-    // boss cadence as if the run had been going: first boss at 95s, then +115s
-    this.bossCount = Math.max(0, Math.floor((t - 95) / 115) + 1);
-    this.bossTimer = (95 + this.bossCount * 115 - t) / (1 + (this.meta.baneBoss || 0) / 100);
+    // boss cadence as if the run had been going: first boss at 130s, then +160s
+    this.bossCount = Math.max(0, Math.floor((t - 130) / 160) + 1);
+    this.bossTimer = (130 + this.bossCount * 160 - t) / (1 + (this.meta.baneBoss || 0) / 100);
     const p = this.player;
     p.level = 25;
     p.xpNext = this.xpNextFor(p.level);
@@ -1398,13 +1403,14 @@ export class Engine {
     return e;
   }
 
-  private shootBossProj(x: number, y: number, ang: number, spd: number, r: number, dmg: number, life: number, color: string | null) {
+  private shootBossProj(x: number, y: number, ang: number, spd: number, r: number, dmg: number, life: number, color: string | null, accel = 0, maxSpd = 0) {
     const bp = this.bossProjPool.acquire();
     bp.dead = false;
     bp.x = x; bp.y = y; bp.px = x; bp.py = y;
     bp.vx = Math.cos(ang) * spd;
     bp.vy = Math.sin(ang) * spd;
     bp.life = life; bp.r = r; bp.dmg = dmg; bp.color = color;
+    bp.accel = accel; bp.maxSpd = maxSpd;
     bp.reflected = false; bp.parryT = 0;
     this.bossProjectiles.push(bp);
   }
@@ -1484,7 +1490,10 @@ export class Engine {
         for (let i = 0; i < count; i++) {
           const ang = bf.spin + (i / count) * TAU + ring2 * (Math.PI / count);
           if (inGap(ang, gapA, gapHalf)) continue;
-          this.shootBossProj(e.x + Math.cos(ang) * edge, e.y + Math.sin(ang) * edge, ang, bf.speed * (0.55 + ring2 * 0.2), 9, dmg, 16, null);
+          // stones leave the hand at the old lumbering pace, then gather speed
+          // as they travel — near the boss the ring is readable, far out it bites
+          const spd = bf.speed * (0.55 + ring2 * 0.2);
+          this.shootBossProj(e.x + Math.cos(ang) * edge, e.y + Math.sin(ang) * edge, ang, spd, 9, dmg, 16, null, 65, spd * 3);
         }
       }
     } else if (pat === 'burst') {
@@ -1511,6 +1520,20 @@ export class Engine {
       bf.blinkT = BLINK_WINDUP;
       bf.hold = BLINK_WINDUP + BLINK_IN + 0.2; // rooted through the whole act
       audio.bossBlink();
+    } else if (pat === 'volley') {
+      // Hollow Court: the crown of charge-orbs above its head discharges — each
+      // orb looses a tight fan at the player, the whole crown converging from
+      // slightly different heights so sidestepping one stream isn't enough
+      const orbs = 5;
+      for (let i = 0; i < orbs; i++) {
+        const oa = bf.spin * 2.4 + (i / orbs) * TAU;
+        const ox = e.x + Math.cos(oa) * e.radius * 0.85;
+        const oy = e.y - e.radius * 1.2 + Math.sin(oa) * e.radius * 0.3;
+        const aim = Math.atan2(p.y - oy, p.x - ox);
+        for (let j = -1; j <= 1; j++) {
+          this.shootBossProj(ox, oy, aim + j * 0.09, bf.speed * (1.0 + Math.abs(j) * 0.12), 6, dmg, 16, '#d98cff');
+        }
+      }
     } else if (pat === 'summon') {
       // Hollow Court: the king calls his retinue up through the floor
       if (this.enemies.length < 380) {
@@ -1662,19 +1685,15 @@ export class Engine {
       // has a resistant body it can't simply neutralise
       if (esc > 2 && Math.random() < Math.min(0.55, (esc - 2) * 0.11)) this.spawnEnemy(this.pickType(), true);
     }
-    // the dream will not admit a second nightmare while the first still walks:
-    // the omen and the arrival both hold until the arena is clear again
-    const bossAlive = this.enemies.some((e) => e.boss && !e.dead);
-    if (!bossAlive && this.bossTimer > 3 && this.bossTimer - dt <= 3) audio.bossOmen();
+    // nightmares arrive on the clock even if the last one still walks: a lone
+    // boss can be outranged and kited forever, but two at once weave a bullet
+    // hell that has to be fought, not fled
+    if (this.bossTimer > 3 && this.bossTimer - dt <= 3) audio.bossOmen();
     this.bossTimer -= dt;
     if (this.bossTimer <= 0) {
-      if (bossAlive) {
-        this.bossTimer = 6; // re-arm a short retry; the omen replays once it clears
-      } else {
-        this.bossTimer = 115 / (1 + (this.meta.baneBoss || 0) / 100);
-        this.bossCount++;
-        this.spawnEnemy('eye', false, true);
-      }
+      this.bossTimer = 160 / (1 + (this.meta.baneBoss || 0) / 100);
+      this.bossCount++;
+      this.spawnEnemy('eye', false, true);
     }
   }
 
@@ -2051,11 +2070,11 @@ export class Engine {
           const f = 1 - Math.max(0, w.dartT) / 0.16;
           w.x = w.sx + (tgt.x - w.sx) * f * f;
           w.y = w.sy + (tgt.y - w.sy) * f * f;
-          if (Math.random() < 0.8) this.particles.spawn({ x: w.x, y: w.y, vx: rand(-15, 15), vy: rand(-15, 15), life: 0.3, size: rand(2, 4.5), endSize: 0.5, color: '#ffe9b0', color2: '#a8ffe8', mode: 'glow' });
+          if (Math.random() < 0.8) this.particles.spawn({ x: w.x, y: w.y, vx: rand(-15, 15), vy: rand(-15, 15), life: 0.3, size: rand(2, 4.5), endSize: 0.5, color: '#8cf7e2', color2: '#eafffb', mode: 'glow' });
           if (w.dartT <= 0) {
-            this.damageEnemy(tgt, dmg, '#ffe9b0');
+            this.damageEnemy(tgt, dmg, '#8cf7e2');
             audio.wispDart(this.panOf(w.x));
-            for (let k = 0; k < 7; k++) this.particles.spawn({ x: w.x, y: w.y, vx: rand(-150, 150), vy: rand(-150, 150), life: rand(0.2, 0.45), size: rand(2, 4), color: '#ffe9b0', mode: 'star', rotV: rand(-6, 6), drag: 0.86 });
+            for (let k = 0; k < 7; k++) this.particles.spawn({ x: w.x, y: w.y, vx: rand(-150, 150), vy: rand(-150, 150), life: rand(0.2, 0.45), size: rand(2, 4), color: '#8cf7e2', mode: 'star', rotV: rand(-6, 6), drag: 0.86 });
             w.state = 2; w.dartT = 0.3;
             w.cd = dartCd * rand(0.9, 1.1);
             this.wispDarts++;
@@ -2073,7 +2092,7 @@ export class Engine {
         w.y += (hy - w.y) * Math.min(1, dt * 5);
         if (w.dartT <= 0) w.state = 0;
       }
-      if (Math.random() < 0.25) this.particles.spawn({ x: w.x, y: w.y + 4, vx: rand(-8, 8), vy: rand(-26, -8), life: rand(0.3, 0.7), size: rand(1.5, 3), color: Math.random() < 0.5 ? '#ffe9b0' : '#a8ffe8', mode: 'glow', drag: 0.95 });
+      if (Math.random() < 0.25) this.particles.spawn({ x: w.x, y: w.y + 4, vx: rand(-8, 8), vy: rand(-26, -8), life: rand(0.3, 0.7), size: rand(1.5, 3), color: Math.random() < 0.5 ? '#8cf7e2' : '#eafffb', mode: 'glow', drag: 0.95 });
     }
   }
 
@@ -2446,8 +2465,11 @@ export class Engine {
         const a = pt ? Math.atan2(pt.y - p.y, pt.x - p.x) : rand(0, TAU);
         const z = this.zonePool.acquire();
         this.resetZone(z, 'serpent', p.x + Math.cos(a) * 70, p.y + Math.sin(a) * 70);
-        z.r = st.radius! * this.aoeMul(); z.pr = z.r;
-        z.maxR = st.length! * (1 + (st.special!.longer || 0) / 100) * this.aoeMul(); // body length behind the head
+        // AoE feeds the serpent's length, barely its girth — stacked AoE makes
+        // a long serpent, not a fat one
+        const aoe = this.aoeMul();
+        z.r = st.radius! * (1 + (aoe - 1) * 0.25); z.pr = z.r;
+        z.maxR = st.length! * (1 + (st.special!.longer || 0) / 100) * (1 + (aoe - 1) * 1.35); // body length behind the head
         z.life = st.duration!; z.maxLife = st.duration!;
         z.dps = st.dps! * this.dmgMul();
         z.spin = a;                 // heading
@@ -2730,7 +2752,9 @@ export class Engine {
       // frame (observed 300+ under an evolved-crit endgame build). Both caps are
       // the player's damage-number performance preset (see settings.ts).
       if (this.texts.length < settings.dmgTextCap || e.boss || (crit && this.texts.length < settings.dmgTextCritCap)) {
-        this.spawnText(e.x + rand(-8, 8), e.y - e.radius - 6, String(Math.round(dmg)) + (crit ? '!' : ''), crit ? '#ffd27a' : color, crit ? 0.85 : 0.55, -55, (e.boss ? 18 : 13) + (crit ? 4 : 0));
+        // crits keep the spell's own hit colour — size, lifetime and the '!'
+        // carry the emphasis instead of a universal gold
+        this.spawnText(e.x + rand(-8, 8), e.y - e.radius - 6, String(Math.round(dmg)) + (crit ? '!' : ''), color, crit ? 0.85 : 0.55, -55, (e.boss ? 18 : 13) + (crit ? 4 : 0));
       }
     }
     if (e.hp <= 0) this.killEnemy(e);
@@ -3289,6 +3313,14 @@ export class Engine {
       bp.px = bp.x; bp.py = bp.y;
       bp.life -= dt;
       const bdt = bp.reflected ? dt : bulletDt;
+      // Colossus stones: slow off the hand, gathering speed as they travel
+      if (bp.accel > 0 && !bp.reflected) {
+        const spd = Math.hypot(bp.vx, bp.vy);
+        if (spd > 0 && spd < bp.maxSpd) {
+          const k = Math.min(bp.maxSpd, spd + bp.accel * bdt) / spd;
+          bp.vx *= k; bp.vy *= k;
+        }
+      }
       bp.x += bp.vx * bdt;
       bp.y += bp.vy * bdt;
       if (bp.reflected) {
