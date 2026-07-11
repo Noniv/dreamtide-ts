@@ -47,6 +47,8 @@ npm run build      # typecheck + production build
 
 ## Save compatibility
 
-Constellation progress is stored under the same localStorage key
-(`dreamtide_meta_v3`) as the original, so existing saves carry over when
-served from the same origin.
+Constellation progress is stored under `dreamtide_meta_v4`. Older
+`dreamtide_meta_v3` saves (the fixed-price tree) migrate automatically on
+first load: every coin ever spent on nodes is refunded in full, both webs
+stay revealed, and nothing remains allocated — points are the new currency
+for stars.

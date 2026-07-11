@@ -1,47 +1,60 @@
-// Meta progression: the Constellation — a persistent skill tree bought with
-// stardust earned each run. Stored in localStorage (same key as the original
-// game, so existing progress carries over when served from the same origin).
+// Meta progression: the Constellation — a persistent, Path-of-Exile-style web
+// of ~800 stars. Every star costs exactly one skill point; skill points are
+// forged at the tree's heart for stardust at an ever-rising price. Planning
+// means routing: a star can only be awakened next to one you already own.
+//
+// The Dark Bargain is a second, far smaller web fed with nightmare shards.
+// Its stars start every dream deeper — harder, but the clock (and your best
+// time) starts deeper too.
+//
+// Stored in localStorage under v4; v3 saves migrate with a full refund.
 
 import { SPELLS, EVOLVE } from './spells';
 import { settings } from './settings';
+import { LEGACY_COSTS } from './legacyCosts';
 
-const STORE_KEY = 'dreamtide_meta_v3';
+const STORE_KEY = 'dreamtide_meta_v4';
+const LEGACY_KEY = 'dreamtide_meta_v3';
 
 const deg = (d: number) => (d * Math.PI) / 180;
+
+export type NodeKind = 'core' | 'small' | 'notable' | 'keystone';
 
 export interface TreeNode {
   id: string;
   x: number;
   y: number;
-  cost: number;
   name: string;
   desc: string;
   fx: Record<string, any>;
-  kind: 'core' | 'small' | 'notable' | 'keystone';
-  requires: string[];
-  currency?: 'shards';
+  kind: NodeKind;
+  dark?: boolean; // belongs to the Dark Bargain web
 }
 
-export type TreeEdge = [string, string, number?];
+export type TreeEdge = [string, string]; // always drawn as a straight line
 
 export interface Meta {
   dust: number;
   shards: number;
-  owned: string[];
+  // constellation skill points: unspent pool + lifetime total (sets the price
+  // of the next one — 20, 30, 40, … stardust, no cap)
+  points: number;
+  pointsBought: number;
+  // dark bargain points: 1, 2, 3, … shards
+  darkPoints: number;
+  darkPointsBought: number;
+  owned: string[];     // allocated constellation stars (always contains 'core')
+  darkOwned: string[]; // allocated bargain stars (always contains 'dark-core')
   best: number;
-  loadout: string[]; // spells carried into every run; length grows with slots
-  // The Constellation stays hidden until its first-discovery reveal has
-  // played (after the player's first death). Existing saves that clearly
-  // interacted with the tree already are treated as revealed.
-  treeRevealed: boolean;
+  loadout: string[];
+  treeRevealed: boolean; // the first-discovery reveal has played
+  darkRevealed: boolean;
 }
 
 // spells always available in the loadout regardless of unlocks
 export const LOADOUT_BASE = 'arcane';
 export const MAX_LOADOUT = 4;
 
-// how many loadout slots the player has: 1 by default, +1 per spell-slot notable,
-// capped at MAX_LOADOUT.
 export function loadoutSlots(meta: Meta): number {
   let slots = 1;
   for (const id of meta.owned) {
@@ -51,8 +64,6 @@ export function loadoutSlots(meta: Meta): number {
   return Math.min(MAX_LOADOUT, slots);
 }
 
-// spells the player may place in the loadout: Arcane (always) + any unlocked via
-// a cluster's unlock notable.
 export function unlockedSpells(meta: Meta): string[] {
   const set = new Set<string>([LOADOUT_BASE]);
   for (const id of meta.owned) {
@@ -62,8 +73,6 @@ export function unlockedSpells(meta: Meta): string[] {
   return [...set];
 }
 
-// clamp a stored loadout to the current slot count & unlocks, always keeping at
-// least Arcane in the first slot. Returns a fresh array.
 export function sanitizeLoadout(meta: Meta): string[] {
   const slots = loadoutSlots(meta);
   const allowed = new Set(unlockedSpells(meta));
@@ -91,323 +100,483 @@ export interface Bonuses {
   baneFloor?: number; baneSpeed?: number; baneElite?: number; baneBoss?: number;
   surge: Record<string, number>;
   startSpells: string[];
-  loadout: string[]; // sanitized loadout spells the run should start with
+  loadout: string[];
   spellMods: Record<string, SpellMod>;
   [k: string]: any;
 }
 
-// ---------------------------------------------------------------- builders
+// ================================================================ builders
 const nodes: TreeNode[] = [];
-const edges: TreeEdge[] = []; // [idA, idB, bend?] — bend curves the drawn edge
-const add = (n: TreeNode) => { nodes.push(n); return n.id; };
-const link = (a: string, b: string, bend?: number) => { edges.push(bend ? [a, b, bend] : [a, b]); };
+const edges: TreeEdge[] = [];
+const byId: Record<string, TreeNode> = {};
+const add = (n: TreeNode) => { nodes.push(n); byId[n.id] = n; return n.id; };
+// Every connection is a straight line — curved edges pointed in inconsistent
+// directions and muddied the web's read. The optional third tuple slot in the
+// shape data (a legacy bend) is deliberately ignored.
+const link = (a: string, b: string, _bend?: number) => { edges.push([a, b]); };
+const linkArc = (idA: string, idB: string, _k?: number) => { link(idA, idB); };
 
-add({ id: 'core', x: 0, y: 0, cost: 0, name: 'The Waking Eye', desc: 'Where every dream begins.', fx: {}, kind: 'core', requires: [] });
+interface Stat { n: string; d: string; fx: Record<string, any> }
+const S = (n: string, d: string, fx: Record<string, any>): Stat => ({ n, d, fx });
 
-// ================================================================ main web
-const PATH_RADII = [48, 84, 120, 156, 192, 228, 264, 300, 336, 372, 408, 444, 480];
-const PATH_COSTS = [25, 40, 60, 100, 150, 210, 290, 390, 510, 660, 840, 1050, 1300];
-const TWIG_AT = [2, 5, 9];
-const TWIG_COSTS = [200, 550, 1100];
-const NOTABLE_AT = [3, 7, 11];
-
-interface ArmStep { n: string; d: string; fx: Record<string, number> }
-interface Arm { angle: number; path: ArmStep[]; twigs: ArmStep[]; branch: ArmStep; end: ArmStep }
-
-const ARMS: Record<string, Arm> = {
-  might: {
-    angle: -112.5,
-    path: [
-      { n: 'Ember Thought', d: '+4% spell damage', fx: { dmg: 4 } },
-      { n: 'Ember Thought', d: '+4% spell damage', fx: { dmg: 4 } },
-      { n: 'Cruel Glint', d: '+3% critical chance', fx: { crit: 3 } },
-      { n: 'Kindled Will', d: '+10% spell damage', fx: { dmg: 10 } },
-      { n: 'Sharpened Dream', d: '+5% spell damage', fx: { dmg: 5 } },
-      { n: 'Cruel Glint', d: '+4% critical chance', fx: { crit: 4 } },
-      { n: 'Sharpened Dream', d: '+5% spell damage', fx: { dmg: 5 } },
-      { n: 'Red Portent', d: '+6% crit chance, crits deal +15% more', fx: { crit: 6, critDmg: 15 } },
-      { n: 'Deep Focus', d: '+6% spell damage', fx: { dmg: 6 } },
-      { n: 'Cruel Glint', d: '+4% critical chance', fx: { crit: 4 } },
-      { n: 'Deep Focus', d: '+6% spell damage', fx: { dmg: 6 } },
-      { n: 'Crimson Clarity', d: '+8% damage, +4% crit chance', fx: { dmg: 8, crit: 4 } },
-      { n: 'Warlike Reverie', d: '+7% spell damage', fx: { dmg: 7 } },
-    ],
-    twigs: [
-      { n: 'Stray Spark', d: '+5% spell damage', fx: { dmg: 5 } },
-      { n: 'Wicked Edge', d: 'Crits deal +10% more', fx: { critDmg: 10 } },
-      { n: 'Butcher’s Dream', d: 'Crits deal +20% more', fx: { critDmg: 20 } },
-    ],
-    branch: { n: 'Bloodmoon', d: '+10% crit chance, crits deal +50% more', fx: { crit: 10, critDmg: 50 } },
-    end: { n: 'Overmind', d: 'Multi-shot spells fire +1 projectile', fx: { extraCount: 1 } },
-  },
-  tempo: {
-    angle: -67.5,
-    path: [
-      { n: 'Quick Breath', d: '+3% spell haste', fx: { cast: 3 } },
-      { n: 'Quick Breath', d: '+3% spell haste', fx: { cast: 3 } },
-      { n: 'Feather Step', d: '+3% move speed', fx: { speed: 3 } },
-      { n: 'Racing Pulse', d: '+8% spell haste', fx: { cast: 8 } },
-      { n: 'Quick Breath', d: '+4% spell haste', fx: { cast: 4 } },
-      { n: 'Feather Step', d: '+4% move speed', fx: { speed: 4 } },
-      { n: 'Quick Breath', d: '+4% spell haste', fx: { cast: 4 } },
-      { n: 'Slipstream', d: '+6% move speed, +4% spell haste', fx: { speed: 6, cast: 4 } },
-      { n: 'Tidal Rhythm', d: '+5% spell haste', fx: { cast: 5 } },
-      { n: 'Feather Step', d: '+4% move speed', fx: { speed: 4 } },
-      { n: 'Tidal Rhythm', d: '+5% spell haste', fx: { cast: 5 } },
-      { n: 'Heartbeat of the Deep', d: '+9% spell haste', fx: { cast: 9 } },
-      { n: 'Restless Sleep', d: '+5% spell haste', fx: { cast: 5 } },
-    ],
-    twigs: [
-      { n: 'Light Feet', d: '+4% move speed', fx: { speed: 4 } },
-      { n: 'Hummingbird Thought', d: '+5% spell haste', fx: { cast: 5 } },
-      { n: 'Gale Stride', d: '+6% move speed', fx: { speed: 6 } },
-    ],
-    branch: { n: 'Timeweaver', d: '+15% spell haste', fx: { cast: 15 } },
-    end: { n: 'Echoing Thought', d: '10% chance to cast every spell twice', fx: { echo: 10 } },
-  },
-  cosmos: {
-    angle: -22.5,
-    path: [
-      { n: 'Wider Dream', d: '+4% area of effect', fx: { aoe: 4 } },
-      { n: 'Wider Dream', d: '+4% area of effect', fx: { aoe: 4 } },
-      { n: 'Starlight', d: '+3% spell damage', fx: { dmg: 3 } },
-      { n: 'Spreading Mist', d: '+10% area of effect', fx: { aoe: 10 } },
-      { n: 'Stellar Reach', d: '+5% area of effect', fx: { aoe: 5 } },
-      { n: 'Starlight', d: '+4% spell damage', fx: { dmg: 4 } },
-      { n: 'Stellar Reach', d: '+5% area of effect', fx: { aoe: 5 } },
-      { n: 'Event Horizon', d: '+8% area, +5% damage', fx: { aoe: 8, dmg: 5 } },
-      { n: 'Vast Slumber', d: '+6% area of effect', fx: { aoe: 6 } },
-      { n: 'Starlight', d: '+5% spell damage', fx: { dmg: 5 } },
-      { n: 'Vast Slumber', d: '+6% area of effect', fx: { aoe: 6 } },
-      { n: 'Nebular Heart', d: '+12% area of effect', fx: { aoe: 12 } },
-      { n: 'Endless Sky', d: '+7% area of effect', fx: { aoe: 7 } },
-    ],
-    twigs: [
-      { n: 'Drifting Veil', d: '+5% area of effect', fx: { aoe: 5 } },
-      { n: 'Distant Light', d: '+6% spell damage', fx: { dmg: 6 } },
-      { n: 'Horizon Line', d: '+8% area of effect', fx: { aoe: 8 } },
-    ],
-    branch: { n: 'Unbound Firmament', d: '+1 spell slot — hold one more spell at once', fx: { spellSlots: 1 } },
-    end: { n: 'Cosmic Attunement', d: 'Mastery ranks grant +12% damage instead of +8%', fx: { masteryPlus: 4 } },
-  },
-  tides: {
-    angle: 22.5,
-    path: [
-      { n: 'First Ripple', d: 'Every 8s: 10% chance of a 4s swiftness surge', fx: { surgeSpeed: 10 } },
-      { n: 'Undertow', d: 'Every 8s: 8% chance of a 4s power surge', fx: { surgeDmg: 8 } },
-      { n: 'Quickwater', d: 'Every 8s: 8% chance of a 4s haste surge', fx: { surgeHaste: 8 } },
-      { n: 'The Tide Turns', d: 'You may reroll one set of level-up choices each dream', fx: { reroll: 1 } },
-      { n: 'Swelling Dream', d: 'Every 8s: 10% chance of a 4s area surge', fx: { surgeAoe: 10 } },
-      { n: 'Moonpull', d: 'Every 8s: 12% chance of a 4s pickup surge', fx: { surgeMagnet: 12 } },
-      { n: 'Second Ripple', d: '+10% swiftness surge chance', fx: { surgeSpeed: 10 } },
-      { n: 'Stormfront', d: '+15% power surge chance', fx: { surgeDmg: 15 } },
-      { n: 'Quickwater', d: '+10% haste surge chance', fx: { surgeHaste: 10 } },
-      { n: 'Swelling Dream', d: '+10% area surge chance', fx: { surgeAoe: 10 } },
-      { n: 'Moonpull', d: '+12% pickup surge chance', fx: { surgeMagnet: 12 } },
-      { n: 'Spring Tide', d: '+15% swiftness and +10% power surge chance', fx: { surgeSpeed: 15, surgeDmg: 10 } },
-      { n: 'Third Ripple', d: '+12% haste surge chance', fx: { surgeHaste: 12 } },
-    ],
-    twigs: [
-      { n: 'Shell Song', d: '+10% pickup surge chance', fx: { surgeMagnet: 10 } },
-      { n: 'Deep Current', d: '+8% power surge chance', fx: { surgeDmg: 8 } },
-      { n: 'Wide Wake', d: '+12% area surge chance', fx: { surgeAoe: 12 } },
-    ],
-    branch: { n: 'Dreamsurge', d: '+10% chance to every kind of surge', fx: { surgeAll: 10 } },
-    end: { n: 'Perpetual Tide', d: 'Surges last 3 seconds longer', fx: { surgeDur: 3 } },
-  },
-  gleaning: {
-    angle: 67.5,
-    path: [
-      { n: 'Gleaner', d: '+4% essence gained', fx: { xp: 4 } },
-      { n: 'Spare Dreams', d: 'Slain foes: 3% chance to drop a bonus orb', fx: { extraGem: 3 } },
-      { n: 'Soft Pull', d: '+12% pickup radius', fx: { magnet: 12 } },
-      { n: 'Confluence', d: 'Essence orbs that drift together merge into one brighter orb', fx: { gemMerge: 1 } },
-      { n: 'Spare Dreams', d: '+4% bonus orb chance', fx: { extraGem: 4 } },
-      { n: 'Gleaner', d: '+5% essence gained', fx: { xp: 5 } },
-      { n: 'Spare Dreams', d: '+4% bonus orb chance', fx: { extraGem: 4 } },
-      { n: 'Bountiful Sleep', d: '+8% bonus orb chance', fx: { extraGem: 8 } },
-      { n: 'Soft Pull', d: '+16% pickup radius', fx: { magnet: 16 } },
-      { n: 'Spare Dreams', d: '+5% bonus orb chance', fx: { extraGem: 5 } },
-      { n: 'Gleaner', d: '+6% essence gained', fx: { xp: 6 } },
-      { n: 'Harvest of Sighs', d: '+10% bonus orb chance, +8% essence gained', fx: { extraGem: 10, xp: 8 } },
-      { n: 'Soft Pull', d: '+20% pickup radius', fx: { magnet: 20 } },
-    ],
-    twigs: [
-      { n: 'Keen Eye', d: '+6% essence gained', fx: { xp: 6 } },
-      { n: 'Scattered Sleep', d: '+5% bonus orb chance', fx: { extraGem: 5 } },
-      { n: 'Tithe of Night', d: '+6% bonus orb chance', fx: { extraGem: 6 } },
-    ],
-    branch: { n: 'Boundless Reverie', d: '+1 spell slot — hold one more spell at once', fx: { spellSlots: 1 } },
-    end: { n: 'Golden Dream', d: 'Golden wisps visit twice as often', fx: { golden: 1 } },
-  },
-  fortune: {
-    angle: 112.5,
-    path: [
-      { n: 'Dream Lure', d: '+16% pickup radius', fx: { magnet: 16 } },
-      { n: 'Gleaner', d: '+5% essence gained', fx: { xp: 5 } },
-      { n: 'Soft Pull', d: '+12% pickup radius', fx: { magnet: 12 } },
-      { n: 'Wide Lure', d: '+30% pickup radius', fx: { magnet: 30 } },
-      { n: 'Gleaner', d: '+6% essence gained', fx: { xp: 6 } },
-      { n: 'Keen Eye', d: '+6% essence gained', fx: { xp: 6 } },
-      { n: 'Dream Lure', d: '+20% pickup radius', fx: { magnet: 20 } },
-      { n: 'Lucky Star', d: '+10% essence gained, +12% pickup radius', fx: { xp: 10, magnet: 12 } },
-      { n: 'Dream Lure', d: '+20% pickup radius', fx: { magnet: 20 } },
-      { n: 'Gleaner', d: '+6% essence gained', fx: { xp: 6 } },
-      { n: 'Gleaner', d: '+8% essence gained', fx: { xp: 8 } },
-      { n: 'Sea of Offerings', d: '+36% pickup radius, +6% essence', fx: { magnet: 36, xp: 6 } },
-      { n: 'Dream Lure', d: '+20% pickup radius', fx: { magnet: 20 } },
-    ],
-    twigs: [
-      { n: 'Gentle Gravity', d: '+20% pickup radius', fx: { magnet: 20 } },
-      { n: 'Keen Eye', d: '+8% essence gained', fx: { xp: 8 } },
-      { n: 'Falling Star', d: '+8% essence gained, +10% pickup radius', fx: { xp: 8, magnet: 10 } },
-    ],
-    branch: { n: 'Comet’s Purse', d: '+30% pickup radius, +8% essence gained', fx: { magnet: 30, xp: 8 } },
-    end: { n: 'Waking Start', d: 'Begin every dream with your spells one level stronger', fx: { startLv: 1 } },
-  },
-  vital: {
-    angle: 157.5,
-    path: [
-      { n: 'Warm Blood', d: '+10 max life', fx: { hp: 10 } },
-      { n: 'Warm Blood', d: '+10 max life', fx: { hp: 10 } },
-      { n: 'Slow Mending', d: 'Mend 1 life every 2s', fx: { regen: 1 } },
-      { n: 'Heartroot', d: '+25 max life', fx: { hp: 25 } },
-      { n: 'Warm Blood', d: '+12 max life', fx: { hp: 12 } },
-      { n: 'Slow Mending', d: 'Mend 1 life every 2s', fx: { regen: 1 } },
-      { n: 'Deep Roots', d: '+15 max life', fx: { hp: 15 } },
-      { n: 'Evergreen Sleep', d: '+20 max life · mend 1 more life every 2s', fx: { hp: 20, regen: 1 } },
-      { n: 'Deep Roots', d: '+15 max life', fx: { hp: 15 } },
-      { n: 'Slow Mending', d: 'Mend 1 life every 2s', fx: { regen: 1 } },
-      { n: 'Deep Roots', d: '+18 max life', fx: { hp: 18 } },
-      { n: 'Heart of the Dream', d: '+35 max life', fx: { hp: 35 } },
-      { n: 'Old Growth', d: '+20 max life', fx: { hp: 20 } },
-    ],
-    twigs: [
-      { n: 'Thick Skin', d: '+12 max life', fx: { hp: 12 } },
-      { n: 'Dewdrop', d: 'Mend 1 life every 2s', fx: { regen: 1 } },
-      { n: 'Heartwood', d: '+25 max life', fx: { hp: 25 } },
-    ],
-    branch: { n: 'Moonmilk Vein', d: '+15 max life · mend 2 more life every 2s', fx: { regen: 2, hp: 15 } },
-    end: { n: 'Second Wind', d: 'Once per dream, survive death with half your life', fx: { cheatDeath: 1 } },
-  },
-  fate: {
-    angle: -157.5,
-    path: [
-      { n: 'Clear Sight', d: '+3% damage, +2% spell haste', fx: { dmg: 3, cast: 2 } },
-      { n: 'Dream Logic', d: '+4% essence gained', fx: { xp: 4 } },
-      { n: 'Clear Sight', d: '+3% area, +2% damage', fx: { aoe: 3, dmg: 2 } },
-      { n: 'The Refused Dream', d: 'You may banish one level-up offer each dream', fx: { banish: 1 } },
-      { n: 'Woven Fate', d: '+3% spell haste, +3% area', fx: { cast: 3, aoe: 3 } },
-      { n: 'Clear Sight', d: '+4% spell damage', fx: { dmg: 4 } },
-      { n: 'Dream Logic', d: '+8% essence gained', fx: { xp: 8 } },
-      { n: 'The Second Refusal', d: 'You may banish one more offer each dream', fx: { banish: 1 } },
-      { n: 'Woven Fate', d: '+4% damage, +3% spell haste', fx: { dmg: 4, cast: 3 } },
-      { n: 'Dream Logic', d: '+5% essence gained', fx: { xp: 5 } },
-      { n: 'Woven Fate', d: '+4% area, +3% spell haste', fx: { aoe: 4, cast: 3 } },
-      { n: 'Loom of Nights', d: 'You may reroll one more set of choices each dream', fx: { reroll: 1 } },
-      { n: 'Threads Converge', d: '+5% damage, +4% area', fx: { dmg: 5, aoe: 4 } },
-    ],
-    twigs: [
-      { n: 'Small Mercy', d: '+6% essence gained', fx: { xp: 6 } },
-      { n: 'The Third Refusal', d: 'You may banish one more offer each dream', fx: { banish: 1 } },
-      { n: 'Turning Page', d: 'You may reroll one more set of choices each dream', fx: { reroll: 1 } },
-    ],
-    branch: { n: 'Widening Loom', d: '+1 spell slot — hold one more spell at once', fx: { spellSlots: 1 } },
-    end: { n: 'Fourfold Path', d: 'Level-ups offer a fourth choice', fx: { fourfold: 1 } },
-  },
-};
-
-const SWEEP = 3.6; // degrees of angular drift per path step
-const armAngle = (arm: Arm, i: number) => deg(arm.angle + SWEEP * i);
-
-const linkOut = (idA: string, idB: string, k: number) => {
-  const A = nodes.find((n) => n.id === idA)!, B = nodes.find((n) => n.id === idB)!;
-  const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2;
-  const dx = B.x - A.x, dy = B.y - A.y;
-  const L = Math.hypot(dx, dy) || 1;
-  const s = (mx * (-dy / L) + my * (dx / L)) >= 0 ? 1 : -1;
-  link(idA, idB, s * k);
-};
-
-for (const [key, arm] of Object.entries(ARMS)) {
-  let prev = 'core';
-  arm.path.forEach((def, i) => {
-    const a = armAngle(arm, i);
-    const r = PATH_RADII[i];
-    const id = add({
-      id: `${key}${i}`, x: Math.round(Math.cos(a) * r), y: Math.round(Math.sin(a) * r),
-      cost: PATH_COSTS[i], name: def.n, desc: def.d, fx: def.fx,
-      kind: NOTABLE_AT.includes(i) ? 'notable' : 'small', requires: [prev],
-    });
-    link(prev, id, -6);
-    prev = id;
-  });
-  TWIG_AT.forEach((at, t) => {
-    const pa = armAngle(arm, at);
-    const side = t % 2 ? 1 : -1;
-    const px = Math.round(Math.cos(pa) * PATH_RADII[at] + Math.cos(pa + Math.PI / 2) * side * 56 + Math.cos(pa) * 12);
-    const py = Math.round(Math.sin(pa) * PATH_RADII[at] + Math.sin(pa + Math.PI / 2) * side * 56 + Math.sin(pa) * 12);
-    add({
-      id: `${key}T${t}`, x: px, y: py,
-      cost: TWIG_COSTS[t], name: arm.twigs[t].n, desc: arm.twigs[t].d, fx: arm.twigs[t].fx,
-      kind: arm.twigs[t].fx.banish || arm.twigs[t].fx.reroll ? 'notable' : 'small',
-      requires: [`${key}${at}`],
-    });
-    link(`${key}${at}`, `${key}T${t}`, side * 10);
-  });
-  const ka = armAngle(arm, 13.2);
-  add({
-    id: `${key}K`, x: Math.round(Math.cos(ka) * 528), y: Math.round(Math.sin(ka) * 528),
-    cost: 5500, name: arm.end.n, desc: arm.end.d, fx: arm.end.fx,
-    kind: 'keystone', requires: [`${key}12`],
-  });
-  link(`${key}12`, `${key}K`, -7);
-  const ba = armAngle(arm, 8) + deg(22);
-  const br = (PATH_RADII[8] + PATH_RADII[11]) / 2;
-  add({
-    id: `${key}B`, x: Math.round(Math.cos(ba) * br), y: Math.round(Math.sin(ba) * br),
-    cost: 3000, name: arm.branch.n, desc: arm.branch.d, fx: arm.branch.fx,
-    kind: 'keystone', requires: [`${key}8`],
-  });
-  linkOut(`${key}8`, `${key}B`, 14);
+// ================================================================ themes
+// Eight schools of the dream, one per 45° sector, mirroring the old arms.
+interface ClusterDef { name: string; smalls: Stat[]; notable: Stat }
+interface Theme {
+  key: string; label: string;
+  travel: Stat[];      // spoke smalls, cycled outward
+  notables: [Stat, Stat]; // spoke notables at steps 3 and 7
+  clusters: ClusterDef[];
+  keystone: Stat;
 }
 
-// connector rings
-const ARM_KEYS_SORTED = Object.keys(ARMS).sort((x, y) => ARMS[x].angle - ARMS[y].angle);
-const RING_FX = [
-  { d: '+3% spell damage', fx: { dmg: 3 } },
-  { d: '+2% spell haste', fx: { cast: 2 } },
-  { d: '+3% area of effect', fx: { aoe: 3 } },
-  { d: '+8 max life', fx: { hp: 8 } },
-  { d: '+12% pickup radius', fx: { magnet: 12 } },
-  { d: '+4% essence gained', fx: { xp: 4 } },
-  { d: '+3% move speed', fx: { speed: 3 } },
-  { d: '+2% critical chance', fx: { crit: 2 } },
+const THEMES: Theme[] = [
+  {
+    key: 'might', label: 'Fury',
+    travel: [
+      S('Ember Thought', '+3% spell damage', { dmg: 3 }),
+      S('Cruel Glint', '+2% critical chance', { crit: 2 }),
+      S('Sharpened Dream', '+4% spell damage', { dmg: 4 }),
+      S('Wicked Edge', 'Crits deal +8% more', { critDmg: 8 }),
+    ],
+    notables: [
+      S('Kindled Will', '+12% spell damage', { dmg: 12 }),
+      S('Red Portent', '+6% crit chance, crits deal +15% more', { crit: 6, critDmg: 15 }),
+    ],
+    clusters: [
+      {
+        name: 'Bloodmoon', notable: S('Bloodmoon', '+8% crit chance, crits deal +35% more', { crit: 8, critDmg: 35 }),
+        smalls: [S('Red Sliver', '+3% critical chance', { crit: 3 }), S('Moon Scar', 'Crits deal +10% more', { critDmg: 10 }), S('Ember Thought', '+4% spell damage', { dmg: 4 })],
+      },
+      {
+        name: 'Butcher’s Dream', notable: S('Butcher’s Dream', 'Crits deal +40% more', { critDmg: 40 }),
+        smalls: [S('Keen Fang', 'Crits deal +12% more', { critDmg: 12 }), S('Cruel Glint', '+3% critical chance', { crit: 3 }), S('Sharpened Dream', '+4% spell damage', { dmg: 4 })],
+      },
+      {
+        name: 'Warlike Reverie', notable: S('Warlike Reverie', '+18% spell damage', { dmg: 18 }),
+        smalls: [S('Deep Focus', '+5% spell damage', { dmg: 5 }), S('Kindled Ember', '+5% spell damage', { dmg: 5 }), S('War Whisper', '+2% crit chance, +3% damage', { crit: 2, dmg: 3 })],
+      },
+    ],
+    keystone: S('Overmind', 'Multi-shot spells fire +1 projectile', { extraCount: 1 }),
+  },
+  {
+    key: 'tempo', label: 'Haste',
+    travel: [
+      S('Quick Breath', '+3% spell haste', { cast: 3 }),
+      S('Feather Step', '+2% move speed', { speed: 2 }),
+      S('Restless Sleep', '+3% spell haste', { cast: 3 }),
+      S('Light Feet', '+3% move speed', { speed: 3 }),
+    ],
+    notables: [
+      S('Racing Pulse', '+10% spell haste', { cast: 10 }),
+      S('Slipstream', '+6% move speed, +5% spell haste', { speed: 6, cast: 5 }),
+    ],
+    clusters: [
+      {
+        name: 'Timeweaver', notable: S('Timeweaver', '+15% spell haste', { cast: 15 }),
+        smalls: [S('Loose Thread', '+4% spell haste', { cast: 4 }), S('Quick Stitch', '+4% spell haste', { cast: 4 }), S('Feather Step', '+3% move speed', { speed: 3 })],
+      },
+      {
+        name: 'Gale Stride', notable: S('Gale Stride', '+10% move speed', { speed: 10 }),
+        smalls: [S('Wind at Heel', '+4% move speed', { speed: 4 }), S('Light Feet', '+3% move speed', { speed: 3 }), S('Quick Breath', '+4% spell haste', { cast: 4 })],
+      },
+      {
+        name: 'Heartbeat of the Deep', notable: S('Heartbeat of the Deep', '+12% spell haste, +4% move speed', { cast: 12, speed: 4 }),
+        smalls: [S('Tidal Rhythm', '+4% spell haste', { cast: 4 }), S('Racing Thought', '+4% spell haste', { cast: 4 }), S('Restless Sleep', '+3% spell haste', { cast: 3 })],
+      },
+    ],
+    keystone: S('Echoing Thought', '10% chance to cast every spell twice', { echo: 10 }),
+  },
+  {
+    key: 'cosmos', label: 'Breadth',
+    travel: [
+      S('Wider Dream', '+3% area of effect', { aoe: 3 }),
+      S('Starlight', '+3% spell damage', { dmg: 3 }),
+      S('Stellar Reach', '+4% area of effect', { aoe: 4 }),
+      S('Drifting Veil', '+3% area of effect', { aoe: 3 }),
+    ],
+    notables: [
+      S('Spreading Mist', '+12% area of effect', { aoe: 12 }),
+      S('Event Horizon', '+8% area of effect, +6% damage', { aoe: 8, dmg: 6 }),
+    ],
+    clusters: [
+      {
+        name: 'Nebular Heart', notable: S('Nebular Heart', '+16% area of effect', { aoe: 16 }),
+        smalls: [S('Soft Nebula', '+5% area of effect', { aoe: 5 }), S('Vast Slumber', '+4% area of effect', { aoe: 4 }), S('Starlight', '+4% spell damage', { dmg: 4 })],
+      },
+      {
+        name: 'Endless Sky', notable: S('Endless Sky', '+12% area, +6% damage', { aoe: 12, dmg: 6 }),
+        smalls: [S('Horizon Line', '+5% area of effect', { aoe: 5 }), S('Wider Dream', '+4% area of effect', { aoe: 4 }), S('Sky Ribbon', '+3% area, +2% damage', { aoe: 3, dmg: 2 })],
+      },
+      {
+        name: 'Vault of Stars', notable: S('Vault of Stars', '+10% area, +8% damage', { aoe: 10, dmg: 8 }),
+        smalls: [S('Star Seed', '+4% spell damage', { dmg: 4 }), S('Stellar Reach', '+4% area of effect', { aoe: 4 }), S('Vast Slumber', '+4% area of effect', { aoe: 4 })],
+      },
+    ],
+    keystone: S('Cosmic Attunement', 'Mastery ranks grant +12% damage instead of +8%', { masteryPlus: 4 }),
+  },
+  {
+    key: 'tides', label: 'Tides',
+    travel: [
+      S('First Ripple', '+5% swiftness surge chance', { surgeSpeed: 5 }),
+      S('Undertow', '+5% power surge chance', { surgeDmg: 5 }),
+      S('Quickwater', '+5% haste surge chance', { surgeHaste: 5 }),
+      S('Swelling Dream', '+5% area surge chance', { surgeAoe: 5 }),
+      S('Moonpull', '+6% pickup surge chance', { surgeMagnet: 6 }),
+    ],
+    notables: [
+      S('Stormfront', '+15% power surge chance', { surgeDmg: 15 }),
+      S('Spring Tide', '+12% swiftness and +8% power surge chance', { surgeSpeed: 12, surgeDmg: 8 }),
+    ],
+    clusters: [
+      {
+        name: 'Dreamsurge', notable: S('Dreamsurge', '+8% chance to every kind of surge', { surgeAll: 8 }),
+        smalls: [S('Rising Swell', '+6% power surge chance', { surgeDmg: 6 }), S('Second Ripple', '+6% swiftness surge chance', { surgeSpeed: 6 }), S('Quickwater', '+6% haste surge chance', { surgeHaste: 6 })],
+      },
+      {
+        name: 'Deep Current', notable: S('Deep Current', '+18% power surge chance', { surgeDmg: 18 }),
+        smalls: [S('Undertow', '+6% power surge chance', { surgeDmg: 6 }), S('Dark Water', '+6% power surge chance', { surgeDmg: 6 }), S('Cold Swell', '+5% area surge chance', { surgeAoe: 5 })],
+      },
+      {
+        name: 'Wide Wake', notable: S('Wide Wake', '+15% area and +10% pickup surge chance', { surgeAoe: 15, surgeMagnet: 10 }),
+        smalls: [S('Swelling Dream', '+6% area surge chance', { surgeAoe: 6 }), S('Moonpull', '+7% pickup surge chance', { surgeMagnet: 7 }), S('Foam Trail', '+5% swiftness surge chance', { surgeSpeed: 5 })],
+      },
+    ],
+    keystone: S('Perpetual Tide', 'Surges last 3 seconds longer', { surgeDur: 3 }),
+  },
+  {
+    key: 'gleaning', label: 'Harvest',
+    travel: [
+      S('Gleaner', '+3% essence gained', { xp: 3 }),
+      S('Spare Dreams', '+3% bonus orb chance', { extraGem: 3 }),
+      S('Keen Eye', '+3% essence gained', { xp: 3 }),
+      S('Scattered Sleep', '+3% bonus orb chance', { extraGem: 3 }),
+    ],
+    notables: [
+      S('Bountiful Sleep', '+10% bonus orb chance', { extraGem: 10 }),
+      S('Harvest of Sighs', '+8% bonus orb chance, +6% essence gained', { extraGem: 8, xp: 6 }),
+    ],
+    clusters: [
+      {
+        name: 'Confluence', notable: S('Confluence', 'Essence orbs that drift together merge into one brighter orb', { gemMerge: 1 }),
+        smalls: [S('Braided Light', '+4% essence gained', { xp: 4 }), S('Gleaner', '+4% essence gained', { xp: 4 }), S('Spare Dreams', '+4% bonus orb chance', { extraGem: 4 })],
+      },
+      {
+        name: 'Tithe of Night', notable: S('Tithe of Night', '+12% bonus orb chance', { extraGem: 12 }),
+        smalls: [S('Night Offering', '+4% bonus orb chance', { extraGem: 4 }), S('Scattered Sleep', '+4% bonus orb chance', { extraGem: 4 }), S('Keen Eye', '+4% essence gained', { xp: 4 })],
+      },
+      {
+        name: 'Field of Sighs', notable: S('Field of Sighs', '+12% essence gained', { xp: 12 }),
+        smalls: [S('Quiet Reaping', '+4% essence gained', { xp: 4 }), S('Gleaner', '+4% essence gained', { xp: 4 }), S('Dream Sheaf', '+3% essence, +3% orb chance', { xp: 3, extraGem: 3 })],
+      },
+    ],
+    keystone: S('Golden Dream', 'Golden wisps visit twice as often', { golden: 1 }),
+  },
+  {
+    key: 'fortune', label: 'Fortune',
+    travel: [
+      S('Dream Lure', '+8% pickup radius', { magnet: 8 }),
+      S('Falling Star', '+3% essence gained', { xp: 3 }),
+      S('Soft Pull', '+8% pickup radius', { magnet: 8 }),
+      S('Lodestone Heart', '+10% pickup radius', { magnet: 10 }),
+    ],
+    notables: [
+      S('Wide Lure', '+25% pickup radius', { magnet: 25 }),
+      S('Lucky Star', '+10% essence gained, +12% pickup radius', { xp: 10, magnet: 12 }),
+    ],
+    clusters: [
+      {
+        name: 'Comet’s Purse', notable: S('Comet’s Purse', '+30% pickup radius, +8% essence gained', { magnet: 30, xp: 8 }),
+        smalls: [S('Stardust Trail', '+10% pickup radius', { magnet: 10 }), S('Dream Lure', '+8% pickup radius', { magnet: 8 }), S('Falling Star', '+4% essence gained', { xp: 4 })],
+      },
+      {
+        name: 'Sea of Offerings', notable: S('Sea of Offerings', '+25% pickup radius, +6% essence gained', { magnet: 25, xp: 6 }),
+        smalls: [S('Silver Net', '+10% pickup radius', { magnet: 10 }), S('Soft Pull', '+8% pickup radius', { magnet: 8 }), S('Keen Eye', '+4% essence gained', { xp: 4 })],
+      },
+      {
+        name: 'Beggar’s Firmament', notable: S('Beggar’s Firmament', '+10% essence gained, +10% pickup radius', { xp: 10, magnet: 10 }),
+        smalls: [S('Kind Orbit', '+8% pickup radius', { magnet: 8 }), S('Falling Star', '+4% essence gained', { xp: 4 }), S('Dream Lure', '+8% pickup radius', { magnet: 8 })],
+      },
+    ],
+    keystone: S('Waking Start', 'Begin every dream with your spells one level stronger', { startLv: 1 }),
+  },
+  {
+    key: 'vital', label: 'Roots',
+    travel: [
+      S('Warm Blood', '+8 max life', { hp: 8 }),
+      S('Thick Skin', '+10 max life', { hp: 10 }),
+      S('Deep Roots', '+8 max life', { hp: 8 }),
+      S('Dewdrop', 'Mend 1 life every 4s', { regen: 0.5 }),
+    ],
+    notables: [
+      S('Heartroot', '+30 max life', { hp: 30 }),
+      S('Evergreen Sleep', '+20 max life · mend 1 more life every 2s', { hp: 20, regen: 1 }),
+    ],
+    clusters: [
+      {
+        name: 'Moonmilk Vein', notable: S('Moonmilk Vein', '+15 max life · mend 2 more life every 2s', { regen: 2, hp: 15 }),
+        smalls: [S('Milk Drop', 'Mend 1 life every 4s', { regen: 0.5 }), S('Warm Blood', '+10 max life', { hp: 10 }), S('Dewdrop', 'Mend 1 life every 4s', { regen: 0.5 })],
+      },
+      {
+        name: 'Heart of the Dream', notable: S('Heart of the Dream', '+40 max life', { hp: 40 }),
+        smalls: [S('Heartwood', '+12 max life', { hp: 12 }), S('Deep Roots', '+10 max life', { hp: 10 }), S('Thick Skin', '+10 max life', { hp: 10 })],
+      },
+      {
+        name: 'Old Growth', notable: S('Old Growth', '+25 max life · mend 1 more life every 2s', { hp: 25, regen: 1 }),
+        smalls: [S('Ring of Years', '+12 max life', { hp: 12 }), S('Warm Blood', '+10 max life', { hp: 10 }), S('Deep Roots', '+10 max life', { hp: 10 })],
+      },
+    ],
+    keystone: S('Second Wind', 'Once per dream, survive death with half your life', { cheatDeath: 1 }),
+  },
+  {
+    key: 'fate', label: 'Fate',
+    travel: [
+      S('Clear Sight', '+2% damage, +2% spell haste', { dmg: 2, cast: 2 }),
+      S('Dream Logic', '+3% essence gained', { xp: 3 }),
+      S('Woven Fate', '+2% area, +2% spell haste', { aoe: 2, cast: 2 }),
+      S('Quiet Omen', '+2% damage, +2% area', { dmg: 2, aoe: 2 }),
+    ],
+    notables: [
+      S('The Refused Dream', 'You may banish one level-up offer each dream', { banish: 1 }),
+      S('Woven Fate', '+6% damage, +6% spell haste', { dmg: 6, cast: 6 }),
+    ],
+    clusters: [
+      {
+        name: 'Loom of Nights', notable: S('Loom of Nights', 'You may reroll one set of level-up choices each dream', { reroll: 1 }),
+        smalls: [S('Spindle', '+3% spell haste', { cast: 3 }), S('Thread of Dawn', '+3% essence gained', { xp: 3 }), S('Clear Sight', '+2% damage, +2% haste', { dmg: 2, cast: 2 })],
+      },
+      {
+        name: 'The Second Refusal', notable: S('The Second Refusal', 'You may banish one more offer each dream', { banish: 1 }),
+        smalls: [S('Closed Door', '+3% essence gained', { xp: 3 }), S('Dream Logic', '+3% essence gained', { xp: 3 }), S('Quiet Omen', '+2% damage, +2% area', { dmg: 2, aoe: 2 })],
+      },
+      {
+        name: 'Turning Page', notable: S('Turning Page', 'You may reroll one more set of choices each dream', { reroll: 1 }),
+        smalls: [S('Dog-ear', '+3% essence gained', { xp: 3 }), S('Margin Note', '+2% damage, +2% haste', { dmg: 2, cast: 2 }), S('Woven Fate', '+2% area, +2% haste', { aoe: 2, cast: 2 })],
+      },
+    ],
+    keystone: S('Fourfold Path', 'Level-ups offer a fourth choice', { fourfold: 1 }),
+  },
 ];
-[{ idx: 2, cost: 100 }, { idx: 5, cost: 350 }, { idx: 8, cost: 800 }, { idx: 11, cost: 1500 }].forEach((ring, ri) => {
-  ARM_KEYS_SORTED.forEach((key, k) => {
-    const nextKey = ARM_KEYS_SORTED[(k + 1) % ARM_KEYS_SORTED.length];
-    let a1 = ARMS[key].angle, a2 = ARMS[nextKey].angle;
-    while (a2 < a1) a2 += 360;
-    const mid = deg((a1 + a2) / 2 + SWEEP * ring.idx);
-    const r = PATH_RADII[ring.idx];
-    const f = RING_FX[(k + ri * 3) % RING_FX.length];
-    const id = add({
-      id: `g${ring.idx}-${key}`, x: Math.round(Math.cos(mid) * r), y: Math.round(Math.sin(mid) * r),
-      cost: ring.cost, name: 'Faint Star', desc: f.d, fx: f.fx,
-      kind: 'small', requires: [`${key}${ring.idx}`, `${nextKey}${ring.idx}`],
+
+// tiny mixed travel stats for rings & the outer polygon (PoE's "attributes")
+const GEN: Stat[] = [
+  S('Faint Ember', '+2% spell damage', { dmg: 2 }),
+  S('Silver Wisp', '+2% spell haste', { cast: 2 }),
+  S('Pale Halo', '+2% area of effect', { aoe: 2 }),
+  S('Dewlight', '+8 max life', { hp: 8 }),
+  S('Moth Dust', '+6% pickup radius', { magnet: 6 }),
+  S('Dream Mote', '+2% essence gained', { xp: 2 }),
+  S('Night Breeze', '+2% move speed', { speed: 2 }),
+  S('Sharp Glimmer', '+1% critical chance', { crit: 1 }),
+];
+const POLY: Stat[] = [
+  S('Wayfarer’s Ember', '+3% spell damage', { dmg: 3 }),
+  S('Wayfarer’s Breath', '+3% spell haste', { cast: 3 }),
+  S('Wayfarer’s Halo', '+3% area of effect', { aoe: 3 }),
+  S('Wayfarer’s Blood', '+12 max life', { hp: 12 }),
+  S('Wayfarer’s Lure', '+8% pickup radius', { magnet: 8 }),
+  S('Wayfarer’s Mote', '+3% essence gained', { xp: 3 }),
+  S('Wayfarer’s Stride', '+3% move speed', { speed: 3 }),
+  S('Wayfarer’s Glint', '+2% critical chance', { crit: 2 }),
+];
+let genIdx = 0;
+const nextGen = (pool: Stat[]) => pool[genIdx++ % pool.length];
+
+// ================================================================ main web
+// 16 straight radial spokes (8 theme + 8 in-between) from an inner 16-gon,
+// crossed by three ring roads with gaps, wrapped in a big outer polygon of
+// travel stars, with stat wheels hung between the spokes and the spell
+// constellations moored outside the polygon. Deliberately exact geometry —
+// every diagonal, ring and wheel reads as a clean, symmetric figure.
+const NSPOKE = 16;
+const GATE_R = 72;
+const SPOKE_R = [118, 164, 210, 256, 302, 348, 394, 440, 486, 532];
+const POLY_R = 600;
+const SPELL_RING_R = 830;
+
+const spokeBase = (i: number) => -112.5 + i * 22.5;
+const spokeAngle = (i: number, _step: number) => spokeBase(i); // exact radial rays — clean diagonals
+const themeOf = (spoke: number) => THEMES[((spoke >> 1) % 8 + 8) % 8];
+
+add({ id: 'core', x: 0, y: 0, name: 'The Waking Eye', desc: 'Where every dream begins. Touch it to forge a skill point from stardust — each costs more than the last.', fx: {}, kind: 'core' });
+
+// --- inner 16-gon of gateways
+for (let i = 0; i < NSPOKE; i++) {
+  const a = deg(spokeBase(i));
+  const th = themeOf(i);
+  const st = i % 2 === 0 ? th.travel[0] : nextGen(GEN);
+  add({ id: `g${i}`, x: Math.round(Math.cos(a) * GATE_R), y: Math.round(Math.sin(a) * GATE_R), name: st.n, desc: st.d, fx: st.fx, kind: 'small' });
+  if (i % 2 === 0) link('core', `g${i}`);
+}
+for (let i = 0; i < NSPOKE; i++) linkArc(`g${i}`, `g${(i + 1) % NSPOKE}`, 4);
+
+// --- spokes
+for (let i = 0; i < NSPOKE; i++) {
+  const th = themeOf(i);
+  const thNext = THEMES[(((i + 1) >> 1) % 8 + 8) % 8];
+  let prev = `g${i}`;
+  for (let j = 0; j < SPOKE_R.length; j++) {
+    const a = deg(spokeAngle(i, j));
+    const r = SPOKE_R[j];
+    let st: Stat, kind: NodeKind = 'small';
+    if (i % 2 === 0 && (j === 3 || j === 7)) {
+      st = th.notables[j === 3 ? 0 : 1];
+      kind = 'notable';
+    } else if (i % 2 === 0) {
+      st = th.travel[j % th.travel.length];
+    } else {
+      // in-between spokes blend the two neighbouring schools
+      st = (j % 2 === 0 ? th : thNext).travel[(j >> 1) % 4];
+    }
+    const id = add({ id: `s${i}-${j}`, x: Math.round(Math.cos(a) * r), y: Math.round(Math.sin(a) * r), name: st.n, desc: st.d, fx: st.fx, kind });
+    link(prev, id, -5);
+    prev = id;
+  }
+}
+
+// --- ring roads: A (full), B and C (with gaps that force routing choices)
+const ringNode = (id: string, r: number, aDeg: number, poolStat: Stat) =>
+  add({ id, x: Math.round(Math.cos(deg(aDeg)) * r), y: Math.round(Math.sin(deg(aDeg)) * r), name: poolStat.n, desc: poolStat.d, fx: poolStat.fx, kind: 'small' });
+
+for (let i = 0; i < NSPOKE; i++) { // ring A — the inner highway, complete
+  const a = spokeAngle(i, 2) + 11.25;
+  const id = ringNode(`rA${i}`, SPOKE_R[2], a, nextGen(GEN));
+  linkArc(`s${i}-2`, id, 7);
+  linkArc(id, `s${(i + 1) % NSPOKE}-2`, 7);
+}
+for (let i = 0; i < NSPOKE; i++) { // ring B — gaps at i%4==3
+  if (i % 4 === 3) continue;
+  const ids: string[] = [];
+  for (let k = 0; k < 2; k++) {
+    const a = spokeAngle(i, 5) + 7.5 + k * 7.5;
+    ids.push(ringNode(`rB${i}-${k}`, SPOKE_R[5], a, nextGen(GEN)));
+  }
+  linkArc(`s${i}-5`, ids[0], 6);
+  linkArc(ids[0], ids[1], 6);
+  linkArc(ids[1], `s${(i + 1) % NSPOKE}-5`, 6);
+}
+for (let i = 0; i < NSPOKE; i++) { // ring C — gaps at i%4==1
+  if (i % 4 === 1) continue;
+  const ids: string[] = [];
+  for (let k = 0; k < 2; k++) {
+    const a = spokeAngle(i, 8) + 7.5 + k * 7.5;
+    ids.push(ringNode(`rC${i}-${k}`, SPOKE_R[8], a, nextGen(GEN)));
+  }
+  linkArc(`s${i}-8`, ids[0], 7);
+  linkArc(ids[0], ids[1], 7);
+  linkArc(ids[1], `s${(i + 1) % NSPOKE}-8`, 7);
+}
+
+// --- the outer polygon: 16 vertices + 5 travel stars per side, all connected —
+// the endgame highway that lets any build walk the rim to reach any cluster.
+// Deliberately geometric: vertices sit exactly on the ring and every side star
+// sits exactly on the chord, so the rim reads as one clean polygon.
+const PV: [number, number][] = [];
+for (let i = 0; i < NSPOKE; i++) {
+  const a = deg(spokeAngle(i, 10));
+  const x = Math.round(Math.cos(a) * POLY_R), y = Math.round(Math.sin(a) * POLY_R);
+  PV.push([x, y]);
+  const st = POLY[i % POLY.length];
+  add({ id: `pv${i}`, x, y, name: st.n, desc: st.d, fx: st.fx, kind: 'small' });
+  link(`s${i}-9`, `pv${i}`);
+}
+for (let i = 0; i < NSPOKE; i++) {
+  const [ax, ay] = PV[i], [bx, by] = PV[(i + 1) % NSPOKE];
+  let prev = `pv${i}`;
+  for (let k = 1; k <= 5; k++) {
+    const t = k / 6;
+    const st = nextGen(POLY);
+    const id = add({ id: `ps${i}-${k}`, x: Math.round(ax + (bx - ax) * t), y: Math.round(ay + (by - ay) * t), name: st.n, desc: st.d, fx: st.fx, kind: 'small' });
+    link(prev, id);
+    prev = id;
+  }
+  link(prev, `pv${(i + 1) % NSPOKE}`);
+}
+
+// --- stat wheels between the spokes
+// A wheel: a ring of small stars with the notable enthroned at the hub. The
+// empty heart of the wheel is exactly the breathing room a big star needs —
+// it never crowds a neighbour, and reaching it means walking half the ring.
+let wheelCounter = 0;
+function wheel(hostId: string, centerAngleDeg: number, centerR: number, radius: number, count: number, cdef: ClusterDef) {
+  const host = byId[hostId];
+  const cx = Math.cos(deg(centerAngleDeg)) * centerR, cy = Math.sin(deg(centerAngleDeg)) * centerR;
+  const back = Math.atan2(host.y - cy, host.x - cx);
+  const wid = `w${wheelCounter++}`;
+  const n = count - 1; // ring smalls; the remaining star is the hub notable
+  const ids: string[] = [];
+  for (let k = 0; k < n; k++) {
+    const na = back + (k / n) * Math.PI * 2;
+    const st = cdef.smalls[k % cdef.smalls.length];
+    ids.push(add({ id: `${wid}-${k}`, x: Math.round(cx + Math.cos(na) * radius), y: Math.round(cy + Math.sin(na) * radius), name: st.n, desc: st.d, fx: st.fx, kind: 'small' }));
+  }
+  for (let k = 0; k < n; k++) link(ids[k], ids[(k + 1) % n]);
+  link(hostId, ids[0]);
+  const hub = add({ id: `${wid}-N`, x: Math.round(cx), y: Math.round(cy), name: cdef.notable.n, desc: cdef.notable.d, fx: cdef.notable.fx, kind: 'notable' });
+  link(ids[Math.floor((n - 1) / 2)], hub);
+  link(hub, ids[Math.ceil((n + 1) / 2) % n]);
+}
+
+// band 2 (between rings A and B): wheels off ring A, centred between the
+// spokes so they never clip them — skip 4 slots for irregularity
+for (let i = 0; i < NSPOKE; i++) {
+  if (i % 4 === 2) continue;
+  const th = themeOf(i);
+  const cdef = th.clusters[(i >> 1) % th.clusters.length];
+  wheel(`rA${i}`, spokeAngle(i, 3) + 11.25, 284, 35, 5, cdef);
+}
+// band 3 (between rings B and C)
+for (let i = 0; i < NSPOKE; i++) {
+  if (i % 4 === 3) continue; // no ring B here (the spell-slot chains live in these gaps)
+  const th = themeOf(i);
+  const cdef = th.clusters[((i >> 1) + 1) % th.clusters.length];
+  wheel(`rB${i}-${i % 2}`, spokeAngle(i, 6) + 11.25, 420, 40, 6, cdef);
+}
+
+// --- spell-slot chains in the ring-B gaps: three +1-slot notables (the build-
+// defining picks) plus one economy notable, each behind a short chain
+const GAP_CHAINS: { id: string; steps: Stat[]; end: Stat }[] = [
+  { id: 'ssA', steps: [S('Open Palm', '+3% area of effect', { aoe: 3 }), S('Open Mind', '+3% spell damage', { dmg: 3 })], end: S('Unbound Firmament', '+1 spell slot — hold one more spell at once', { spellSlots: 1 }) },
+  { id: 'ssB', steps: [S('Open Door', '+3% essence gained', { xp: 3 }), S('Open Sky', '+8% pickup radius', { magnet: 8 })], end: S('Boundless Reverie', '+1 spell slot — hold one more spell at once', { spellSlots: 1 }) },
+  { id: 'ssC', steps: [S('Open Book', '+3% spell haste', { cast: 3 }), S('Open Heart', '+10 max life', { hp: 10 })], end: S('Widening Loom', '+1 spell slot — hold one more spell at once', { spellSlots: 1 }) },
+  { id: 'ssD', steps: [S('Loose Change', '+3% essence gained', { xp: 3 }), S('Silver Tongue', '+6% pickup radius', { magnet: 6 })], end: S('The Quiet Bargain', '+15% stardust earned', { dust: 15 }) },
+];
+{
+  const gaps = [3, 7, 11, 15]; // ring-B gap arcs
+  gaps.forEach((i, gi) => {
+    const chain = GAP_CHAINS[gi];
+    let prev = `s${i}-5`;
+    const baseA = spokeAngle(i, 6) + 11.25;
+    chain.steps.forEach((st, k) => {
+      const r = 386 + k * 42;
+      const id = add({ id: `${chain.id}-${k}`, x: Math.round(Math.cos(deg(baseA)) * r), y: Math.round(Math.sin(deg(baseA)) * r), name: st.n, desc: st.d, fx: st.fx, kind: 'small' });
+      link(prev, id, -5);
+      prev = id;
     });
-    linkOut(`${key}${ring.idx}`, id, 8 + r * 0.02);
-    linkOut(id, `${nextKey}${ring.idx}`, 8 + r * 0.02);
+    // the loop back to ring C runs through the last small, so the notable
+    // stays a pendant tip with clear space and full-length edges around it
+    if (i % 4 !== 1) linkArc(prev, `rC${i}-0`);
+    const id = add({ id: `${chain.id}-N`, x: Math.round(Math.cos(deg(baseA)) * 470), y: Math.round(Math.sin(deg(baseA)) * 470), name: chain.end.n, desc: chain.end.d, fx: chain.end.fx, kind: 'notable' });
+    link(prev, id);
   });
-});
+}
 
-// catch-all: derive any remaining straight edges from requires
-for (const n of nodes) for (const r of n.requires) link(r, n.id);
+// --- keystones: one per school, floating alone in the corridor between
+// ring C and the polygon. No gate star crowding them — they hang on two
+// long edges (up to the rim, down to ring C) with clear space all around.
+for (let t = 0; t < 8; t++) {
+  const th = THEMES[t];
+  const i = t * 2; // arc index inside the theme's sector
+  const a = deg(spokeAngle(i, 9) + 11.25);
+  const kid = add({ id: `k${t}`, x: Math.round(Math.cos(a) * 540), y: Math.round(Math.sin(a) * 540), name: th.keystone.n, desc: th.keystone.d, fx: th.keystone.fx, kind: 'keystone' });
+  link(`ps${i}-3`, kid);        // from the polygon side above
+  linkArc(kid, `rC${i}-1`);     // and from ring C below (always present on even arcs)
+}
 
-// ================================================================ clusters
-const CLUSTER_DIST = 880;
-const SMALL_COSTS = [225, 275, 325, 375, 425, 475, 525];
+// ================================================================ spell clusters
+// The spell constellations keep their hand-drawn shapes but are moored to the
+// outer polygon: 20 slots around the rim, 14 in use, the rest waiting for
+// spells yet undreamt.
 const AOE_SPELLS = ['ember', 'frost', 'void', 'petals', 'moon', 'starfall', 'nebula', 'sigil', 'lantern', 'nova'];
 const DUR_SPELLS = ['frost', 'void', 'nebula', 'sigil', 'lantern'];
 
@@ -547,106 +716,162 @@ const SHAPES: Record<string, Shape> = {
   },
 };
 
-const CLUSTER_ORDER = ['arcane', 'ember', 'frost', 'storm', 'void', 'moon', 'starfall', 'umbra', 'glaive', 'nebula', 'sigil', 'lantern', 'petals', 'nova'];
+// Moorings are spread perfectly evenly around the rim, so the rim-walk
+// between any two neighbouring clusters is (as near as the rim's star
+// spacing allows) the same. A future spell just joins CLUSTER_ORDER and the
+// spacing recomputes itself.
+const CLUSTER_ORDER = ['starfall', 'moon', 'frost', 'storm', 'arcane', 'ember', 'void', 'umbra', 'glaive', 'nebula', 'sigil', 'lantern', 'petals', 'nova'];
 
-export interface ClusterInfo { spell: string; name: string; color: string; cx: number; cy: number; ids: string[] }
-export const CLUSTER_INFO: ClusterInfo[] = [];
-
-const RING_SLOTS = CLUSTER_ORDER.length + 1;
-
-CLUSTER_ORDER.forEach((spellId, k) => {
-  const s = SPELLS[spellId];
-  const spec = SHAPES[spellId];
-  const meds = MEDIUMS[spellId];
-  const ca = deg(((k + 1) / RING_SLOTS) * 360 + 90);
-  const cx = Math.round(Math.cos(ca) * CLUSTER_DIST);
-  const cy = Math.round(Math.sin(ca) * CLUSTER_DIST);
-  const ids: string[] = [];
-  const hasAoe = AOE_SPELLS.includes(spellId);
-  const hasDur = DUR_SPELLS.includes(spellId);
-  const smallTpl = [
-    { d: `+8% ${s.name} damage`, fx: { sdmg: 8 } },
-    { d: `+6% ${s.name} haste`, fx: { scd: 6 } },
-    hasAoe ? { d: `+8% ${s.name} area`, fx: { saoe: 8 } } : { d: `+8% ${s.name} damage`, fx: { sdmg: 8 } },
-    { d: `+8% ${s.name} damage`, fx: { sdmg: 8 } },
-    hasDur ? { d: `+12% ${s.name} duration`, fx: { sdur: 12 } } : (hasAoe ? { d: `+8% ${s.name} area`, fx: { saoe: 8 } } : { d: `+6% ${s.name} haste`, fx: { scd: 6 } }),
-    { d: `+6% ${s.name} haste`, fx: { scd: 6 } },
-    { d: `+10% ${s.name} damage`, fx: { sdmg: 10 } },
-  ];
-  let smallIdx = 0;
-  spec.pts.forEach((pt, i) => {
-    let def: Omit<TreeNode, 'id' | 'x' | 'y'>;
-    if (i === spec.roles.entry) {
-      def = { cost: 250, kind: 'small', name: `Dream of ${s.name}`, desc: `${s.name} appears far more often among your level-up choices.`, fx: { spell: spellId, weight: 1 }, requires: [] };
-    } else if (i === spec.roles.evo) {
-      def = { cost: 2000, kind: 'keystone', name: EVOLVE[spellId].name, desc: `Unlock ${s.name}'s evolution — ${EVOLVE[spellId].desc}`, fx: { spell: spellId, evo: 1 }, requires: [] };
-    } else if (i === spec.roles.start) {
-      // Arcane is already the default loadout spell, so its "start" node gives a
-      // level head-start instead. Every other cluster's node unlocks that spell
-      // for the loadout (chosen in the loadout UI under the tree).
-      def = spellId === LOADOUT_BASE
-        ? { cost: 1000, kind: 'notable', name: `Waking ${s.icon}`, desc: `Begin every dream with ${s.name} one level stronger.`, fx: { spell: spellId, startLv: 1 }, requires: [] }
-        : { cost: 1000, kind: 'notable', name: `Dream-Etched ${s.icon}`, desc: `Unlock ${s.name} for your loadout — carry it into every dream.`, fx: { spell: spellId, unlock: 1 }, requires: [] };
-    } else if (spec.roles.med.includes(i)) {
-      const m = meds[spec.roles.med.indexOf(i)];
-      const fx: Record<string, any> = { spell: spellId };
-      if (m.scount) fx.scount = m.scount;
-      if (m.special) fx.special = m.special;
-      def = { cost: 800, kind: 'notable', name: m.n, desc: m.d, fx, requires: [] };
-    } else {
-      const t = smallTpl[smallIdx % smallTpl.length];
-      def = { cost: SMALL_COSTS[smallIdx % SMALL_COSTS.length], kind: 'small', name: `Mote of ${s.name}`, desc: t.d, fx: { spell: spellId, ...t.fx }, requires: [] };
-      smallIdx++;
-    }
-    const id = `${spellId}-${i}`;
-    add({ id, x: cx + pt[0], y: cy + pt[1], ...def });
-    ids.push(id);
-  });
-  for (const [i, j, bend] of spec.edges) {
-    link(`${spellId}-${i}`, `${spellId}-${j}`, bend);
-    const ni = nodes.find((n) => n.id === `${spellId}-${i}`)!;
-    const nj = nodes.find((n) => n.id === `${spellId}-${j}`)!;
-    if (i !== spec.roles.entry) ni.requires.push(`${spellId}-${j}`);
-    if (j !== spec.roles.entry) nj.requires.push(`${spellId}-${i}`);
-  }
-  CLUSTER_INFO.push({ spell: spellId, name: s.name, color: s.color, cx, cy, ids });
-});
-
-// ====================================================== the dark bargain
-const DARK_CX = 0, DARK_CY = CLUSTER_DIST;
-const DARK_NODES: { p: [number, number]; kind: TreeNode['kind']; cost: number; n: string; d: string; fx: Record<string, number>; entry?: boolean }[] = [
-  { p: [0, -112], kind: 'small', cost: 2, n: 'The Dark Bargain', d: '+12% stardust earned · enemies have +20% life', fx: { dust: 12, baneHp: 20 }, entry: true },
-  { p: [28, -28], kind: 'small', cost: 2, n: 'Restless Horde', d: '+12% stardust earned · the tide spawns 20% faster', fx: { dust: 12, baneRate: 20 } },
-  { p: [112, 0], kind: 'notable', cost: 5, n: 'Cruel Dawn', d: '+18% stardust earned · the dream begins 120 seconds deeper', fx: { dust: 18, baneAhead: 120 } },
-  { p: [28, 28], kind: 'small', cost: 2, n: 'Sharpened Nightmares', d: '+12% stardust earned · enemies strike 20% harder', fx: { dust: 12, baneDmg: 20 } },
-  { p: [0, 112], kind: 'notable', cost: 5, n: 'Deep Tide', d: '+18% stardust earned · at least 12 more enemies swarm you at all times', fx: { dust: 18, baneFloor: 12 } },
-  { p: [-28, 28], kind: 'small', cost: 2, n: 'Fleet Shadows', d: '+12% stardust earned · enemies move 15% faster', fx: { dust: 12, baneSpeed: 15 } },
-  { p: [-112, 0], kind: 'notable', cost: 5, n: 'Hungry Dark', d: '+18% stardust earned · elites stir 50% more often', fx: { dust: 18, baneElite: 50 } },
-  { p: [-28, -28], kind: 'small', cost: 2, n: 'Iron Dreams', d: '+12% stardust earned · enemies have +22% life', fx: { dust: 12, baneHp: 22 } },
-  { p: [0, 0], kind: 'keystone', cost: 12, n: 'The Black Star', d: '+45% stardust earned · enemies have +30% life and strike 25% harder', fx: { dust: 45, baneHp: 30, baneDmg: 25 } },
-  { p: [0, -64], kind: 'small', cost: 2, n: 'Toll of Night', d: '+12% stardust earned · at least 8 more enemies swarm you at all times', fx: { dust: 12, baneFloor: 8 } },
-  { p: [64, 0], kind: 'notable', cost: 5, n: 'Devourer’s Haste', d: '+18% stardust earned · the Devourer comes 40% sooner', fx: { dust: 18, baneBoss: 40 } },
-  { p: [-64, 0], kind: 'small', cost: 2, n: 'Thin Veil', d: '+12% stardust earned · the tide spawns 18% faster', fx: { dust: 12, baneRate: 18 } },
-];
-const DARK_EDGES: [number, number, number?][] = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 0], [0, 9], [9, 8], [8, 10], [10, 2], [8, 11], [11, 6], [4, 8]];
 {
-  const ids: string[] = [];
-  DARK_NODES.forEach((def, i) => {
-    const id = `dark-${i}`;
-    add({ id, x: DARK_CX + def.p[0], y: DARK_CY + def.p[1], cost: def.cost, currency: 'shards', name: def.n, desc: def.d, fx: def.fx, kind: def.kind, requires: [] });
-    ids.push(id);
+  CLUSTER_ORDER.forEach((spellId, slot) => {
+    const s = SPELLS[spellId];
+    const spec = SHAPES[spellId];
+    const meds = MEDIUMS[spellId];
+    const thetaDeg = -90 + slot * (360 / CLUSTER_ORDER.length);
+    const theta = deg(thetaDeg);
+    const cx = Math.cos(theta) * SPELL_RING_R, cy = Math.sin(theta) * SPELL_RING_R;
+    // rotate the shape so its entry star lands exactly on the ray toward the
+    // tree's heart — moorings then sit at perfectly even angles on the rim
+    const [epx, epy] = spec.pts[spec.roles.entry];
+    const rho = theta + Math.PI - Math.atan2(epy, epx);
+    const cosR = Math.cos(rho), sinR = Math.sin(rho);
+    const world = spec.pts.map(([px, py]) => [
+      Math.round(cx + px * cosR - py * sinR),
+      Math.round(cy + px * sinR + py * cosR),
+    ] as [number, number]);
+    const hasAoe = AOE_SPELLS.includes(spellId);
+    const hasDur = DUR_SPELLS.includes(spellId);
+    const smallTpl = [
+      { d: `+8% ${s.name} damage`, fx: { sdmg: 8 } },
+      { d: `+6% ${s.name} haste`, fx: { scd: 6 } },
+      hasAoe ? { d: `+8% ${s.name} area`, fx: { saoe: 8 } } : { d: `+8% ${s.name} damage`, fx: { sdmg: 8 } },
+      { d: `+8% ${s.name} damage`, fx: { sdmg: 8 } },
+      hasDur ? { d: `+12% ${s.name} duration`, fx: { sdur: 12 } } : (hasAoe ? { d: `+8% ${s.name} area`, fx: { saoe: 8 } } : { d: `+6% ${s.name} haste`, fx: { scd: 6 } }),
+      { d: `+6% ${s.name} haste`, fx: { scd: 6 } },
+      { d: `+10% ${s.name} damage`, fx: { sdmg: 10 } },
+    ];
+    let smallIdx = 0;
+    world.forEach((pt, i) => {
+      let def: { kind: NodeKind; name: string; desc: string; fx: Record<string, any> };
+      if (i === spec.roles.entry) {
+        def = { kind: 'small', name: `Dream of ${s.name}`, desc: `${s.name} appears far more often among your level-up choices.`, fx: { spell: spellId, weight: 1 } };
+      } else if (i === spec.roles.evo) {
+        def = { kind: 'keystone', name: EVOLVE[spellId].name, desc: `Unlock ${s.name}'s evolution — ${EVOLVE[spellId].desc}`, fx: { spell: spellId, evo: 1 } };
+      } else if (i === spec.roles.start) {
+        def = spellId === LOADOUT_BASE
+          ? { kind: 'notable', name: `Waking ${s.icon}`, desc: `Begin every dream with ${s.name} one level stronger.`, fx: { spell: spellId, startLv: 1 } }
+          : { kind: 'notable', name: `Dream-Etched ${s.icon}`, desc: `Unlock ${s.name} for your loadout — carry it into every dream.`, fx: { spell: spellId, unlock: 1 } };
+      } else if (spec.roles.med.includes(i)) {
+        const m = meds[spec.roles.med.indexOf(i)];
+        const fx: Record<string, any> = { spell: spellId };
+        if (m.scount) fx.scount = m.scount;
+        if (m.special) fx.special = m.special;
+        def = { kind: 'notable', name: m.n, desc: m.d, fx };
+      } else {
+        const t = smallTpl[smallIdx % smallTpl.length];
+        smallIdx++;
+        def = { kind: 'small', name: `Mote of ${s.name}`, desc: t.d, fx: { spell: spellId, ...t.fx } };
+      }
+      add({ id: `${spellId}-${i}`, x: pt[0], y: pt[1], ...def });
+    });
+    for (const [i, j, bend] of spec.edges) link(`${spellId}-${i}`, `${spellId}-${j}`, bend);
+
+    // mooring bridge: entry star → the rim star angularly closest to the
+    // cluster's ray (nearest-by-distance flip-flops near polygon corners,
+    // which unbalances the rim-walk between neighbouring clusters)
+    const [ex, ey] = world[spec.roles.entry];
+    let bestId = 'pv0', bestD = Infinity;
+    for (const n of nodes) {
+      if (!n.id.startsWith('pv') && !n.id.startsWith('ps')) continue;
+      let da = (Math.atan2(n.y, n.x) - theta) % (Math.PI * 2);
+      if (da < 0) da += Math.PI * 2;
+      da = Math.min(da, Math.PI * 2 - da);
+      if (da < bestD) { bestD = da; bestId = n.id; }
+    }
+    const host = byId[bestId];
+    const st = nextGen(GEN);
+    const bid = add({ id: `br-${spellId}`, x: Math.round((ex + host.x) / 2), y: Math.round((ey + host.y) / 2), name: st.n, desc: st.d, fx: st.fx, kind: 'small' });
+    link(bestId, bid, 4);
+    link(bid, `${spellId}-${spec.roles.entry}`, 4);
   });
-  const lookup = (id: string) => nodes.find((n) => n.id === id)!;
-  for (const [i, j, bend] of DARK_EDGES) {
-    link(`dark-${i}`, `dark-${j}`, bend);
-    if (i !== 0) lookup(`dark-${i}`).requires.push(`dark-${j}`);
-    if (j !== 0) lookup(`dark-${j}`).requires.push(`dark-${i}`);
-  }
-  CLUSTER_INFO.push({ spell: 'dark', name: 'The Dark Bargain', color: '#ff5a7a', cx: DARK_CX, cy: DARK_CY, ids });
 }
 
-export const TREE_NODES = nodes;
-export const NODE_MAP: Record<string, TreeNode> = Object.fromEntries(nodes.map((n) => [n.id, n]));
+export const CONST_NODES: TreeNode[] = [...nodes];
+export const CONST_EDGES: TreeEdge[] = [...edges];
+
+// ====================================================== the dark bargain
+// A small corrupted sigil of its own. Every small star starts the dream
+// deeper — the timer (and your best time) begins there. Notables and the two
+// black keystones trade harsher nightmares for richer stardust.
+const darkStart = nodes.length;
+const darkEdgeStart = edges.length;
+
+const DS = (id: string, r: number, aDeg: number, kind: NodeKind, name: string, desc: string, fx: Record<string, any>) =>
+  add({ id, x: Math.round(Math.cos(deg(aDeg)) * r), y: Math.round(Math.sin(deg(aDeg)) * r), kind, name, desc, fx, dark: true });
+
+DS('dark-core', 0, 0, 'core', 'The Wound', 'A tear in the dream that never closed. Feed it a nightmare shard to draw out a drop of its power — each drop costs one shard more.', {});
+
+{
+  const veins = [
+    { a: -90, notable: { n: 'Cruel Dawn', d: '+20% stardust earned · enemies strike 20% harder', fx: { dust: 20, baneDmg: 20 } } },
+    { a: 30, notable: { n: 'Iron Nightmares', d: '+20% stardust earned · enemies have +25% life', fx: { dust: 20, baneHp: 25 } } },
+    { a: 150, notable: { n: 'Fleet Shadows', d: '+20% stardust earned · enemies move 15% faster', fx: { dust: 20, baneSpeed: 15 } } },
+  ];
+  const depth = [20, 25, 30];
+  veins.forEach((v, vi) => {
+    let prev = 'dark-core';
+    for (let j = 0; j < 3; j++) {
+      const a = v.a + (j % 2 ? 7 : -7);
+      const id = DS(`dark-v${vi}-${j}`, 62 + j * 54, a, 'small', 'Sunken Hour', `The dream begins ${depth[j]} seconds deeper · +6% stardust earned`, { baneAhead: depth[j], dust: 6 });
+      link(prev, id, j % 2 ? 6 : -6);
+      prev = id;
+    }
+    const nid = DS(`dark-n${vi}`, 226, v.a, 'notable', v.notable.n, v.notable.d, v.notable.fx);
+    link(prev, nid, -5);
+  });
+  // inner ring joining the veins' first stars
+  for (let vi = 0; vi < 3; vi++) {
+    const a = veins[vi].a + 60;
+    const id = DS(`dark-i${vi}`, 78, a, 'small', 'Stolen Minute', 'The dream begins 15 seconds deeper · +5% stardust earned', { baneAhead: 15, dust: 5 });
+    linkArc(`dark-v${vi}-0`, id, 8);
+    linkArc(id, `dark-v${(vi + 1) % 3}-0`, 8);
+  }
+  // outer arcs joining the notables, with a bane notable at each arc's middle
+  const arcNotables = [
+    { n: 'Restless Horde', d: '+18% stardust earned · the tide spawns 20% faster', fx: { dust: 18, baneRate: 20 } },
+    { n: 'Hungry Dark', d: '+18% stardust earned · elites stir 50% more often', fx: { dust: 18, baneElite: 50 } },
+    { n: 'Devourer’s Haste', d: '+18% stardust earned · the Devourer comes 40% sooner', fx: { dust: 18, baneBoss: 40 } },
+  ];
+  for (let vi = 0; vi < 3; vi++) {
+    const a0 = veins[vi].a;
+    const ids = [
+      DS(`dark-a${vi}-0`, 248, a0 + 38, 'small', 'Drowned Hour', 'The dream begins 30 seconds deeper · +8% stardust earned', { baneAhead: 30, dust: 8 }),
+      DS(`dark-a${vi}-1`, 248, a0 + 82, 'small', 'Drowned Hour', 'The dream begins 30 seconds deeper · +8% stardust earned', { baneAhead: 30, dust: 8 }),
+    ];
+    linkArc(`dark-n${vi}`, ids[0], 10);
+    linkArc(ids[0], ids[1], 10);
+    linkArc(ids[1], `dark-n${(vi + 1) % 3}`, 10);
+    const m = arcNotables[vi];
+    const mid = DS(`dark-m${vi}`, 316, a0 + 60, 'notable', m.n, m.d, m.fx);
+    linkArc(ids[0], mid, -6);
+    linkArc(ids[1], mid, 6);
+  }
+  // the three black keystones, one past each bane notable
+  const k0 = DS('dark-k0', 392, 90, 'keystone', 'The Black Star', '+40% stardust earned · enemies have +30% life and strike 25% harder', { dust: 40, baneHp: 30, baneDmg: 25 });
+  linkArc('dark-m1', k0, -8); // m1 sits at 90°
+  const k1 = DS('dark-k1', 392, 210, 'keystone', 'The Hungering Deep', '+30% stardust earned · the dream begins 120 seconds deeper · at least 12 more enemies swarm you at all times', { dust: 30, baneAhead: 120, baneFloor: 12 });
+  linkArc('dark-m2', k1, -8); // m2 sits at 210°
+  const k2 = DS('dark-k2', 392, -30, 'keystone', 'The Red Choir', '+35% stardust earned · elites stir 60% more often · the Devourer comes 30% sooner', { dust: 35, baneElite: 60, baneBoss: 30 });
+  linkArc('dark-m0', k2, -8); // m0 sits at -30°
+}
+
+export const DARK_NODES: TreeNode[] = nodes.slice(darkStart);
+export const DARK_EDGES: TreeEdge[] = edges.slice(darkEdgeStart);
+
+// ---------------------------------------------------------------- indices
+export const TREE_NODES = nodes; // all nodes, both webs
+export const NODE_MAP: Record<string, TreeNode> = byId;
+
 export const TREE_EDGES: TreeEdge[] = (() => {
   const seen = new Set<string>();
   const out: TreeEdge[] = [];
@@ -659,37 +884,6 @@ export const TREE_EDGES: TreeEdge[] = (() => {
   return out;
 })();
 
-// ---------------------------------------------------------------- storage
-export function loadMeta(): Meta {
-  try {
-    const raw = localStorage.getItem(STORE_KEY);
-    if (raw) {
-      const d = JSON.parse(raw);
-      const meta: Meta = {
-        dust: d.dust || 0, shards: d.shards || 0,
-        owned: Array.isArray(d.owned) ? d.owned.filter((id: string) => NODE_MAP[id]) : ['core'],
-        best: d.best || 0,
-        loadout: Array.isArray(d.loadout) ? d.loadout : [LOADOUT_BASE],
-        // migration: only saves from BEFORE this field existed fall back to
-        // the heuristic (they've plainly used the tree if they own stars or
-        // hold dust). Saves that carry the field keep it verbatim — a new
-        // player who dies and reloads before touching the glimmer must NOT
-        // be auto-marked as having seen the reveal.
-        treeRevealed: d.treeRevealed !== undefined
-          ? !!d.treeRevealed
-          : (Array.isArray(d.owned) && d.owned.length > 1) || (d.dust || 0) > 0 || (d.best || 0) > 0,
-      };
-      meta.loadout = sanitizeLoadout(meta);
-      return meta;
-    }
-  } catch { /* corrupted store — start fresh */ }
-  return { dust: 0, shards: 0, owned: ['core'], best: 0, loadout: [LOADOUT_BASE], treeRevealed: false };
-}
-
-export function saveMeta(meta: Meta) {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(meta)); } catch { /* private mode */ }
-}
-
 // undirected adjacency: owning either endpoint of an edge opens the other
 export const ADJACENT: Record<string, string[]> = (() => {
   const adj: Record<string, string[]> = {};
@@ -700,37 +894,219 @@ export const ADJACENT: Record<string, string[]> = (() => {
   return adj;
 })();
 
-export function isReachable(meta: Meta, id: string): boolean {
-  const n = NODE_MAP[id];
-  if (!n) return false;
-  if (n.requires.length === 0) return true; // core & cluster entries
-  return (ADJACENT[id] || []).some((r) => meta.owned.includes(r));
+// ---------------------------------------------------------------- storage
+function freshMeta(): Meta {
+  return {
+    dust: 0, shards: 0,
+    points: 0, pointsBought: 0, darkPoints: 0, darkPointsBought: 0,
+    owned: ['core'], darkOwned: ['dark-core'],
+    best: 0, loadout: [LOADOUT_BASE],
+    treeRevealed: false, darkRevealed: false,
+  };
 }
 
-export function nodeCurrency(id: string): 'dust' | 'shards' {
-  const n = NODE_MAP[id];
-  return (n && n.currency) || 'dust';
+// v3 → v4: the old tree spent currency directly on nodes. Every coin comes
+// back; the trees stay revealed; nothing stays allocated.
+function migrateLegacy(): Meta | null {
+  try {
+    const raw = localStorage.getItem(LEGACY_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    const owned: string[] = Array.isArray(d.owned) ? d.owned : [];
+    let dustBack = 0, shardsBack = 0, hadDark = false;
+    for (const id of owned) {
+      const c = LEGACY_COSTS[id] || 0;
+      if (String(id).startsWith('dark-')) { shardsBack += c; hadDark = true; }
+      else dustBack += c;
+    }
+    const meta = freshMeta();
+    meta.dust = (d.dust || 0) + dustBack;
+    meta.shards = (d.shards || 0) + shardsBack;
+    meta.best = d.best || 0;
+    meta.treeRevealed = d.treeRevealed !== undefined
+      ? !!d.treeRevealed
+      : owned.length > 1 || (d.dust || 0) > 0 || (d.best || 0) > 0;
+    meta.darkRevealed = hadDark;
+    return meta;
+  } catch { return null; }
 }
 
-export function canBuy(meta: Meta, id: string): boolean {
-  const n = NODE_MAP[id];
-  if (!n || meta.owned.includes(id)) return false;
-  // dev: unlimited currency — only reachability gates the purchase
-  if (!settings.devFreeTree && (meta[nodeCurrency(id)] || 0) < n.cost) return false;
-  return isReachable(meta, id);
+export function loadMeta(): Meta {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) {
+      const d = JSON.parse(raw);
+      // stars that no longer exist after a layout change refund their point —
+      // a save must never lose value to a redesign
+      const rawOwned: string[] = Array.isArray(d.owned) ? d.owned : ['core'];
+      const rawDark: string[] = Array.isArray(d.darkOwned) ? d.darkOwned : ['dark-core'];
+      const owned = rawOwned.filter((id) => NODE_MAP[id] && !NODE_MAP[id].dark);
+      const darkOwned = rawDark.filter((id) => NODE_MAP[id] && NODE_MAP[id].dark);
+      const meta: Meta = {
+        dust: d.dust || 0, shards: d.shards || 0,
+        points: (d.points || 0) + (rawOwned.length - owned.length),
+        pointsBought: d.pointsBought || 0,
+        darkPoints: (d.darkPoints || 0) + (rawDark.length - darkOwned.length),
+        darkPointsBought: d.darkPointsBought || 0,
+        owned, darkOwned,
+        best: d.best || 0,
+        loadout: Array.isArray(d.loadout) ? d.loadout : [LOADOUT_BASE],
+        treeRevealed: !!d.treeRevealed,
+        darkRevealed: !!d.darkRevealed,
+      };
+      if (!meta.owned.includes('core')) meta.owned.unshift('core');
+      if (!meta.darkOwned.includes('dark-core')) meta.darkOwned.unshift('dark-core');
+      meta.loadout = sanitizeLoadout(meta);
+      return meta;
+    }
+  } catch { /* corrupted store — fall through */ }
+  const migrated = migrateLegacy();
+  if (migrated) { saveMeta(migrated); return migrated; }
+  return freshMeta();
 }
 
-export function buyNode(meta: Meta, id: string): Meta {
-  if (!canBuy(meta, id)) return meta;
-  const cur = nodeCurrency(id);
-  const cost = settings.devFreeTree ? 0 : NODE_MAP[id].cost;
-  const next = { ...meta, [cur]: (meta[cur] || 0) - cost, owned: [...meta.owned, id] };
-  next.loadout = sanitizeLoadout(next); // slot/unlock changes may affect it
+export function saveMeta(meta: Meta) {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(meta)); } catch { /* private mode */ }
+}
+
+// -------------------------------------------------------- skill point forge
+// The core of each web mints skill points. Constellation: 20 ✦, then +10 ✦
+// per point ever bought. Dark Bargain: 1 ❖, then +1 ❖ per point.
+export function nextPointCost(meta: Meta): number { return 20 + 10 * meta.pointsBought; }
+export function nextDarkPointCost(meta: Meta): number { return 1 + meta.darkPointsBought; }
+
+export function canBuyPoint(meta: Meta): boolean {
+  return meta.dust >= nextPointCost(meta) && !settings.devFreeTree;
+}
+export function buyPoint(meta: Meta): Meta {
+  if (!canBuyPoint(meta)) return meta;
+  const next = { ...meta, dust: meta.dust - nextPointCost(meta), points: meta.points + 1, pointsBought: meta.pointsBought + 1 };
+  saveMeta(next);
+  return next;
+}
+export function canBuyDarkPoint(meta: Meta): boolean {
+  return meta.shards >= nextDarkPointCost(meta) && !settings.devFreeTree;
+}
+export function buyDarkPoint(meta: Meta): Meta {
+  if (!canBuyDarkPoint(meta)) return meta;
+  const next = { ...meta, shards: meta.shards - nextDarkPointCost(meta), darkPoints: meta.darkPoints + 1, darkPointsBought: meta.darkPointsBought + 1 };
   saveMeta(next);
   return next;
 }
 
-// the first-discovery reveal has played — the Constellation is now a plain menu
+// -------------------------------------------------------------- allocation
+const ownedListFor = (meta: Meta, id: string) => (NODE_MAP[id]?.dark ? meta.darkOwned : meta.owned);
+const pointsFor = (meta: Meta, id: string) => (NODE_MAP[id]?.dark ? meta.darkPoints : meta.points);
+
+// a star with a lit neighbour (ignores whether a point is available)
+export function isReachable(meta: Meta, id: string): boolean {
+  const list = ownedListFor(meta, id);
+  return (ADJACENT[id] || []).some((r) => list.includes(r));
+}
+
+export function canAllocate(meta: Meta, id: string): boolean {
+  const n = NODE_MAP[id];
+  if (!n || n.kind === 'core') return false;
+  if (ownedListFor(meta, id).includes(id)) return false;
+  if (!settings.devFreeTree && pointsFor(meta, id) <= 0) return false;
+  return isReachable(meta, id);
+}
+
+export function allocateNode(meta: Meta, id: string): Meta {
+  if (!canAllocate(meta, id)) return meta;
+  const n = NODE_MAP[id];
+  const spend = settings.devFreeTree ? 0 : 1;
+  const next: Meta = n.dark
+    ? { ...meta, darkOwned: [...meta.darkOwned, id], darkPoints: meta.darkPoints - spend }
+    : { ...meta, owned: [...meta.owned, id], points: meta.points - spend };
+  next.loadout = sanitizeLoadout(next);
+  saveMeta(next);
+  return next;
+}
+
+// Stars whose removal keeps the lit web connected to its core — i.e. every
+// owned non-core star that is not an articulation point of the owned
+// subgraph. Recomputed once per allocation change, not per node.
+export function removableSet(ownedIds: string[], coreId: string): Set<string> {
+  const owned = new Set(ownedIds);
+  const idx = new Map<string, number>();
+  ownedIds.forEach((id, i) => idx.set(id, i));
+  const n = ownedIds.length;
+  const disc = new Int32Array(n).fill(-1);
+  const low = new Int32Array(n);
+  const isArt = new Uint8Array(n);
+  let timer = 0;
+  const rootIdx = idx.get(coreId);
+  const out = new Set<string>();
+  if (rootIdx === undefined) return out;
+  // iterative DFS from the core over the owned subgraph
+  const stack: [number, number][] = [[rootIdx, -1]];
+  const childIter = new Map<number, number>();
+  const parents = new Int32Array(n).fill(-1);
+  const rootChildren = { count: 0 };
+  while (stack.length) {
+    const [u] = stack[stack.length - 1];
+    if (disc[u] === -1) { disc[u] = low[u] = timer++; }
+    const uid = ownedIds[u];
+    const nbrs = ADJACENT[uid] || [];
+    let k = childIter.get(u) || 0;
+    let advanced = false;
+    while (k < nbrs.length) {
+      const vid = nbrs[k];
+      k++;
+      if (!owned.has(vid)) continue;
+      const v = idx.get(vid)!;
+      if (disc[v] === -1) {
+        parents[v] = u;
+        if (u === rootIdx) rootChildren.count++;
+        childIter.set(u, k);
+        stack.push([v, u]);
+        advanced = true;
+        break;
+      } else if (v !== parents[u]) {
+        low[u] = Math.min(low[u], disc[v]);
+      }
+    }
+    if (advanced) continue;
+    childIter.set(u, k);
+    stack.pop();
+    const p: number = parents[u];
+    if (p !== -1) {
+      low[p] = Math.min(low[p], low[u]);
+      if (p !== rootIdx && low[u] >= disc[p]) isArt[p] = 1;
+    }
+  }
+  if (rootChildren.count > 1) isArt[rootIdx] = 1;
+  for (let i = 0; i < n; i++) {
+    const id = ownedIds[i];
+    if (id === coreId) continue;
+    if (disc[i] === -1) { out.add(id); continue; } // disconnected leftovers can always go
+    if (!isArt[i]) out.add(id);
+  }
+  return out;
+}
+
+export function canDeallocate(meta: Meta, id: string): boolean {
+  const n = NODE_MAP[id];
+  if (!n || n.kind === 'core') return false;
+  const list = ownedListFor(meta, id);
+  if (!list.includes(id)) return false;
+  return removableSet(list, n.dark ? 'dark-core' : 'core').has(id);
+}
+
+// releasing a star returns its skill point — never the currency
+export function deallocateNode(meta: Meta, id: string): Meta {
+  if (!canDeallocate(meta, id)) return meta;
+  const n = NODE_MAP[id];
+  const refund = settings.devFreeTree ? 0 : 1;
+  const next: Meta = n.dark
+    ? { ...meta, darkOwned: meta.darkOwned.filter((o) => o !== id), darkPoints: meta.darkPoints + refund }
+    : { ...meta, owned: meta.owned.filter((o) => o !== id), points: meta.points + refund };
+  next.loadout = sanitizeLoadout(next);
+  saveMeta(next);
+  return next;
+}
+
 export function markTreeRevealed(meta: Meta): Meta {
   if (meta.treeRevealed) return meta;
   const next = { ...meta, treeRevealed: true };
@@ -738,7 +1114,13 @@ export function markTreeRevealed(meta: Meta): Meta {
   return next;
 }
 
-// set the loadout (from the loadout UI), clamped to current slots & unlocks.
+export function markDarkRevealed(meta: Meta): Meta {
+  if (meta.darkRevealed) return meta;
+  const next = { ...meta, darkRevealed: true };
+  saveMeta(next);
+  return next;
+}
+
 export function setLoadout(meta: Meta, loadout: string[]): Meta {
   const next = { ...meta, loadout };
   next.loadout = sanitizeLoadout(next);
@@ -746,38 +1128,14 @@ export function setLoadout(meta: Meta, loadout: string[]): Meta {
   return next;
 }
 
-export function refundValue(id: string): number {
-  const n = NODE_MAP[id];
-  if (!n) return 0;
-  return n.currency === 'shards' ? n.cost : Math.floor(n.cost / 2);
-}
-
-export function canRefund(meta: Meta, id: string): boolean {
-  const n = NODE_MAP[id];
-  if (!n || id === 'core' || !meta.owned.includes(id)) return false;
-  const owned = new Set(meta.owned);
-  owned.delete(id);
-  const seen = new Set<string>();
-  const stack: string[] = [];
-  for (const o of owned) {
-    if (NODE_MAP[o] && NODE_MAP[o].requires.length === 0) { seen.add(o); stack.push(o); }
+// total head start (seconds) the Dark Bargain grants
+export function darkDepth(meta: Meta): number {
+  let s = 0;
+  for (const id of meta.darkOwned) {
+    const n = NODE_MAP[id];
+    if (n && n.fx.baneAhead) s += n.fx.baneAhead as number;
   }
-  while (stack.length) {
-    const cur = stack.pop()!;
-    for (const nb of ADJACENT[cur] || []) {
-      if (owned.has(nb) && !seen.has(nb)) { seen.add(nb); stack.push(nb); }
-    }
-  }
-  return seen.size === owned.size;
-}
-
-export function refundNode(meta: Meta, id: string): Meta {
-  if (!canRefund(meta, id)) return meta;
-  const cur = nodeCurrency(id);
-  const next = { ...meta, [cur]: (meta[cur] || 0) + refundValue(id), owned: meta.owned.filter((o) => o !== id) };
-  next.loadout = sanitizeLoadout(next); // refunding a slot/unlock may shrink it
-  saveMeta(next);
-  return next;
+  return s;
 }
 
 // fold owned nodes into one bonus object for the engine
@@ -791,7 +1149,7 @@ export function computeBonuses(meta: Meta): Bonuses {
     startSpells: [], loadout: sanitizeLoadout(meta), spellMods: {},
   };
   const modFor = (spell: string): SpellMod => (b.spellMods[spell] = b.spellMods[spell] || { dmg: 0, cd: 0, aoe: 0, dur: 0, count: 0, weight: 0, evo: 0, startLv: 0, special: {} });
-  for (const id of meta.owned) {
+  for (const id of [...meta.owned, ...meta.darkOwned]) {
     const n = NODE_MAP[id];
     if (!n) continue;
     if (n.fx.spell) {
@@ -821,6 +1179,7 @@ export function computeBonuses(meta: Meta): Bonuses {
       }
     }
   }
+  b.regen = Math.round(b.regen * 2) / 2;
   return b;
 }
 

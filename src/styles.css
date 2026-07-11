@@ -275,6 +275,14 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   color: #fff; letter-spacing: 0.06em;
   text-shadow: 0 0 20px rgba(127, 245, 255, 0.45), 0 2px 6px rgba(0, 0, 0, 0.8);
 }
+/* the Dark Bargain's head start, worn openly by the clock */
+.clock-deep {
+  margin-top: 1px;
+  font-family: var(--display); font-size: 12.5px; font-weight: 600;
+  letter-spacing: 0.16em; text-transform: uppercase;
+  color: #ff7ab0;
+  text-shadow: 0 0 10px rgba(255, 90, 122, 0.5), 0 1px 3px rgba(0, 0, 0, 0.9);
+}
 .kills {
   margin-top: 2px;
   font-size: 12.5px; font-weight: 600; letter-spacing: 0.3em; text-transform: uppercase;
@@ -813,7 +821,9 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 /* in a row, all buttons share one height — the gradient alone marks the CTA */
 .dead .menu-buttons .btn-primary { padding: 15px 38px 14px; font-size: 15px; }
 
-/* ============================================================== constellation */
+/* ============================================================== constellation
+   The web itself (stars, edges, reveal, pulses) is drawn on a canvas — see
+   treeCanvas.tsx. CSS owns only the screen chrome around it. */
 .tree-overlay {
   justify-content: flex-start;
   padding: 0;
@@ -823,13 +833,13 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
     radial-gradient(110% 80% at 85% 110%, rgba(28, 92, 110, 0.3), transparent 55%),
     radial-gradient(ellipse at center, #100c2c 0%, #070516 100%);
 }
-.tree-head, .tree-scroll { position: relative; z-index: 1; }
+.tree-head, .tree-wrap { position: relative; z-index: 1; }
 /* the screen itself is instant (opaque); its content drifts in gently */
-.tree-head, .tree-scroll, .loadout { animation: contentIn 0.35s ease-out backwards; }
+.tree-head, .tree-wrap, .loadout { animation: contentIn 0.35s ease-out backwards; }
 @keyframes contentIn { from { opacity: 0; } }
 .tree-head {
   width: 100%;
-  display: flex; align-items: center; gap: 24px;
+  display: flex; align-items: center; gap: 20px;
   padding: 18px 26px 14px;
   text-align: left;
 }
@@ -840,7 +850,9 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   text-shadow: 0 0 20px rgba(180, 140, 255, 0.5);
   margin-bottom: 5px;
 }
+.tree-title.dark { text-shadow: 0 0 20px rgba(255, 90, 122, 0.55); }
 .tree-sub { font-family: var(--flavor); font-style: italic; font-weight: 500; font-size: 17px; color: rgba(205, 216, 255, 0.78); }
+.dark-overlay .tree-sub { color: rgba(255, 205, 220, 0.72); }
 .tree-progress {
   font-family: var(--display); font-weight: 600; font-size: 15px;
   letter-spacing: 0.12em;
@@ -850,180 +862,28 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   font-family: var(--display); font-weight: 700; font-size: 27px;
   color: var(--gold); text-shadow: 0 0 18px rgba(255, 210, 122, 0.55);
 }
-.tree-scroll { flex: 1; width: 100%; min-height: 0; display: flex; align-items: center; justify-content: center; }
-.tree-svg { height: 100%; width: 100%; max-height: calc(100vh / var(--ui-scale) - 210px); cursor: grab; }
-.tree-svg:active { cursor: grabbing; }
+/* unspent skill points — the number that makes stars clickable */
+.point-chip {
+  font-family: var(--display); font-weight: 700; font-size: 27px;
+  color: var(--arcane); text-shadow: 0 0 18px rgba(180, 140, 255, 0.55);
+}
+.point-chip.dark { color: #ff7ab0; text-shadow: 0 0 18px rgba(255, 90, 122, 0.5); }
+/* the Dark Bargain's promise, mirrored by the in-run clock */
+.depth-chip {
+  font-family: var(--display); font-weight: 600; font-size: 15px;
+  letter-spacing: 0.1em;
+  color: #ffb3cb; text-shadow: 0 0 12px rgba(255, 90, 122, 0.5);
+}
+.forge-btn:disabled { opacity: 0.45; cursor: default; }
+.forge-btn.hot { color: #ffe9bd; animation: glimmerPulse 2.4s ease-in-out infinite; }
+.forge-btn.dark.hot { color: #ffb3cb; animation: glimmerDarkPulse 2.4s ease-in-out infinite; }
 
-.cluster-label { pointer-events: none; }
-.cluster-label text { text-anchor: middle; font-family: var(--display); }
-.cluster-name { font-size: 23px; font-weight: 700; letter-spacing: 0.14em; opacity: 0.85; }
-.cluster-count { font-size: 15px; fill: rgba(205, 216, 255, 0.55); font-family: var(--ui); }
-
-.tree-edge { stroke: rgba(205, 216, 255, 0.3); stroke-width: 2; fill: none; }
-.tree-edge.half { stroke: rgba(180, 140, 255, 0.5); }
-.tree-edge.lit { stroke: rgba(180, 140, 255, 0.95); stroke-width: 2.5; }
-
-.tree-node { cursor: default; }
-.tree-node.buyable { cursor: pointer; }
-.tree-node.refundable { cursor: pointer; }
-.tree-node.refundable:hover .body { stroke: var(--rose); filter: drop-shadow(0 0 10px rgba(255, 154, 213, 0.9)); }
-.tree-node .halo { fill: transparent; }
-.tree-node .body { fill: #201a45; stroke: rgba(205,216,255,0.45); stroke-width: 1.5; transition: all 0.15s; }
-.tree-node .inner { fill: none; stroke: rgba(205,216,255,0.3); stroke-width: 1; }
-.tree-node .node-icon {
-  fill: rgba(205, 216, 255, 0.8);
-  color: rgba(205, 216, 255, 0.8); /* SVG icons inherit via currentColor */
-  text-anchor: middle;
-  dominant-baseline: central;
-  font-family: var(--ui);
-  pointer-events: none;
-  user-select: none;
-}
-/* SVG spell icons are stroked, not filled. The per-state `.node-icon { fill }`
-   rules below (for the <text> variant) must NOT fill these, so force fill:none
-   at matching specificity. Paths that DO want fill (centre dots) set it inline. */
-.tree-node .node-icon.svg,
-.tree-node.locked .node-icon.svg,
-.tree-node.buyable .node-icon.svg,
-.tree-node.owned .node-icon.svg,
-.tree-node.dark .node-icon.svg,
-.tree-node.dark.locked .node-icon.svg,
-.tree-node.dark.buyable .node-icon.svg { fill: none; }
-.tree-node.locked .node-icon.svg { color: rgba(205, 216, 255, 0.45); }
-.tree-node.buyable .node-icon.svg { color: #ffe9bd; }
-.tree-node.owned .node-icon.svg { color: #ffffff; }
-.tree-node.dark .node-icon.svg { color: rgba(255, 150, 180, 0.75); }
-.tree-node.dark.locked .node-icon.svg { color: rgba(255, 150, 180, 0.4); }
-.tree-node.dark.buyable .node-icon.svg { color: #ffb3cb; }
-.tree-node .node-icon.svg [fill="currentColor"] { fill: currentColor; }
-.tree-node.locked .body { opacity: 0.75; }
-.tree-node.locked .node-icon { fill: rgba(205, 216, 255, 0.45); }
-.tree-node.reach .body { stroke: rgba(205,216,255,0.7); }
-.tree-node.buyable .node-icon { fill: #ffe9bd; }
-/* NOTE: per-node drop-shadow filters stay OFF the always-on states — on a
-   356-node tree they forced a full SVG re-raster every frame while panning.
-   State reads from stroke colour/width alone; hover glows are fine. */
-.tree-node.owned .node-icon { fill: #ffffff; }
-.tree-node.buyable .body { stroke: var(--gold); stroke-width: 2; }
-.tree-node.owned .body { fill: #3b2a78; stroke: var(--arcane); stroke-width: 2; }
-.tree-node.owned .inner { stroke: #fff; }
-.tree-node.keystone .body { fill: #1d1440; }
-.tree-node.keystone.owned .body { fill: #55349e; }
-.tree-node.core .body { fill: #2c1f63; stroke: var(--aurora); stroke-width: 2.5; }
-.tree-node:hover .body { stroke-width: 3; stroke: #e6ddff; }
-.tree-node.dark:hover .body { stroke: #ffb3c9; }
-.tree-node.buyable:hover .body { stroke: var(--gold); filter: drop-shadow(0 0 12px rgba(255,210,122,1)); }
-
-/* One-shot allocation pulse (see node-pulse keyframes) — lives briefly on ONE
-   node, so it can afford filters, unlike the always-on states above. */
-.tree-node .node-pulse {
-  stroke: none;
-  fill: var(--pulse-col);
-  pointer-events: none;
-  transform-box: fill-box;
-  transform-origin: center;
-  --pulse-scale: 2.4;
-  --pulse-col: var(--arcane);
-  --pulse-glow: rgba(180, 140, 255, 0.85);
-  --pulse-blur: 2.5px;
-  filter: blur(var(--pulse-blur)) drop-shadow(0 0 6px var(--pulse-glow));
-  animation: node-pulse 0.62s cubic-bezier(0.16, 0.8, 0.3, 1) forwards;
-}
-.tree-node.notable .node-pulse { --pulse-scale: 3.2; --pulse-blur: 3px; }
-.tree-node.keystone .node-pulse,
-.tree-node.core .node-pulse {
-  --pulse-scale: 4.4; --pulse-blur: 4px;
-  --pulse-glow: rgba(180, 140, 255, 0.95);
-}
-/* ---------------------------------------------- first-discovery reveal
-   'reveal-seed': the whole web is dark; one star breathes at the centre.
-   'reveal-expanding': touching it pulls the camera back (JS) while nodes,
-   edges and labels ignite outward — each carries --rd, its ignition delay
-   proportional to its distance from the core. */
-/* the reveal camera: a composited CSS scale on the svg ELEMENT. Animating
-   the inner group's transform attribute re-rasterizes the whole 356-node
-   subtree per frame and stutters; this stays on the GPU. The core sits at
-   the viewBox centre, so scaling about the element centre keeps it fixed. */
-.tree-overlay.reveal-seed .tree-svg { transform: scale(2.3); }
-.tree-overlay.reveal-expanding .tree-svg {
-  animation: revealZoom 2.9s cubic-bezier(0.45, 0, 0.55, 1) forwards;
-  will-change: transform;
-}
-@keyframes revealZoom { from { transform: scale(2.3); } to { transform: scale(1); } }
-
-.tree-overlay.reveal-seed .tree-edge,
-.tree-overlay.reveal-seed .cluster-label { opacity: 0; }
-.tree-overlay.reveal-seed .tree-node { opacity: 0; pointer-events: none; }
-.tree-overlay.reveal-seed .tree-node.core { opacity: 1; pointer-events: auto; cursor: pointer; }
-.tree-overlay.reveal-seed .tree-node.core .body { animation: seedBreath 2.6s ease-in-out infinite; }
-.tree-overlay.reveal-seed .tree-node.core .halo { fill: rgba(180, 140, 255, 0.2); animation: seedHalo 2.6s ease-in-out infinite; }
-@keyframes seedBreath {
-  50% { filter: drop-shadow(0 0 16px rgba(180, 140, 255, 0.95)); }
-}
-@keyframes seedHalo {
-  50% { fill: rgba(180, 140, 255, 0.42); }
-}
-
-/* PERF, learned the hard way: the ignition must animate PAINT-ONLY SVG
-   properties (fill-opacity / stroke-opacity / r), never opacity or transform.
-   Animating opacity/transform promotes every node, halo and edge to its own
-   compositor layer — ~900 layers and tens of thousands of raster+GPU tasks
-   per second, which froze the whole reveal for ~10s on modest machines.
-   Paint-only properties keep the tree inside the single composited camera
-   layer; each frame just repaints the thin ring of stars currently catching.
-   (fill/stroke-opacity inherit, so one animation on the <g> fades the body,
-   icon and label of a node together, like group opacity did.) */
-.tree-overlay.reveal-expanding .tree-node {
-  pointer-events: none;
-  animation: igniteInk 0.6s ease-out both;
-  animation-delay: var(--rd, 0ms);
-}
-.tree-overlay.reveal-expanding .tree-node .body {
-  animation: ignitePop 0.6s cubic-bezier(0.2, 0.9, 0.3, 1.35) both;
-  animation-delay: var(--rd, 0ms);
-}
-/* each star flashes bright as it catches, then settles (fill on the halo —
-   no per-node drop-shadow filters, those stutter at 356 nodes) */
-.tree-overlay.reveal-expanding .tree-node .halo {
-  animation: igniteHalo 0.9s ease-out both;
-  animation-delay: var(--rd, 0ms);
-}
-/* r has no value in the 100% frame, so each circle grows to its own
-   attribute radius — one keyframe block serves every node size */
-@keyframes igniteHalo {
-  0% { r: 0; fill: rgba(235, 226, 255, 0.95); }
-  45% { fill: rgba(190, 155, 255, 0.55); }
-  100% { fill: transparent; }
-}
-.tree-overlay.reveal-expanding .tree-node.core,
-.tree-overlay.reveal-expanding .tree-node.core .body,
-.tree-overlay.reveal-expanding .tree-node.core .halo { animation: none; opacity: 1; }
-.tree-overlay.reveal-expanding .tree-edge {
-  animation: igniteInk 0.7s ease-out both;
-  animation-delay: var(--rd, 0ms);
-}
-.tree-overlay.reveal-expanding .cluster-label {
-  animation: igniteInk 0.9s ease-out both;
-  animation-delay: 1.7s;
-}
-@keyframes igniteInk { from { fill-opacity: 0; stroke-opacity: 0; } }
-@keyframes ignitePop { from { r: 0; } }
-
-/* the shockwaves racing ahead of the lighting stars: HTML rings scaled on
-   the compositor (an svg circle's animated r forced full-tree repaints) */
-.reveal-wave {
-  position: absolute; left: 50%; top: 50%;
-  width: 500px; height: 500px; margin: -250px 0 0 -250px;
-  border-radius: 50%;
-  border: 2px solid rgba(203, 182, 255, 0.9);
-  pointer-events: none;
-  animation: revealWave 2.7s cubic-bezier(0.3, 0.5, 0.5, 1) forwards;
-  will-change: transform, opacity;
-}
-.reveal-wave.w2 { border-color: rgba(127, 245, 255, 0.8); border-width: 1.5px; animation-delay: 0.3s; }
-@keyframes revealWave {
-  from { transform: scale(0.06); opacity: 0.95; }
-  to { transform: scale(4); opacity: 0; }
+.tree-wrap { flex: 1; width: 100%; min-height: 0; position: relative; }
+.tree-canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  cursor: grab;
+  touch-action: none;
 }
 
 /* the head/loadout stay mounted (stable layout) but hidden until 'done' */
@@ -1047,8 +907,10 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   animation: hintPulse 2.2s ease-in-out infinite;
 }
 @keyframes hintPulse { 50% { opacity: 0.4; } }
+.reveal-caption.dark .rc-line { color: rgba(255, 205, 220, 0.92); text-shadow: 0 0 16px rgba(255, 90, 122, 0.35); }
+.reveal-caption.dark .rc-hint { color: rgba(255, 122, 158, 0.9); }
 
-/* the unexplained menu entry before the constellation is discovered */
+/* the unexplained menu entries before each web is discovered */
 .btn-secondary.glimmer {
   color: #ffe9bd;
   animation: glimmerPulse 2.4s ease-in-out infinite;
@@ -1056,33 +918,35 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 @keyframes glimmerPulse {
   50% { filter: drop-shadow(0 0 13px rgba(255, 210, 122, 0.6)); }
 }
-
-.tree-node.dark .node-pulse {
-  --pulse-col: #ff6f93;
-  --pulse-glow: rgba(255, 90, 122, 0.9);
+.btn-secondary.glimmer-dark {
+  color: #ffb3cb;
+  animation: glimmerDarkPulse 2.6s ease-in-out infinite;
 }
-@keyframes node-pulse {
-  0%   { opacity: 0.85; transform: scale(0.7); }
-  35%  { opacity: 0.7; }
-  100% { opacity: 0;    transform: scale(var(--pulse-scale)); }
+@keyframes glimmerDarkPulse {
+  50% { filter: drop-shadow(0 0 13px rgba(255, 90, 122, 0.65)); }
 }
+.dust-chip.shards { color: #ff7ab0; }
 
-/* the Dark Bargain: crimson-lit stars on near-black bodies, its own web */
-.tree-edge.dark { stroke: rgba(255, 90, 122, 0.22); }
-.tree-edge.dark.half { stroke: rgba(255, 90, 122, 0.45); }
-.tree-edge.dark.lit { stroke: rgba(255, 90, 122, 0.95); stroke-width: 2.5; }
-.tree-node.dark .body { fill: #1c0812; stroke: rgba(255, 90, 122, 0.4); }
-.tree-node.dark .node-icon { fill: rgba(255, 150, 180, 0.75); }
-.tree-node.dark.locked .node-icon { fill: rgba(255, 150, 180, 0.4); }
-.tree-node.dark.reach .body { stroke: rgba(255, 122, 176, 0.7); }
-.tree-node.dark.buyable .body { stroke: #ff5a7a; stroke-width: 2; }
-.tree-node.dark.buyable .node-icon { fill: #ffb3cb; }
-.tree-node.dark.buyable:hover .body { filter: drop-shadow(0 0 12px rgba(255, 90, 122, 1)); }
-.tree-node.dark.owned .body { fill: #58122e; stroke: #ff7ab0; stroke-width: 2; }
-.tree-node.dark.keystone .body { fill: #14060d; }
-.tree-node.dark.keystone.owned .body { fill: #701538; }
+/* ---- the Dark Bargain: a corrupted mirror of the constellation screen ---- */
+.dark-overlay {
+  background:
+    radial-gradient(120% 90% at 25% -10%, rgba(122, 20, 52, 0.38), transparent 55%),
+    radial-gradient(110% 80% at 80% 110%, rgba(70, 8, 38, 0.45), transparent 55%),
+    radial-gradient(ellipse at center, #16060f 0%, #060208 100%);
+}
+/* the shared night-sky layers, bled crimson */
+.tree-bg.dark::before { filter: sepia(1) hue-rotate(-55deg) saturate(2.6) brightness(0.9); }
+.tree-bg.dark::after { filter: blur(10px) sepia(1) hue-rotate(-55deg) saturate(2.4); }
+/* a slow, breathing red vignette — the wound is alive */
+.dark-overlay::after {
+  content: '';
+  position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background: radial-gradient(85% 70% at 50% 50%, transparent 55%, rgba(130, 12, 46, 0.3) 100%);
+  animation: woundBreath 5.5s ease-in-out infinite;
+}
+@keyframes woundBreath { 50% { opacity: 0.5; } }
 
-.tree-scroll { position: relative; }
+.tree-wrap { position: relative; }
 .node-tip {
   position: fixed;
   transform: translate(-50%, calc(-100% - 14px));
@@ -1116,6 +980,13 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 .tip-owned { margin-top: 10px; color: #7dffb0; font-size: 13.5px; letter-spacing: 0.1em; }
 .tip-refund { color: var(--rose); font-family: var(--flavor); font-style: italic; font-weight: 500; font-size: 15.5px; letter-spacing: 0; }
 .tip-owned .tip-locked { letter-spacing: 0; }
+
+/* crimson-dressed tooltip for the Dark Bargain */
+.node-tip.dark { box-shadow: 0 6px 30px rgba(0, 0, 0, 0.6), 0 0 20px rgba(255, 90, 122, 0.18); }
+.node-tip.dark .tip-cost { color: #ff7ab0; text-shadow: 0 0 12px rgba(255, 90, 122, 0.4); }
+.node-tip.dark .tip-hint { color: #ffb3cb; }
+.node-tip.dark .tip-kind.notable { color: #ff7ab0; }
+.node-tip.dark .tip-kind.keystone { color: #ff9a6a; }
 
 /* ---- loadout bar (under the tree) ---- */
 .loadout {
@@ -1330,9 +1201,8 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 
 /* ============================================================== a11y & small screens */
 @media (prefers-reduced-motion: reduce) {
-  .card, .overlay, .settings-panel, .tree-head, .tree-scroll, .loadout,
+  .card, .overlay, .settings-panel, .tree-head, .tree-wrap, .loadout,
   .overlay.menu .title-block { animation: none; }
-  .tree-node .node-pulse { animation-duration: 0.01s; }
   .btn-primary:hover::after { animation: none; }
   .menu-bg, .menu-bg::after, .tree-bg::before, .tree-bg::after { animation: none; }
 }

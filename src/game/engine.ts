@@ -182,6 +182,7 @@ export interface Choice {
 export interface HudState {
   hp: number; maxHp: number; xp: number; xpNext: number; level: number;
   time: number; kills: number;
+  ahead: number; // Dark Bargain head start baked into the clock
   spells: { id: string; level: number; evolved: boolean }[];
   spellCap: number;
   boons: Record<string, number>;
@@ -413,8 +414,11 @@ export class Engine {
     this.meta = (this.hooks.getMeta && this.hooks.getMeta()) || ({} as Bonuses);
     this.particles.clear();
     this.releaseAll();
-    this.t = 0;
-    this.vt = 0;
+    // The Dark Bargain's head start: the dream begins this many seconds deep.
+    // The clock itself starts here — difficulty, the HUD timer and the final
+    // time (your record) all agree on how deep the dream ran.
+    this.t = this.meta.baneAhead || 0;
+    this.vt = this.t;
     this.acc = 0;
     this.cheated = false;
     this.banished.clear();
@@ -1091,8 +1095,8 @@ export class Engine {
 
   // -------------------------------------------------------------- waves
   private computeWave() {
-    // Cruel Dawn: the difficulty clock runs ahead of the run clock
-    const T = this.t + (this.meta.baneAhead || 0);
+    // the run clock already starts baneAhead seconds deep (see reset)
+    const T = this.t;
     let idx = 0;
     for (let i = 0; i < WAVES.length; i++) { if (T >= WAVES[i].t) idx = i; else break; }
     const w = WAVES[idx];
@@ -1132,8 +1136,7 @@ export class Engine {
 
   // past minute 7 the dream unravels: an ever-climbing endgame intensity
   endgame() {
-    const T = this.t + (this.meta.baneAhead || 0);
-    return Math.max(0, (T - 420) / 60);
+    return Math.max(0, (this.t - 420) / 60);
   }
 
   // Bargain-summoned extras grant no net essence: essence is scaled by the
@@ -2440,6 +2443,7 @@ export class Engine {
     this.hooks.onHud({
       hp: p.hp, maxHp: p.maxHp, xp: p.xp, xpNext: p.xpNext, level: p.level,
       time: this.t, kills: this.kills,
+      ahead: this.meta.baneAhead || 0,
       spells: p.spells.map((s) => ({ id: s.id, level: s.level, evolved: !!s.evolved })),
       spellCap: this.spellCap(),
       boons: { ...p.boons },

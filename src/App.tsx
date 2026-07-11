@@ -3,19 +3,21 @@ import { create } from 'zustand';
 import { Engine, type HudState, type Choice } from './game/engine';
 import { SPELLS, BOONS, GENERIC, EVOLVE } from './game/spells';
 import { RELICS, type PactDef } from './game/relics';
-import { SpellIcon, SpellIconInner, HAS_ICON } from './game/spellIcons';
+import { SpellIcon, HAS_ICON } from './game/spellIcons';
 import { audio } from './game/audio';
 import { settings, RESOLUTION_OPTIONS, type Preset, type PerfPresets, type ResolutionScale } from './game/settings';
 import { isNative, exitApp } from './game/nativeWindow';
 import {
-  TREE_NODES, TREE_EDGES, NODE_MAP, CLUSTER_INFO, loadMeta, saveMeta,
-  canBuy, buyNode, canRefund, refundNode, refundValue, isReachable,
-  computeBonuses, dustForRun, setLoadout, loadoutSlots, unlockedSpells,
-  markTreeRevealed,
-  type Meta, type TreeNode,
+  CONST_NODES, CONST_EDGES, DARK_NODES, DARK_EDGES, NODE_MAP, ADJACENT,
+  loadMeta, saveMeta, computeBonuses, dustForRun, setLoadout, loadoutSlots, unlockedSpells,
+  markTreeRevealed, markDarkRevealed,
+  nextPointCost, nextDarkPointCost, canBuyPoint, buyPoint, canBuyDarkPoint, buyDarkPoint,
+  allocateNode, deallocateNode, removableSet, darkDepth,
+  type Meta,
 } from './game/meta';
+import { TreeCanvas, type TreePhase } from './game/treeCanvas';
 
-type Screen = 'menu' | 'playing' | 'levelup' | 'relic' | 'pact' | 'dead' | 'tree' | 'settings';
+type Screen = 'menu' | 'playing' | 'levelup' | 'relic' | 'pact' | 'dead' | 'tree' | 'dark' | 'settings';
 
 interface RunResult { time: number; kills: number; level: number; bonusDust: number; shards: number; relics: string[]; record?: boolean }
 
@@ -191,16 +193,25 @@ export default function App() {
 
   const renderOverlay = (s: Screen) => {
     if (s === 'settings') return <Settings key="settings" onClose={() => set({ screen: 'menu' })} />;
-    if (s === 'dead' && result) return <GameOver key="dead" result={result} dustEarned={dustEarned} revealed={meta.treeRevealed} onRetry={begin} onTree={() => set({ screen: 'tree' })} onMenu={() => { audio.menuMood(); set({ screen: 'menu', result: null }); }} />;
+    if (s === 'dead' && result) return <GameOver key="dead" result={result} dustEarned={dustEarned} meta={meta} onRetry={begin} onTree={() => set({ screen: 'tree' })} onDark={() => set({ screen: 'dark' })} onMenu={() => { audio.menuMood(); set({ screen: 'menu', result: null }); }} />;
     if (s === 'tree') return (
       <SkillTree
         key="tree"
         meta={meta}
         reveal={!meta.treeRevealed}
         onRevealed={() => set({ meta: markTreeRevealed(useGame.getState().meta) })}
-        onBuy={(id) => set({ meta: buyNode(useGame.getState().meta, id) })}
-        onRefund={(id) => set({ meta: refundNode(useGame.getState().meta, id) })}
+        onMeta={(m) => set({ meta: m })}
         onLoadout={(l) => set({ meta: setLoadout(useGame.getState().meta, l) })}
+        onClose={() => set({ screen: useGame.getState().result ? 'dead' : 'menu' })}
+      />
+    );
+    if (s === 'dark') return (
+      <DarkBargain
+        key="dark"
+        meta={meta}
+        reveal={!meta.darkRevealed}
+        onRevealed={() => set({ meta: markDarkRevealed(useGame.getState().meta) })}
+        onMeta={(m) => set({ meta: m })}
         onClose={() => set({ screen: useGame.getState().result ? 'dead' : 'menu' })}
       />
     );
@@ -248,6 +259,7 @@ export default function App() {
           onStart={begin}
           meta={meta}
           onTree={() => set({ screen: 'tree' })}
+          onDark={() => set({ screen: 'dark' })}
           onSettings={() => set({ screen: 'settings' })}
         />
       )}
@@ -281,6 +293,9 @@ function Hud({ hud }: { hud: HudState }) {
         </div>
         <div className="hud-center">
           <div className="clock">{fmtTime(hud.time)}</div>
+          {hud.ahead > 0 && (
+            <div className="clock-deep" title="The Dark Bargain — this dream began that deep">⇣ began {fmtTime(hud.ahead)} deep</div>
+          )}
           <div className="kills">{hud.kills} banished</div>
         </div>
         <div className="hud-right">
@@ -345,8 +360,8 @@ function PauseMenu({ onResume, onReturnToMenu }: { onResume: () => void; onRetur
   );
 }
 
-function Menu({ onStart, onTree, onSettings, meta, closing }: {
-  onStart: () => void; onTree: () => void; onSettings: () => void; meta: Meta;
+function Menu({ onStart, onTree, onDark, onSettings, meta, closing }: {
+  onStart: () => void; onTree: () => void; onDark: () => void; onSettings: () => void; meta: Meta;
   closing?: boolean;
 }) {
   const sky = useSkyState();
@@ -363,10 +378,20 @@ function Menu({ onStart, onTree, onSettings, meta, closing }: {
           {meta.treeRevealed ? (
             <button className="btn-secondary" onClick={onTree}>
               The Constellation
-              <span className="dust-chip">✦ {meta.dust}{(meta.shards || 0) > 0 ? ` · ❖ ${meta.shards}` : ''}</span>
+              <span className="dust-chip">✦ {meta.dust}{meta.points > 0 ? ` · ◈ ${meta.points}` : ''}</span>
             </button>
           ) : (meta.best > 0 || meta.dust > 0) ? (
             <button className="btn-secondary glimmer" onClick={onTree}>✦ Something glimmers in the dark</button>
+          ) : null}
+          {/* the Dark Bargain surfaces once a nightmare shard has been carried
+              out of a dream — first as an unexplained wound */}
+          {meta.darkRevealed ? (
+            <button className="btn-secondary dark-btn" onClick={onDark}>
+              The Dark Bargain
+              <span className="dust-chip shards">❖ {meta.shards}{meta.darkPoints > 0 ? ` · ◈ ${meta.darkPoints}` : ''}</span>
+            </button>
+          ) : (meta.shards || 0) > 0 ? (
+            <button className="btn-secondary glimmer-dark" onClick={onDark}>❖ Something festers beneath the stars</button>
           ) : null}
           <button className="btn-secondary" onClick={onSettings}>Tune the dream</button>
           {isNative && (
@@ -742,9 +767,9 @@ function PactChoice({ pact, onAnswer }: { pact: PactDef; onAnswer: (accept: bool
   );
 }
 
-function GameOver({ result, dustEarned, revealed, onRetry, onTree, onMenu }: {
-  result: RunResult; dustEarned: number; revealed: boolean;
-  onRetry: () => void; onTree: () => void; onMenu: () => void;
+function GameOver({ result, dustEarned, meta, onRetry, onTree, onDark, onMenu }: {
+  result: RunResult; dustEarned: number; meta: Meta;
+  onRetry: () => void; onTree: () => void; onDark: () => void; onMenu: () => void;
 }) {
   return (
     <div className="overlay dead">
@@ -770,349 +795,184 @@ function GameOver({ result, dustEarned, revealed, onRetry, onTree, onMenu }: {
       )}
       <div className="menu-buttons">
         <button className="btn-primary" onClick={onRetry}>Sleep again</button>
-        {revealed ? (
+        {meta.treeRevealed ? (
           <button className="btn-secondary" onClick={onTree}>The Constellation</button>
         ) : (
           <button className="btn-secondary glimmer" onClick={onTree}>✦ Something glimmers in the dark</button>
         )}
+        {meta.darkRevealed ? (
+          <button className="btn-secondary dark-btn" onClick={onDark}>The Dark Bargain</button>
+        ) : (meta.shards || 0) > 0 ? (
+          <button className="btn-secondary glimmer-dark" onClick={onDark}>❖ Something festers beneath the stars</button>
+        ) : null}
         <button className="btn-secondary" onClick={onMenu}>Return to the menu</button>
       </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------- skill tree
-const KIND_R: Record<string, number> = { core: 16, small: 9, notable: 13, keystone: 17 };
-const KIND_ICON_SIZE: Record<string, number> = { core: 15, small: 9.5, notable: 13, keystone: 15 };
+// ---------------------------------------------------------------- skill webs
+// Both webs draw through the canvas renderer (see treeCanvas.tsx); these
+// components own the screen chrome: header, the point forge, tooltip,
+// loadout bar and the first-discovery captions.
 
-// nodes that display a bare spell glyph → render the SVG icon instead (the raw
-// alchemical Unicode has no cross-platform coverage). Returns the spell id, else null.
-function nodeSpellIconId(n: TreeNode): string | null {
-  const fx = n.fx || {};
-  if (n.kind === 'core' || n.currency === 'shards') return null;
-  if (fx.spell && !fx.evo && !fx.sdmg && !fx.scd && !fx.saoe && !fx.sdur && HAS_ICON(fx.spell)) return fx.spell;
-  return null;
-}
+const EMPTY_SET = new Set<string>();
 
-function nodeIcon(n: TreeNode): string {
-  const fx = n.fx || {};
-  if (n.kind === 'core') return '☉';
-  if (n.currency === 'shards') return '❖';
-  if (fx.spell) {
-    if (fx.evo) return '★';
-    if (fx.sdmg) return '✦';
-    if (fx.scd) return '≋';
-    if (fx.saoe) return '◎';
-    if (fx.sdur) return '◷';
-    return SPELLS[fx.spell].icon;
+// frontier: every unowned star adjacent to a lit one
+function frontierOf(owned: string[], dark: boolean): Set<string> {
+  const ownedSet = new Set(owned);
+  const out = new Set<string>();
+  for (const id of owned) {
+    for (const nb of ADJACENT[id] || []) {
+      if (ownedSet.has(nb)) continue;
+      const n = NODE_MAP[nb];
+      if (n && !!n.dark === dark) out.add(nb);
+    }
   }
-  const ICONS: [string, string][] = [
-    ['banish', '✕'], ['reroll', '⟳'], ['fourfold', '✥'],
-    ['spellSlots', '▣'], ['extraCount', '✚'], ['echo', '⧉'], ['masteryPlus', '⇑'], ['startLv', '✬'],
-    ['cheatDeath', '♥'], ['deathBurst', '✺'],
-    ['gemMerge', '⬢'], ['golden', '✯'], ['extraGem', '❂'],
-    ['surgeAll', '∿'], ['surgeDur', '∿'], ['surgeSpeed', '➳'], ['surgeDmg', '✦'],
-    ['surgeHaste', '≋'], ['surgeAoe', '◎'], ['surgeMagnet', '◉'],
-    ['crit', '✸'], ['critDmg', '✸'],
-    ['dmg', '✦'], ['cast', '≋'], ['aoe', '◎'], ['speed', '➳'],
-    ['hp', '❤'], ['regen', '☽'], ['magnet', '◉'], ['xp', '❂'], ['dust', '✧'],
-  ];
-  for (const [k, ic] of ICONS) if (fx[k]) return ic;
-  return '';
+  return out;
 }
-
-const TREE_VIEW = 2480;
 
 // current UI zoom (see --ui-scale in styles.css). Fixed-position elements inside
 // a zoomed layer have their px coordinates multiplied by it, so JS-placed
-// positions taken from getBoundingClientRect must be divided back.
+// positions must be divided back.
 const uiScale = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')) || 1;
 
-interface EdgeGeom { a: string; b: string; dark: boolean; d: string | null; line: { x1: number; y1: number; x2: number; y2: number } | null; rd: string }
+interface TipState { id: string; x: number; y: number }
 
-// ignition delay for the first-discovery reveal: the light spreads outward
-// from the core, so everything ignites by its distance from the origin
-const igniteDelay = (dist: number) => `${((dist * 1.9 + 120) | 0)}ms`;
-
-const EDGE_GEOM: EdgeGeom[] = TREE_EDGES.map(([a, b, bend]) => {
-  const na = NODE_MAP[a], nb = NODE_MAP[b];
-  if (!na || !nb) return null;
-  const dark = a.startsWith('dark-') && b.startsWith('dark-');
-  let d: string | null = null, line: EdgeGeom['line'] = null;
-  if (!bend) {
-    line = { x1: na.x, y1: na.y, x2: nb.x, y2: nb.y };
-  } else {
-    const mx = (na.x + nb.x) / 2, my = (na.y + nb.y) / 2;
-    const dx = nb.x - na.x, dy = nb.y - na.y;
-    const len = Math.hypot(dx, dy) || 1;
-    const cx = mx + (-dy / len) * bend, cy = my + (dx / len) * bend;
-    d = `M ${na.x} ${na.y} Q ${cx} ${cy} ${nb.x} ${nb.y}`;
-  }
-  const rd = igniteDelay(Math.min(Math.hypot(na.x, na.y), Math.hypot(nb.x, nb.y)));
-  return { a, b, dark, d, line, rd };
-}).filter(Boolean) as EdgeGeom[];
-
-const TreeEdges = React.memo(function TreeEdges({ owned }: { owned: Set<string> }) {
+function NodeTip({ tip, meta, dark, frontier, removable }: {
+  tip: TipState; meta: Meta; dark: boolean;
+  frontier: Set<string>; removable: Set<string>;
+}) {
+  const node = NODE_MAP[tip.id];
+  if (!node) return null;
+  const ownedList = dark ? meta.darkOwned : meta.owned;
+  const isOwned = ownedList.includes(node.id);
+  const isCore = node.kind === 'core';
+  const points = dark ? meta.darkPoints : meta.points;
+  const cur = dark ? '❖' : '✦';
+  const mintCost = dark ? nextDarkPointCost(meta) : nextPointCost(meta);
+  const canMint = dark ? canBuyDarkPoint(meta) : canBuyPoint(meta);
   return (
-    <>
-      {EDGE_GEOM.map((e, i) => {
-        const lit = owned.has(e.a) && owned.has(e.b);
-        const half = !lit && (owned.has(e.a) || owned.has(e.b));
-        const cls = `tree-edge ${e.dark ? 'dark ' : ''}${lit ? 'lit' : half ? 'half' : ''}`;
-        const st = { '--rd': e.rd } as React.CSSProperties;
-        return e.line
-          ? <line key={i} x1={e.line.x1} y1={e.line.y1} x2={e.line.x2} y2={e.line.y2} className={cls} style={st} />
-          : <path key={i} d={e.d!} className={cls} style={st} />;
-      })}
-    </>
+    <div className={`node-tip${dark ? ' dark' : ''}`} style={{ left: tip.x / uiScale(), top: tip.y / uiScale() }}>
+      <div className="tip-name">
+        {node.name}
+        <span className={`tip-kind ${node.kind}`}>{isCore ? 'origin' : node.kind}</span>
+      </div>
+      <div className="tip-desc">{node.desc}</div>
+      {isCore ? (
+        <div className="tip-row">
+          <span className={`tip-cost ${dark ? 'shards' : ''}`}>{cur} {mintCost}</span>
+          {settings.devFreeTree ? (
+            <span className="tip-hint">the dream is unlocked</span>
+          ) : canMint ? (
+            <span className="tip-hint">click to forge a skill point</span>
+          ) : (
+            <span className="tip-locked">{dark ? 'not enough shards — nightmares guard them' : 'not enough stardust — wake with more'}</span>
+          )}
+        </div>
+      ) : isOwned ? (
+        <div className="tip-owned">
+          ✓ awakened
+          {removable.has(node.id)
+            ? <span className="tip-refund"> · click to release — its point returns to you</span>
+            : <span className="tip-locked"> · other stars depend on this one</span>}
+        </div>
+      ) : (
+        <div className="tip-row">
+          <span className={`tip-cost ${dark ? 'shards' : ''}`}>◈ 1 point</span>
+          {!frontier.has(node.id) ? (
+            <span className="tip-locked">no lit path reaches this star yet</span>
+          ) : points > 0 || settings.devFreeTree ? (
+            <span className="tip-hint">click to awaken</span>
+          ) : (
+            <span className="tip-locked">{dark ? 'no points — feed the Wound a shard' : 'no points — forge one at the Waking Eye'}</span>
+          )}
+        </div>
+      )}
+    </div>
   );
-});
+}
 
-function SkillTree({ meta, reveal, onRevealed, onBuy, onRefund, onLoadout, onClose }: {
-  meta: Meta; reveal: boolean; onRevealed: () => void;
-  onBuy: (id: string) => void; onRefund: (id: string) => void;
+function SkillTree({ meta, reveal, onRevealed, onMeta, onLoadout, onClose }: {
+  meta: Meta; reveal: boolean;
+  onRevealed: () => void; onMeta: (m: Meta) => void;
   onLoadout: (loadout: string[]) => void; onClose: () => void;
 }) {
   const sky = useSkyState();
-  const [tip, setTip] = useState<{ id: string; x: number; y: number } | null>(null);
-  // first-discovery choreography: 'seed' shows one lone star up close;
-  // touching it pulls the camera back while the whole web ignites outward
-  // ('expanding'); 'done' is the ordinary tree. Non-reveal visits skip it all.
-  const [phase, setPhase] = useState<'seed' | 'expanding' | 'done'>(reveal ? 'seed' : 'done');
-  const revealTimer = useRef(0);
-  // the reveal camera is pure CSS (a composited scale on the svg element) —
-  // animating the SVG group's transform attribute re-rasterizes all 356 nodes
-  // every frame and visibly stutters. view stays identity until 'done'.
-  const [view, setView] = useState({ x: 0, y: 0, z: 1 });
-  // one-shot allocation pulse: { id, key } — key bumps each buy so re-buying the
-  // same node (after a refund) retriggers the CSS animation. Cleared after the
-  // animation ends so only ever one node animates, briefly.
+  const [phase, setPhase] = useState<TreePhase>(reveal ? 'seed' : 'done');
+  const [tip, setTip] = useState<TipState | null>(null);
   const [pulse, setPulse] = useState<{ id: string; key: number } | null>(null);
   const pulseKey = useRef(0);
-  const pulseTimer = useRef(0);
-  const viewRef = useRef(view);
-  const gRef = useRef<SVGGElement>(null);
-  const rafRef = useRef(0);
-  const dragRef = useRef<{ sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null);
+
   const owned = useMemo(() => new Set(meta.owned), [meta.owned]);
-  const node = tip ? NODE_MAP[tip.id] : null;
+  const frontier = useMemo(() => frontierOf(meta.owned, false), [meta.owned]);
+  const removable = useMemo(() => removableSet(meta.owned, 'core'), [meta.owned]);
+  const allocatable = meta.points > 0 || settings.devFreeTree ? frontier : EMPTY_SET;
 
-  // Write the transform at most once per frame. Panning mutates the SVG group's
-  // transform, which re-rasterizes the whole subtree; coalescing many mousemoves
-  // into one rAF write avoids redundant repaints. (Per-node drop-shadow glows
-  // were also removed from the styles — they made a 356-node pan stutter.)
-  const applyTransform = () => {
-    if (rafRef.current) return;
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = 0;
-      const vv = viewRef.current;
-      if (gRef.current) gRef.current.setAttribute('transform', `translate(${vv.x} ${vv.y}) scale(${vv.z})`);
-    });
-  };
+  const firePulse = (id: string) => { pulseKey.current += 1; setPulse({ id, key: pulseKey.current }); };
 
-  useEffect(() => () => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    if (pulseTimer.current) clearTimeout(pulseTimer.current);
-    if (revealTimer.current) clearTimeout(revealTimer.current);
-  }, []);
-
-  // touch the lone star: the chime sounds, the CSS camera pulls back
-  // (`.reveal-expanding .tree-svg` keyframes) while the constellation
-  // ignites outward from the core (per-element --rd delays)
-  const startReveal = () => {
-    if (phase !== 'seed') return;
-    setPhase('expanding');
-    setTip(null);
-    audio.levelUp();
-    revealTimer.current = window.setTimeout(() => {
-      setPhase('done');
-      audio.bonus();
-      onRevealed();
-    }, 3200);
-  };
-
-  // trigger the one-shot allocation pulse on a node, auto-removing it when the
-  // CSS animation finishes (keeps exactly one node animated for ~0.7s max).
-  const firePulse = (id: string) => {
-    pulseKey.current += 1;
-    setPulse({ id, key: pulseKey.current });
-    if (pulseTimer.current) clearTimeout(pulseTimer.current);
-    pulseTimer.current = window.setTimeout(() => setPulse(null), 750);
-  };
-
-  const hover = (n: TreeNode) => (e: React.MouseEvent) => {
-    // no tooltips during the discovery — "✓ awakened" on the lone star would
-    // give the whole mystery away before it's touched
-    if (phase !== 'done') return;
-    if (dragRef.current && dragRef.current.moved) return;
-    const r = (e.currentTarget as Element).getBoundingClientRect();
-    setTip({ id: n.id, x: r.left + r.width / 2, y: r.top });
-  };
-
-  const onWheel = (e: React.WheelEvent) => {
-    if (phase !== 'done') return; // the camera belongs to the reveal
-    const v = viewRef.current;
-    // 7x lets a single cluster fill the view — nodes stay clearly readable
-    // even on small screens
-    const z = Math.min(7, Math.max(0.55, v.z * (e.deltaY < 0 ? 1.15 : 0.87)));
-    const next = { ...v, z };
-    viewRef.current = next;
-    applyTransform();
-    setView(next);
-  };
-  const onMouseDown = (e: React.MouseEvent) => {
-    if (phase !== 'done') return;
-    const v = viewRef.current;
-    dragRef.current = { sx: e.clientX, sy: e.clientY, ox: v.x, oy: v.y, moved: false };
-  };
-  const onMouseMove = (e: React.MouseEvent) => {
-    const d = dragRef.current;
-    if (!d) return;
-    const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
-    if (Math.abs(dx) + Math.abs(dy) > 5) {
-      if (!d.moved) setTip(null);
-      d.moved = true;
+  const clickNode = (id: string) => {
+    const m = useGame.getState().meta;
+    if (phase === 'seed') {
+      // during the discovery, the lone star is the only door
+      if (id === 'core') { setPhase('expanding'); setTip(null); audio.levelUp(); }
+      return;
     }
-    if (!d.moved) return;
-    // rect width is in visual px (zoom-aware), matching the mouse deltas
-    const k = TREE_VIEW / (e.currentTarget as SVGSVGElement).getBoundingClientRect().width;
-    const next = { x: d.ox + dx * k, y: d.oy + dy * k, z: viewRef.current.z };
-    viewRef.current = next;
-    applyTransform();
+    if (phase !== 'done') return;
+    if (id === 'core') {
+      if (canBuyPoint(m)) { onMeta(buyPoint(m)); firePulse('core'); audio.choose(); }
+      return;
+    }
+    if (m.owned.includes(id)) {
+      const next = deallocateNode(m, id);
+      if (next !== m) { onMeta(next); audio.banish(); }
+    } else {
+      const next = allocateNode(m, id);
+      if (next !== m) { onMeta(next); firePulse(id); audio.choose(); }
+    }
   };
-  const endDrag = () => {
-    const d = dragRef.current;
-    if (d && d.moved) setView(viewRef.current);
-    setTimeout(() => { dragRef.current = null; }, 0);
+
+  const hoverNode = (id: string | null, x: number, y: number) => {
+    // no tooltips during the discovery — "origin" on the lone star would give
+    // the whole mystery away before it's touched
+    if (phase !== 'done') return;
+    setTip(id ? { id, x, y } : null);
   };
-  const wasDrag = () => dragRef.current && dragRef.current.moved;
 
   return (
-    <div className={`overlay tree-overlay${phase === 'seed' ? ' reveal-seed' : phase === 'expanding' ? ' reveal-expanding' : ''}`}>
+    <div className={`overlay tree-overlay${phase === 'seed' ? ' reveal-seed' : ''}`}>
       <div className="tree-bg" aria-hidden="true" style={sky} />
       <div className={`tree-head${phase !== 'done' ? ' veiled' : ''}`}>
         <div>
           <div className="tree-title">The Constellation</div>
-          <div className="tree-sub">Drag to wander, scroll to draw near. Hover a star to read it; click to awaken it — or release an awakened star for half its stardust.</div>
+          <div className="tree-sub">Every star costs one skill point; a star only wakes beside a lit one. Release a star to take its point back.</div>
         </div>
-        <div className="tree-progress" title="Stars awakened">{meta.owned.length - 1} / {TREE_NODES.length - 1} stars</div>
+        <div className="tree-progress" title="Stars awakened">{meta.owned.length - 1} / {CONST_NODES.length - 1} stars</div>
+        <div className="point-chip" title="Unspent skill points — spend them on any star touching your lit web">◈ {settings.devFreeTree ? '∞' : meta.points}</div>
         <div className="dust-big" title="Stardust — earned each time you wake">✦ {settings.devFreeTree ? '∞' : meta.dust}</div>
-        <div className="dust-big shards" title="Nightmare shards — torn from slain bosses, they feed the Dark Bargain">❖ {settings.devFreeTree ? '∞' : (meta.shards || 0)}</div>
+        <button
+          className={`btn-secondary forge-btn${phase === 'done' && canBuyPoint(meta) ? ' hot' : ''}`}
+          disabled={!canBuyPoint(meta)}
+          onClick={() => clickNode('core')}
+          title="Forge a skill point from stardust — each costs more than the last"
+        >
+          Forge a point — ✦ {nextPointCost(meta)}
+        </button>
         <button className="btn-secondary" onClick={onClose}>Return</button>
       </div>
 
-      <div className="tree-scroll">
-        <svg
-          viewBox={`${-TREE_VIEW / 2} ${-TREE_VIEW / 2} ${TREE_VIEW} ${TREE_VIEW}`}
-          className="tree-svg"
-          onWheel={onWheel}
-          onMouseDown={onMouseDown}
-          onMouseMove={onMouseMove}
-          onMouseUp={endDrag}
-          onMouseLeave={endDrag}
-        >
-          <g ref={gRef} transform={`translate(${view.x} ${view.y}) scale(${view.z})`}>
-            <TreeEdges owned={owned} />
-            {TREE_NODES.map((n) => {
-              const isOwned = owned.has(n.id);
-              const buyable = canBuy(meta, n.id);
-              const reach = isReachable(meta, n.id);
-              const refundable = isOwned && canRefund(meta, n.id);
-              const r = KIND_R[n.kind] || 9;
-              return (
-                <g
-                  key={n.id}
-                  className={`tree-node ${n.kind} ${n.currency === 'shards' ? 'dark' : ''} ${isOwned ? 'owned' : buyable ? 'buyable' : reach ? 'reach' : 'locked'} ${refundable ? 'refundable' : ''}`}
-                  transform={`translate(${n.x},${n.y})`}
-                  style={{ '--rd': igniteDelay(Math.hypot(n.x, n.y)) } as React.CSSProperties}
-                  onMouseEnter={hover(n)}
-                  onMouseLeave={() => setTip(null)}
-                  onClick={() => {
-                    // during the discovery, the lone star is the only door
-                    if (phase === 'seed') { if (n.id === 'core') startReveal(); return; }
-                    if (phase !== 'done' || wasDrag()) return;
-                    if (buyable) { onBuy(n.id); firePulse(n.id); audio.choose(); }
-                    else if (refundable) { onRefund(n.id); audio.banish(); }
-                  }}
-                >
-                  {pulse && pulse.id === n.id && (
-                    <circle key={pulse.key} className="node-pulse" r={r} />
-                  )}
-                  <circle className="halo" r={r + 7} />
-                  <circle className="body" r={r} />
-                  {n.kind === 'keystone' && <circle className="inner" r={r * 0.72} />}
-                  {(() => {
-                    const sid = nodeSpellIconId(n);
-                    if (sid) {
-                      // sized to sit comfortably inside the node with breathing room
-                      const s = (KIND_R[n.kind] || 9) * 1.55;
-                      // nested SVG centred on the node; inherits fill via .node-icon color
-                      return (
-                        <svg className="node-icon svg" x={-s / 2} y={-s / 2} width={s} height={s} viewBox="0 0 24 24"
-                          fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
-                          <SpellIconInner id={sid} />
-                        </svg>
-                      );
-                    }
-                    return <text className="node-icon" fontSize={KIND_ICON_SIZE[n.kind] || 9.5}>{nodeIcon(n)}</text>;
-                  })()}
-                </g>
-              );
-            })}
-            {CLUSTER_INFO.map((c) => {
-              const got = c.ids.filter((id) => owned.has(id)).length;
-              return (
-                <g key={c.spell} className="cluster-label" transform={`translate(${c.cx},${c.cy + 158})`}>
-                  <text className="cluster-name" style={{ fill: c.color }}>{c.name}</text>
-                  <text className="cluster-count" y="24">{got}/{c.ids.length}</text>
-                </g>
-              );
-            })}
-          </g>
-        </svg>
-
-        {phase === 'expanding' && (
-          <>
-            {/* the ignition shockwaves racing ahead of the lighting stars —
-                HTML divs scaled on the compositor, so they never force an
-                SVG repaint the way animating a circle's r did */}
-            <div className="reveal-wave" />
-            <div className="reveal-wave w2" />
-          </>
-        )}
-
-        {node && tip && (
-          <div className="node-tip" style={{ left: tip.x / uiScale(), top: tip.y / uiScale() }}>
-            <div className="tip-name">
-              {node.name}
-              <span className={`tip-kind ${node.kind}`}>{node.kind === 'core' ? 'origin' : node.kind}</span>
-            </div>
-            <div className="tip-desc">{node.desc}</div>
-            {owned.has(node.id) ? (
-              <div className="tip-owned">
-                ✓ awakened
-                {node.id !== 'core' && (
-                  canRefund(meta, node.id)
-                    ? <span className="tip-refund"> · click to release for {node.currency === 'shards' ? '❖' : '✦'} {refundValue(node.id)}</span>
-                    : <span className="tip-locked"> · other stars depend on this one</span>
-                )}
-              </div>
-            ) : (
-              <div className="tip-row">
-                <span className={`tip-cost ${node.currency === 'shards' ? 'shards' : ''}`}>{node.currency === 'shards' ? '❖' : '✦'} {node.cost}</span>
-                {canBuy(meta, node.id) ? (
-                  <span className="tip-hint">click to awaken</span>
-                ) : (
-                  <span className="tip-locked">
-                    {isReachable(meta, node.id)
-                      ? (node.currency === 'shards' ? 'not enough nightmare shards — bosses drop them' : 'not enough stardust — wake with more')
-                      : 'no lit path reaches this star yet'}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+      <div className="tree-wrap">
+        <TreeCanvas
+          nodes={CONST_NODES} edges={CONST_EDGES} nodeMap={NODE_MAP}
+          owned={owned} allocatable={allocatable} removable={removable} reachable={frontier}
+          phase={phase} coreHot={phase === 'done' && canBuyPoint(meta)}
+          variant="arcane" fitRadius={1060}
+          pulse={pulse}
+          onNodeClick={clickNode}
+          onHoverNode={hoverNode}
+          onRevealDone={() => { setPhase('done'); audio.bonus(); onRevealed(); }}
+        />
+        {tip && phase === 'done' && <NodeTip tip={tip} meta={meta} dark={false} frontier={frontier} removable={removable} />}
       </div>
 
       {phase === 'seed' && (
@@ -1123,6 +983,108 @@ function SkillTree({ meta, reveal, onRevealed, onBuy, onRefund, onLoadout, onClo
       )}
 
       <LoadoutBar meta={meta} onLoadout={onLoadout} veiled={phase !== 'done'} />
+    </div>
+  );
+}
+
+// The Dark Bargain: a corrupted sigil fed with nightmare shards. Its stars
+// start every dream deeper — harder from the first breath, but the clock (and
+// your best time) begins deeper too.
+function DarkBargain({ meta, reveal, onRevealed, onMeta, onClose }: {
+  meta: Meta; reveal: boolean;
+  onRevealed: () => void; onMeta: (m: Meta) => void; onClose: () => void;
+}) {
+  const sky = useSkyState();
+  const [phase, setPhase] = useState<TreePhase>(reveal ? 'seed' : 'done');
+  const [tip, setTip] = useState<TipState | null>(null);
+  const [pulse, setPulse] = useState<{ id: string; key: number } | null>(null);
+  const pulseKey = useRef(0);
+
+  const owned = useMemo(() => new Set(meta.darkOwned), [meta.darkOwned]);
+  const frontier = useMemo(() => frontierOf(meta.darkOwned, true), [meta.darkOwned]);
+  const removable = useMemo(() => removableSet(meta.darkOwned, 'dark-core'), [meta.darkOwned]);
+  const allocatable = meta.darkPoints > 0 || settings.devFreeTree ? frontier : EMPTY_SET;
+  const depth = darkDepth(meta);
+
+  const firePulse = (id: string) => { pulseKey.current += 1; setPulse({ id, key: pulseKey.current }); };
+
+  const clickNode = (id: string) => {
+    const m = useGame.getState().meta;
+    if (phase === 'seed') {
+      if (id === 'dark-core') {
+        // the first touch: the Wound drinks a shard and yields the first drop
+        if (canBuyDarkPoint(m)) onMeta(buyDarkPoint(m));
+        setPhase('expanding');
+        setTip(null);
+        audio.levelUp();
+      }
+      return;
+    }
+    if (phase !== 'done') return;
+    if (id === 'dark-core') {
+      if (canBuyDarkPoint(m)) { onMeta(buyDarkPoint(m)); firePulse('dark-core'); audio.choose(); }
+      return;
+    }
+    if (m.darkOwned.includes(id)) {
+      const next = deallocateNode(m, id);
+      if (next !== m) { onMeta(next); audio.banish(); }
+    } else {
+      const next = allocateNode(m, id);
+      if (next !== m) { onMeta(next); firePulse(id); audio.choose(); }
+    }
+  };
+
+  const hoverNode = (id: string | null, x: number, y: number) => {
+    if (phase !== 'done') return;
+    setTip(id ? { id, x, y } : null);
+  };
+
+  return (
+    <div className={`overlay tree-overlay dark-overlay${phase === 'seed' ? ' reveal-seed' : ''}`}>
+      <div className="tree-bg dark" aria-hidden="true" style={sky} />
+      <div className={`tree-head${phase !== 'done' ? ' veiled' : ''}`}>
+        <div>
+          <div className="tree-title dark">The Dark Bargain</div>
+          <div className="tree-sub">Every drop of the Wound deepens the dream — crueller tides, richer stardust. The clock starts deeper, and so can your record.</div>
+        </div>
+        {depth > 0 && (
+          <div className="depth-chip" title="Your dreams begin this far in — harder from the first breath, and the timer starts here too">
+            ⇣ begins {fmtTime(depth)} deep
+          </div>
+        )}
+        <div className="point-chip dark" title="Unspent bargain points">◈ {settings.devFreeTree ? '∞' : meta.darkPoints}</div>
+        <div className="dust-big shards" title="Nightmare shards — torn from slain bosses">❖ {settings.devFreeTree ? '∞' : meta.shards}</div>
+        <button
+          className={`btn-secondary forge-btn dark${phase === 'done' && canBuyDarkPoint(meta) ? ' hot' : ''}`}
+          disabled={!canBuyDarkPoint(meta)}
+          onClick={() => clickNode('dark-core')}
+          title="Feed the Wound a shard for a bargain point — each drop costs one shard more"
+        >
+          Feed the Wound — ❖ {nextDarkPointCost(meta)}
+        </button>
+        <button className="btn-secondary" onClick={onClose}>Return</button>
+      </div>
+
+      <div className="tree-wrap">
+        <TreeCanvas
+          nodes={DARK_NODES} edges={DARK_EDGES} nodeMap={NODE_MAP}
+          owned={owned} allocatable={allocatable} removable={removable} reachable={frontier}
+          phase={phase} coreHot={phase === 'done' && canBuyDarkPoint(meta)}
+          variant="dark" fitRadius={470}
+          pulse={pulse}
+          onNodeClick={clickNode}
+          onHoverNode={hoverNode}
+          onRevealDone={() => { setPhase('done'); audio.bonus(); onRevealed(); }}
+        />
+        {tip && phase === 'done' && <NodeTip tip={tip} meta={meta} dark frontier={frontier} removable={removable} />}
+      </div>
+
+      {phase === 'seed' && (
+        <div className="reveal-caption dark">
+          <div className="rc-line">a wound in the dream, still weeping</div>
+          <div className="rc-hint">feed it a shard</div>
+        </div>
+      )}
     </div>
   );
 }
