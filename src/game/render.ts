@@ -139,6 +139,7 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
   emitPlayer(q, eng, ipx - camX, ipy - camY);
   for (const e of eng.enemies) emitEnemy(q, shOver, eng, e, alpha, camX, camY);
   emitOrbitals(q, eng, alpha, camX, camY);
+  emitWisps(q, eng, alpha, camX, camY);
   for (const pr of eng.projectiles) emitProjectile(q, eng, pr, alpha, camX, camY);
   for (const bp of eng.bossProjectiles) emitBossProjectile(q, sh, eng, bp, alpha, camX, camY);
   emitParticles(q, eng, camX, camY);
@@ -448,6 +449,58 @@ function emitZone(sh: ShapeList, q: QuadList, eng: Engine, z: Zone, alpha: numbe
         color: '#a8ffe8', mode: 'glow', drag: 0.98,
       });
     }
+  } else if (z.kind === 'serpent') {
+    // Dream Serpent: a weaving ribbon of deep water — overlapping translucent
+    // segments trailing the head, each riding its own phase of the same wave
+    const fade = Math.max(0, Math.min(1, lifeI * 2, (z.maxLife - lifeI) * 1.5));
+    const g = z.grow;
+    const ca = Math.cos(z.spin), sa = Math.sin(z.spin);
+    const L = z.maxR * g; // body length — the same capsule the sim damages along
+    const segs = 7;
+    for (let i = segs - 1; i >= 0; i--) {
+      const f = i / (segs - 1);
+      const wig = Math.sin(vt * 6 - f * 4.2 + z.seed) * (5 + 11 * f) * g;
+      const sx2 = x - ca * L * f - sa * wig;
+      const sy2 = y - sa * L * f + ca * wig;
+      const r2 = zr * g * (1 - f * 0.55);
+      sh.push(SHAPE_DISC, sx2, sy2, 0, r2, 0.72, 0.95, 0, 0.35, 0.84, 0.79, (0.42 - f * 0.22) * fade, 0.10, 0.28, 0.38);
+    }
+    // luminous head with a pale crest
+    sh.push(SHAPE_DISC, x, y, 0, zr * g * 0.72, 0.6, 0.85, 0, 0.72, 1, 0.95, 0.5 * fade, 0.18, 0.45, 0.48);
+    const glowSE = q.uv('glow')!;
+    q.push(true, glowSE, x + ca * zr * g * 0.4, y + sa * zr * g * 0.4, 5 * g, 0, 0.9 * fade, 0.9, 1, 0.97, 1);
+  } else if (z.kind === 'chimewave') {
+    // Chime of Hours: a brass ring engraved with clock-dust; the crescendo
+    // (z.evolved) rings double and brighter
+    const t = Math.max(0, lifeI / z.maxLife);
+    sh.push(SHAPE_RING, x, y, 0, zr, 2.2, 9, 0, 1, 0.85, 0.63, t * (z.evolved ? 1 : 0.75), 0.40 * t, 0.28 * t, 0.10 * t);
+    if (z.evolved) {
+      sh.push(SHAPE_RING, x, y, 0, zr * 0.8, 1.6, 6, 0, 1, 0.95, 0.80, 0.6 * t, 0.30 * t, 0.24 * t, 0.10 * t);
+      const starE2 = q.uv('p:star')!;
+      for (let i = 0; i < 5; i++) {
+        const a = z.seed + (i / 5) * TAU + vt * 0.6;
+        q.push(true, starE2, x + Math.cos(a) * zr * 0.9, y + Math.sin(a) * zr * 0.9, 5 + 3 * t, a, t * 0.8, 1, 0.87, 0.6, 1);
+      }
+    }
+  } else if (z.kind === 'prism') {
+    // Kaleidoscope: a slowly turning glass triangle over a caustic pool
+    const fade = Math.max(0, Math.min(1, lifeI * 2, (z.maxLife - lifeI) * 3));
+    const bob = Math.sin(vt * 1.6 + z.seed) * 4;
+    const py2 = y + bob;
+    const R = 20;
+    const sq = 0.55 + 0.45 * Math.abs(Math.sin(z.spin)); // fake 3D turn
+    for (let k = 0; k < 3; k++) {
+      const a0 = -Math.PI / 2 + (k / 3) * TAU;
+      const a1 = -Math.PI / 2 + ((k + 1) / 3) * TAU;
+      const x0 = x + Math.cos(a0) * R * sq, y0 = py2 + Math.sin(a0) * R;
+      const x1 = x + Math.cos(a1) * R * sq, y1 = py2 + Math.sin(a1) * R;
+      sh.push(SHAPE_CAPSULE, x0, y0, Math.atan2(y1 - y0, x1 - x0), Math.hypot(x1 - x0, y1 - y0), 1.6, 6, 0, 0.96, 0.79, 1, 0.85 * fade, 0.32, 0.42, 0.40);
+    }
+    const glowP = q.uv('glow')!;
+    q.push(true, glowP, x, py2, 15, 0, 0.45 * fade, 0.96, 0.79, 1, 1);
+    q.push(true, glowP, x, py2, 5, 0, 0.9 * fade, 1, 1, 1, 1);
+    // caustic ring dancing on the ground beneath
+    sh.push(SHAPE_RING, x, y + 34, 0, 17 + Math.sin(vt * 2.2 + z.seed) * 4, 1.2, 5, 0, 0.62, 1, 0.88, 0.22 * fade, 0.14, 0.28, 0.24);
   }
 }
 
@@ -455,6 +508,26 @@ function emitBeam(sh: ShapeList, eng: Engine, b: Beam, alpha: number, camX: numb
   const t = Math.max(0, Math.min(1, (b.life + (1 - alpha) * STEP) / b.maxLife));
   const x = b.x - camX, y = b.y - camY;
   const a = lerp(b.pa, b.a, alpha);
+  if (b.kind === 'gaze') {
+    // the Sleepless Eye: a warm volumetric watch-light that fades in and out
+    // over its whole sweep, crowned by the eye itself at the origin
+    const f = Math.min(1, (1 - t) * 5, t * 3);
+    sh.push(SHAPE_CAPSULE, x, y, a, b.len, b.w * 0.5, b.w * 0.55, 0, 1, 0.94, 0.72, 0.20 * f, 0.32, 0.25, 0.18);
+    sh.push(SHAPE_CAPSULE, x, y, a, b.len, b.w * 0.14, b.w * 0.22, 0, 1, 0.97, 0.85, 0.42 * f, 0.40, 0.32, 0.22);
+    // the eye: golden iris ring, hot pupil, a hint of pink sclera glow
+    const blink = Math.min(1, f * 1.4);
+    sh.push(SHAPE_RING, x, y - 34, eng.vt * 0.7, 13, 1.8, 6, 0, 1, 0.88, 0.55, blink, 0.42, 0.30, 0.14);
+    sh.push(SHAPE_DISC, x, y - 34, 0, 5.5, 0.5, 1.2, 0, 1, 0.97, 0.85, 0.92 * blink, 0.45, 0.32, 0.20);
+    sh.push(SHAPE_DISC, x, y - 34, 0, 20, 0.8, 1.6, 0, 1, 0.70, 0.95, 0.12 * blink, 0.25, 0.14, 0.22);
+    return;
+  }
+  if (b.kind === 'ray') {
+    // a Kaleidoscope refraction: hot white core with split RGB fringes
+    sh.push(SHAPE_CAPSULE, x, y, a, b.len, 1.2, 5, 0, 1, 1, 1, 0.85 * t, 0.40, 0.36, 0.44);
+    sh.push(SHAPE_CAPSULE, x, y, a + 0.01, b.len, 0.8, 3, 0, 1, 0.55, 0.75, 0.4 * t, 0.28, 0.08, 0.16);
+    sh.push(SHAPE_CAPSULE, x, y, a - 0.01, b.len, 0.8, 3, 0, 0.55, 1, 0.85, 0.4 * t, 0.08, 0.28, 0.20);
+    return;
+  }
   const wNow = b.w * (0.4 + 0.6 * Math.sin(t * Math.PI));
   // radiant lance, two layers like the Canvas2D original: a translucent body
   // whose bright extent sits at the collision half-width (w/2) so what you see
@@ -634,6 +707,32 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
     q.push(true, ringE, x, y, brR / 30 * ringE.half, 0, 0.55, 1, 0.92, 0.6, 1);
     drawStats.enemyLiveOps++;
   }
+  // the Nightmare Brand: a red name written over the debtor. Everything scales
+  // with the body so it reads just as loudly on a boss as on a wisp — a pulsing
+  // target ring, a crosshair reaching past it, and a crooked rune above the head.
+  if (e.nbT > 0) {
+    const flick = 0.5 + 0.5 * Math.sin(vt * 9 + e.seed);
+    const beat = 0.5 + 0.5 * Math.sin(vt * 4 + e.seed); // the debt's heartbeat
+    const ringE = q.uv('ring')!;
+    const runeE = q.uv('p:rune0')!;
+    const rr = e.radius + 8 + beat * (4 + e.radius * 0.08);
+    // the target ring + a second, wider pulse ring on the beat
+    q.push(true, ringE, x, y, rr / 30 * ringE.half, 0, 0.75, 1, 0.30, 0.42, 1);
+    q.push(true, ringE, x, y, (rr + 6 + beat * 8) / 30 * ringE.half, 0, 0.22 * beat, 1, 0.35, 0.48, 1);
+    // crosshair marks reaching past the ring (scaled to the body)
+    const tick = e.radius * 0.5 + 6;
+    const cr = rr;
+    const capE = q.uv('p:spark')!;
+    for (let k = 0; k < 4; k++) {
+      const a = k * (Math.PI / 2);
+      q.push(true, capE, x + Math.cos(a) * (cr + tick * 0.5), y + Math.sin(a) * (cr + tick * 0.5), tick, a, 0.7, 1, 0.35, 0.48, 1, 0.3);
+    }
+    // the crooked rune hangs above the head, sized to the body
+    const rs = 6 + e.radius * 0.12 + flick * 2;
+    q.push(true, runeE, x, y - e.radius - rs - 4, rs, Math.sin(vt * 2 + e.seed) * 0.3, 0.55 + 0.4 * flick, 1, 0.35, 0.48, 1);
+    q.push(true, glowE, x, y, e.radius * 0.9, 0, 0.06 + 0.08 * beat, 1, 0.30, 0.42, 1);
+    drawStats.enemyLiveOps++;
+  }
   // golem: orbiting rock chunks (live quads, smooth)
   if (e.type === 'golem') {
     const rockE = q.uv('rock')!;
@@ -807,6 +906,20 @@ function emitOrbitals(q: QuadList, eng: Engine, alpha: number, camX: number, cam
     const x = lerp(o.px, o.x, alpha) - camX, y = lerp(o.py, o.y, alpha) - camY;
     q.push(true, glowE, x, y, 14, 0, 0.8, 0.49, 1, 0.69, 1);     // green glow halo
     q.push(false, petalE, x, y, petalE.half, o.a * 2, 1);         // spinning blossom
+  }
+}
+
+// the Wisp Choir: soft gold-green spirits trailing the player
+function emitWisps(q: QuadList, eng: Engine, alpha: number, camX: number, camY: number) {
+  if (!eng.wisps.length) return;
+  const glowE = q.uv('glow')!;
+  const starE = q.uv('p:star')!;
+  for (const w of eng.wisps) {
+    const x = lerp(w.px, w.x, alpha) - camX, y = lerp(w.py, w.y, alpha) - camY;
+    const tw = 0.5 + 0.5 * Math.sin(eng.vt * 4 + w.seed);
+    q.push(true, glowE, x, y, 11 + tw * 3, 0, 0.5, 1, 0.91, 0.69, 1);
+    q.push(true, glowE, x, y, 4.5, 0, 0.95, 1, 0.98, 0.9, 1);
+    q.push(true, starE, x, y - 2, 5 + tw * 2, eng.vt * 1.5 + w.seed, 0.45 + 0.4 * tw, 0.66, 1, 0.91, 1);
   }
 }
 

@@ -591,6 +591,75 @@ class AudioEngine {
     this.tone({ freq: vary(pent(15 + ((Math.random() * 5) | 0)), 0.01), type: 'sine', d: 0.05, peak: 0.018 * rg, pan, pri: 0 });
   }
 
+  // ------- the twelve new schools -------
+  // Wisp Choir: each dart is a tiny voice; overlapping darts land on a triad
+  wispDart(pan = 0) {
+    if (this.throttled('wisp', 100)) return;
+    const rg = this.busy('wisp', 400);
+    const f = vary(pent(12 + ((Math.random() * 3) | 0)), 0.006); // A4/B4/C#5
+    this.tone({ freq: f, to: f * 1.26, glide: 0.05, type: 'sine', d: 0.09, peak: 0.02 * rg, pan, verb: 0.35, pri: 0 });
+  }
+
+  // Dream Serpent: a low watery glide under a panning swish
+  castSerpent() {
+    if (this.throttled('serpent', 400)) return;
+    this.tone({ freq: nt(0), to: nt(-7), glide: 0.55, type: 'triangle', d: 0.7, peak: 0.06, filter: 'lowpass', ff: 620, verb: 0.4 });
+    this.noise({ dur: 0.8, a: 0.25, peak: 0.045, freq: 480, to: 160, q: 0.6, type: 'lowpass', verb: 0.45 });
+    this.tone({ freq: vary(nt(19)), type: 'sine', d: 0.3, peak: 0.02, at: 0.12, verb: 0.5 });
+  }
+
+  // Chime of Hours: an inharmonic bell; the crescendo adds a sub-gong
+  castChime(crescendo = false) {
+    if (this.throttled('chime', 160)) return;
+    const rg = this.busy('chime', 900);
+    const f = vary(nt(24), 0.004); // A4 bell
+    this.tone({ freq: f, type: 'sine', d: crescendo ? 1.1 : 0.6, peak: (crescendo ? 0.075 : 0.045) * rg, verb: 0.6, pri: crescendo ? 2 : 1 });
+    this.tone({ freq: f * 2.76, type: 'sine', d: crescendo ? 0.7 : 0.35, peak: (crescendo ? 0.028 : 0.016) * rg, verb: 0.6 });
+    if (crescendo) {
+      this.tone({ freq: nt(0), to: nt(-5), glide: 0.5, type: 'triangle', d: 1.2, peak: 0.08 * rg, filter: 'lowpass', ff: 500, verb: 0.55, pri: 2 });
+      this.noise({ dur: 0.9, a: 0.3, peak: 0.03, freq: 2400, q: 0.6, type: 'highpass', verb: 0.6 });
+    }
+  }
+
+  // Sleepless Eye: a slow choral drone that holds while the gaze sweeps
+  castEye() {
+    if (this.throttled('eye', 900)) return;
+    this.tone({ freq: nt(12), type: 'sawtooth', a: 0.4, d: 1.8, peak: 0.028, filter: 'lowpass', ff: 700, fto: 1600, q: 0.7, verb: 0.6, pri: 2 });
+    this.tone({ freq: nt(12) * 1.008, type: 'sawtooth', a: 0.45, d: 1.7, peak: 0.022, filter: 'lowpass', ff: 650, verb: 0.6 });
+    this.tone({ freq: nt(19), type: 'sine', a: 0.5, d: 1.6, peak: 0.02, verb: 0.65 });
+    this.tone({ freq: nt(28), type: 'sine', a: 0.6, d: 1.4, peak: 0.012, verb: 0.7 });
+  }
+
+  // Nightmare Brand: a dissonant sting — the one sound allowed off-palette
+  castBrand(pan = 0) {
+    if (this.throttled('brand', 300)) return;
+    this.tone({ freq: nt(15), type: 'sawtooth', d: 0.3, peak: 0.035, filter: 'lowpass', ff: 1100, pan, verb: 0.35, pri: 2 });
+    this.tone({ freq: nt(16), type: 'sawtooth', d: 0.3, peak: 0.03, filter: 'lowpass', ff: 1100, pan, verb: 0.35, pri: 2 });
+    this.tone({ freq: 95, to: 40, glide: 0.2, type: 'sine', d: 0.3, peak: 0.09, pan: pan * 0.5, pri: 2 });
+  }
+
+  // the debt collected, one slow heartbeat per tick
+  brandThump(pan = 0) {
+    if (this.throttled('brandthump', 380)) return;
+    this.tone({ freq: 70, to: 46, glide: 0.08, type: 'sine', d: 0.13, peak: 0.045, pan, pri: 0 });
+  }
+
+  // Kaleidoscope: a glassy arpeggio when placed…
+  castPrism() {
+    if (this.throttled('prism', 350)) return;
+    [nt(24), nt(28), nt(31), nt(36)].forEach((f, i) =>
+      this.tone({ freq: vary(f, 0.004), type: 'triangle', d: 0.22, peak: 0.028 - i * 0.004, at: i * 0.05, verb: 0.55 }));
+  }
+
+  // …and each ray a pure ping stepping through the scale
+  prismRay(pan = 0) {
+    if (this.throttled('prismray', 110)) return;
+    const rg = this.busy('prismray', 450);
+    this.prismStep = (this.prismStep + 1) % 5;
+    this.tone({ freq: vary(pent(15 + this.prismStep), 0.004), type: 'sine', d: 0.1, peak: 0.022 * rg, pan, verb: 0.4, pri: 0 });
+  }
+  private prismStep = 0;
+
   // ================================================================= impacts
   explode(pan = 0) {
     if (this.throttled('boom', 70)) return;

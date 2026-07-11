@@ -19,6 +19,8 @@ export interface SpellStats {
   beams?: number;
   sleepDur?: number;
   knock?: number;
+  interval?: number;
+  turns?: number;
   // folded in by Engine.spellStats:
   special?: Record<string, number>;
   evolved?: boolean;
@@ -226,6 +228,90 @@ export const SPELLS: Record<string, SpellDef> = {
     }),
     levelText: () => 'Wider dusk, harder throw',
   },
+  wisps: {
+    id: 'wisps', name: 'Wisp Choir', school: 'Spiritism',
+    color: '#ffe9b0', color2: '#a8ffe8', icon: '⁂',
+    desc: 'Singing wisps trail behind you and dart at whatever draws near.',
+    maxLevel: 6,
+    stats: (lv) => ({
+      cooldown: Math.max(0.85, 1.75 - lv * 0.12), // per-wisp dart cadence
+      damage: 8 + lv * 4,
+      count: 2 + Math.floor(lv / 2),
+      range: 300,
+    }),
+    levelText: (lv) => (lv % 2 === 0 ? `+1 wisp (${2 + Math.floor(lv / 2)} total)` : 'Quicker, hungrier darts'),
+  },
+  serpent: {
+    id: 'serpent', name: 'Dream Serpent', school: 'Thalassomancy',
+    color: '#5ad7c9', color2: '#1e4d6e', icon: '∿',
+    desc: 'Loose a ribbon of deep water that swims through the thickest shoal.',
+    maxLevel: 6,
+    stats: (lv) => ({
+      cooldown: Math.max(5, 9 - lv * 0.55),
+      dps: 26 + lv * 13,
+      duration: 4 + lv * 0.4,
+      radius: 30 + lv * 5,       // body thickness — thicker with levels
+      length: 90 + lv * 26,      // body length — visibly longer with levels
+      speed: 250 + lv * 14,
+    }),
+    levelText: () => 'A longer, thicker, hungrier serpent',
+  },
+  chime: {
+    id: 'chime', name: 'Chime of Hours', school: 'Chronomancy',
+    color: '#ffd9a0', color2: '#b08a4a', icon: 'Ω',
+    desc: 'A drowsy bell tolls around you on the beat; every fourth toll is a crescendo.',
+    maxLevel: 6,
+    stats: (lv) => ({
+      cooldown: Math.max(1.55, 2.1 - lv * 0.08), // the beat itself
+      damage: 5 + lv * 3,
+      radius: 108 + lv * 12,
+    }),
+    levelText: (lv) => (lv === 3 ? 'The beat quickens' : 'Wider ring, harder toll'),
+  },
+  eye: {
+    id: 'eye', name: 'Sleepless Eye', school: 'Oneiromancy',
+    color: '#fff7c9', color2: '#ffb3f2', icon: '☉',
+    desc: 'An eye opens above you and its gaze sweeps the field like a lighthouse.',
+    maxLevel: 6,
+    stats: (lv) => ({
+      cooldown: Math.max(5.5, 9 - lv * 0.5),
+      damage: 6 + lv * 3,           // per touch of the gaze
+      length: 290 + lv * 32,
+      width: 26 + lv * 3,
+      duration: 2 + lv * 0.15,      // seconds of sweep
+      turns: lv >= 4 ? 1.5 : 1,
+    }),
+    levelText: (lv) => (lv === 4 ? 'The gaze lingers, sweeping half again' : 'A longer, keener gaze'),
+  },
+  brand: {
+    id: 'brand', name: 'Nightmare Brand', school: 'Maleficy',
+    color: '#ff5a7a', color2: '#3d1020', icon: '⌖',
+    desc: 'Write a red name on the strongest thing on the field; the dream collects its debt.',
+    maxLevel: 6,
+    stats: (lv) => ({
+      cooldown: Math.max(2.6, 4.6 - lv * 0.33),
+      dps: 9 + lv * 6,
+      damage: 24 + lv * 12, // the death-burst
+      duration: 5 + lv * 0.25,
+      count: 1 + (lv >= 3 ? 1 : 0) + (lv >= 6 ? 1 : 0),
+    }),
+    levelText: (lv) => (lv === 3 || lv === 6 ? 'Another name is written' : 'A heavier debt'),
+  },
+  prism: {
+    id: 'prism', name: 'Kaleidoscope', school: 'Chromamancy',
+    color: '#f4c9ff', color2: '#9fffe0', icon: '◭',
+    desc: 'Hang a turning prism in the air; it tastes the dream’s light and spits rays at your foes.',
+    maxLevel: 6,
+    stats: (lv) => ({
+      cooldown: Math.max(5, 8.2 - lv * 0.55),
+      damage: 11 + lv * 6,
+      duration: 4.2 + lv * 0.4,
+      interval: Math.max(0.35, 0.6 - lv * 0.04),
+      range: 420,
+      count: 1 + (lv >= 6 ? 1 : 0),
+    }),
+    levelText: (lv) => (lv === 6 ? 'A second prism takes the air' : 'Faster, brighter refractions'),
+  },
 };
 
 // evolutions: unlocked by raising a spell to max level, then choosing its
@@ -245,6 +331,12 @@ export const EVOLVE: Record<string, { name: string; desc: string }> = {
   sigil: { name: 'The Great Seal', desc: 'The rune sounds twice.' },
   lantern: { name: 'Lantern Procession', desc: 'Lanterns burn far longer and pulse twice as fast.' },
   nova: { name: 'Endless Dusk', desc: 'Each nova echoes a second wave.' },
+  wisps: { name: 'Choir Eternal', desc: 'Every eighth dart, the whole choir strikes one foe as a single chord.' },
+  serpent: { name: 'Leviathan of Sleep', desc: 'The serpent grows with every kill, up to twice its size and hunger.' },
+  chime: { name: 'The Last Hour', desc: 'The crescendo stops time — everything in the ring freezes mid-stride.' },
+  eye: { name: 'Aurora Crown', desc: 'A second gaze wheels against the first, and the light lingers on the ground.' },
+  brand: { name: 'The Devouring Name', desc: 'When a branded foe dies, the name leaps to three of its kin.' },
+  prism: { name: 'The Unblinking Prism', desc: 'Rays refract through their first victim into two splinters.' },
 };
 
 export interface BoonDef { id: string; name: string; icon: string; desc: string; max: number }

@@ -191,8 +191,28 @@ const BOSS_ARCHS: BossArch[] = [
   },
 ];
 
+// spells that live outside the cooldown loop: petals orbit, wisps hover and
+// dart on their own clocks
+const CONTINUOUS = new Set(['petals', 'wisps']);
+
+// player position history: 512 steps ≈ 8.5 s at 60 Hz. Powers the Wisp
+// Choir's trailing procession.
+const HIST_N = 512;
+
 // ---------------------------------------------------------------- interfaces
 export interface PlayerSpell { id: string; level: number; cd: number; evolved?: boolean; mastery?: number }
+
+// a singing wisp of the Choir: hovers on the player's path, darts, drifts home
+export interface Wisp {
+  x: number; y: number; px: number; py: number;
+  cd: number;                 // time until it may dart again
+  state: 0 | 1 | 2;           // 0 hover · 1 darting · 2 drifting home
+  dartT: number;              // countdown of the current dart / drift
+  sx: number; sy: number;     // where the dart began
+  target: Enemy | null; targetUid: number;
+  delay: number;              // seconds behind the player on the path
+  seed: number;
+}
 
 export interface Player {
   x: number; y: number; px: number; py: number;
@@ -287,6 +307,7 @@ export class Engine {
   texts: FloatText[] = [];
   pickups: Pickup[] = [];
   orbitals: Orbital[] = [];
+  wisps: Wisp[] = [];
   cam = { x: 0, y: 0, w: 1, h: 1 };
   shake = 0;
   flash: { color: string; a: number } | null = null;
@@ -354,6 +375,14 @@ export class Engine {
   private chaliceCd = 0;     // Night Chalice
   private cometT = 12;       // Ring of the Comet
   private standT = 0;        // Dream Anchor stillness clock
+  // new-school spell state
+  private chimeN = 0;        // tolls rung this run (every 4th is the crescendo)
+  private wispDarts = 0;     // choir darts loosed (Choir Eternal volleys on 8s)
+  // player path ring buffer (Wisp Choir procession)
+  private histX = new Float32Array(HIST_N);
+  private histY = new Float32Array(HIST_N);
+  private histI = 0;
+  private histOut = { x: 0, y: 0 };
 
   // pools & caches
   private enemyPool = new Pool(makeEnemy, 64);
@@ -487,6 +516,12 @@ export class Engine {
     this.chaliceCd = 0;
     this.cometT = 12;
     this.standT = 0;
+    this.chimeN = 0;
+    this.wispDarts = 0;
+    this.histX.fill(0);
+    this.histY.fill(0);
+    this.histI = 0;
+    this.wisps.length = 0;
     this.banner = null;
     this.starTimer = 75;
     this.waveIdx = -1;
@@ -539,6 +574,7 @@ export class Engine {
       if (bump) s.level = Math.min(this.statCap(), s.level + bump);
     }
     this.rebuildOrbitals();
+    this.rebuildWisps();
     prebakeSprites(); // one-time atlas bake so the first heavy frame doesn't stall
   }
 
@@ -547,7 +583,11 @@ export class Engine {
     for (const pr of this.projectiles) this.freeProjectile(pr);
     for (const bp of this.bossProjectiles) this.bossProjPool.release(bp);
     for (const z of this.zones) this.freeZone(z);
-    for (const b of this.beams) { if (b.hit) maskPool.release(b.hit); this.beamPool.release(b); }
+    for (const b of this.beams) {
+      if (b.hit) { maskPool.release(b.hit); b.hit = null; }
+      if (b.hitT) { timerPool.release(b.hitT); b.hitT = null; }
+      this.beamPool.release(b);
+    }
     for (const b of this.bolts) this.boltPool.release(b);
     for (const g of this.gems) this.gemPool.release(g);
     for (const tx of this.texts) this.textPool.release(tx);
@@ -792,6 +832,7 @@ export class Engine {
     if (s) s.level++;
     else this.player.spells.push({ id, level: 1, cd: 0.4 });
     if (id === 'petals') this.rebuildOrbitals();
+    if (id === 'wisps') this.rebuildWisps();
   }
 
   rebuildOrbitals() {
@@ -1118,6 +1159,7 @@ export class Engine {
       else s.level = this.statCap();
     }
     this.rebuildOrbitals();
+    this.rebuildWisps();
     this.setBanner('⚗ ENDGAME TEST — 6:00', '#7ff5ff');
     this.pushHud(true);
   }
@@ -1244,6 +1286,7 @@ export class Engine {
     e.slow = 0; e.slowT = 0; e.hitFlash = 0;
     e.ccSat = 0; e.ccImmT = 0; e.rageT = 0;
     e.chargeT = 0; e.chargeDmg = 0; e.brandT = 0; e.reactCd = 0;
+    e.nbT = 0; e.nbDps = 0; e.nbPct = 0; e.nbTick = 0; e.nbAmp = 0; e.nbSpread = false; e.nbBurst = 0;
     e.animT = Math.random() * 10;
     e.seed = Math.random() * 1000;
     e.knbx = 0; e.knby = 0;
@@ -1655,6 +1698,7 @@ export class Engine {
     e.slow = 0; e.slowT = 0; e.hitFlash = 0;
     e.ccSat = 0; e.ccImmT = 0; e.rageT = 0;
     e.chargeT = 0; e.chargeDmg = 0; e.brandT = 0; e.reactCd = 0;
+    e.nbT = 0; e.nbDps = 0; e.nbPct = 0; e.nbTick = 0; e.nbAmp = 0; e.nbSpread = false; e.nbBurst = 0;
     e.animT = Math.random() * 10;
     e.seed = Math.random() * 1000;
     e.knbx = 0; e.knby = 0; e.goldT = 12;
@@ -1767,7 +1811,7 @@ export class Engine {
     const p = this.player;
     const visible = this.visibleEnemies().length > 0;
     for (const s of p.spells) {
-      if (s.id === 'petals') continue; // continuous
+      if (CONTINUOUS.has(s.id)) continue; // petals orbit, wisps hover, the wake is walked
       s.cd -= dt;
       if (s.cd > 0) continue;
       if (!visible) { s.cd = 0.05; continue; }
@@ -1778,6 +1822,100 @@ export class Engine {
       if (this.meta.echo && Math.random() < this.meta.echo / 100) this.cast(s.id, st);
     }
     this.updateOrbitals(dt);
+    this.updateWisps(dt);
+  }
+
+  // where the player stood `secondsAgo` seconds ago (shared out-object)
+  private histAt(secondsAgo: number) {
+    const steps = Math.min(HIST_N - 1, Math.max(0, Math.round(secondsAgo / STEP)));
+    const idx = (this.histI - steps + HIST_N * 2) & (HIST_N - 1);
+    this.histOut.x = this.histX[idx];
+    this.histOut.y = this.histY[idx];
+    return this.histOut;
+  }
+
+  rebuildWisps() {
+    const s = this.player.spells.find((s) => s.id === 'wisps');
+    const st = s ? this.spellStats('wisps', s.level, s.mastery || 0) : null;
+    const n = st ? st.count! + (this.meta.extraCount || 0) : 0;
+    while (this.wisps.length > n) this.wisps.pop();
+    while (this.wisps.length < n) {
+      const p = this.player;
+      this.wisps.push({
+        x: p.x, y: p.y - 24, px: p.x, py: p.y - 24,
+        cd: rand(0.3, 1.4), state: 0, dartT: 0, sx: 0, sy: 0,
+        target: null, targetUid: 0, delay: 0, seed: rand(0, 1000),
+      });
+    }
+    this.wisps.forEach((w, i) => { w.delay = 0.3 + i * 0.16; });
+  }
+
+  // the Wisp Choir: each wisp hovers over the player's trail, darts at a foe
+  // in range on its own cadence, then drifts home along the procession
+  private updateWisps(dt: number) {
+    if (!this.wisps.length) return;
+    const s = this.player.spells.find((s) => s.id === 'wisps');
+    if (!s) { this.wisps.length = 0; return; }
+    const st = this.spellStats('wisps', s.level, s.mastery || 0);
+    const haste = 1 + (st.special!.dartHaste || 0) / 100;
+    const dartCd = (st.cooldown * this.cdMul()) / haste;
+    const range = st.range! * (1 + (st.special!.dartHaste || 0) / 200);
+    const dmg = st.damage! * this.dmgMul();
+    for (const w of this.wisps) {
+      w.px = w.x; w.py = w.y;
+      const home = this.histAt(w.delay);
+      const hx = home.x + Math.sin(this.t * 2.1 + w.seed) * 9;
+      const hy = home.y - 26 + Math.sin(this.t * 3.3 + w.seed) * 6;
+      if (w.state === 0) {
+        w.x += (hx - w.x) * Math.min(1, dt * 9);
+        w.y += (hy - w.y) * Math.min(1, dt * 9);
+        w.cd -= dt;
+        if (w.cd <= 0) {
+          const t = this.pickTarget(w.x, w.y, range);
+          if (t) this.wispDart(w, t);
+          else w.cd = 0.2;
+        }
+      } else if (w.state === 1) {
+        w.dartT -= dt;
+        const tgt = w.target;
+        if (!tgt || tgt.dead || tgt.uid !== w.targetUid) {
+          w.state = 2; w.dartT = 0.3; w.target = null;
+        } else {
+          const f = 1 - Math.max(0, w.dartT) / 0.16;
+          w.x = w.sx + (tgt.x - w.sx) * f * f;
+          w.y = w.sy + (tgt.y - w.sy) * f * f;
+          if (Math.random() < 0.8) this.particles.spawn({ x: w.x, y: w.y, vx: rand(-15, 15), vy: rand(-15, 15), life: 0.3, size: rand(2, 4.5), endSize: 0.5, color: '#ffe9b0', color2: '#a8ffe8', mode: 'glow' });
+          if (w.dartT <= 0) {
+            this.damageEnemy(tgt, dmg, '#ffe9b0');
+            audio.wispDart(this.panOf(w.x));
+            for (let k = 0; k < 7; k++) this.particles.spawn({ x: w.x, y: w.y, vx: rand(-150, 150), vy: rand(-150, 150), life: rand(0.2, 0.45), size: rand(2, 4), color: '#ffe9b0', mode: 'star', rotV: rand(-6, 6), drag: 0.86 });
+            w.state = 2; w.dartT = 0.3;
+            w.cd = dartCd * rand(0.9, 1.1);
+            this.wispDarts++;
+            // Choir Eternal: every eighth dart the whole choir strikes as one
+            if (s.evolved && this.wispDarts % 8 === 0 && !tgt.dead) {
+              for (const o of this.wisps) {
+                if (o !== w && o.state === 0) this.wispDart(o, tgt);
+              }
+            }
+          }
+        }
+      } else {
+        w.dartT -= dt;
+        w.x += (hx - w.x) * Math.min(1, dt * 5);
+        w.y += (hy - w.y) * Math.min(1, dt * 5);
+        if (w.dartT <= 0) w.state = 0;
+      }
+      if (Math.random() < 0.25) this.particles.spawn({ x: w.x, y: w.y + 4, vx: rand(-8, 8), vy: rand(-26, -8), life: rand(0.3, 0.7), size: rand(1.5, 3), color: Math.random() < 0.5 ? '#ffe9b0' : '#a8ffe8', mode: 'glow', drag: 0.95 });
+    }
+  }
+
+  private wispDart(w: Wisp, target: Enemy) {
+    w.state = 1;
+    w.dartT = 0.16;
+    w.sx = w.x; w.sy = w.y;
+    w.target = target;
+    w.targetUid = target.uid;
   }
 
   private newProj(kind: Projectile['kind']): Projectile {
@@ -1965,12 +2103,14 @@ export class Engine {
           const ang = a + b * Math.PI;
           const bm = this.beamPool.acquire();
           bm.dead = false;
+          bm.kind = 'lance';
           bm.x = p.x; bm.y = p.y - 20;
           bm.a = ang; bm.pa = ang;
           bm.len = st.length!; bm.w = st.width!;
           bm.life = beamLife; bm.maxLife = beamLife;
           bm.dmg = st.damage! * this.dmgMul();
           bm.hit = maskPool.acquire().begin();
+          bm.hitT = null; bm.follow = false; bm.stun = false; bm.linger = false;
           bm.sweep = st.evolved ? (b % 2 ? 1 : -1) * 2.0 : 0;
           this.beams.push(bm);
         }
@@ -2132,7 +2272,147 @@ export class Engine {
         }
         break;
       }
+      case 'serpent': {
+        audio.castSerpent();
+        // aim it at the thickest shoal so it starts swimming into the crowd
+        const pt = this.densestPoint(200);
+        const a = pt ? Math.atan2(pt.y - p.y, pt.x - p.x) : rand(0, TAU);
+        const z = this.zonePool.acquire();
+        this.resetZone(z, 'serpent', p.x + Math.cos(a) * 70, p.y + Math.sin(a) * 70);
+        z.r = st.radius! * this.aoeMul(); z.pr = z.r;
+        z.maxR = st.length! * (1 + (st.special!.longer || 0) / 100) * this.aoeMul(); // body length behind the head
+        z.life = st.duration!; z.maxLife = st.duration!;
+        z.dps = st.dps! * this.dmgMul();
+        z.spin = a;                 // heading
+        z.knock = st.speed!;        // swim speed
+        z.grow = 1;
+        z.tick = 0.1; z.tick2 = 0;
+        z.ox = pt ? pt.x : p.x + Math.cos(a) * 300;
+        z.oy = pt ? pt.y : p.y + Math.sin(a) * 300;
+        z.evolved = !!st.evolved;
+        z.core = !!st.special!.feed; // Salt Hunger: kills extend its life
+        z.seed = rand(0, TAU);
+        this.zones.push(z);
+        break;
+      }
+      case 'chime': {
+        this.chimeN++;
+        const every = st.special!.res3 ? 3 : 4;
+        const cresc = this.chimeN % every === 0;
+        audio.castChime(cresc);
+        const R = st.radius! * this.aoeMul() * (cresc ? 1.5 : 1);
+        const z = this.zonePool.acquire();
+        this.resetZone(z, 'chimewave', p.x, p.y);
+        z.r = 12; z.pr = 12; z.maxR = R;
+        z.life = 0.4; z.maxLife = 0.4;
+        z.dmg = st.damage! * this.dmgMul() * (cresc ? 2.2 : 1);
+        z.evolved = cresc; // render: the crescendo rings brighter
+        // The Last Hour stops time on the crescendo; Struck Silver stuns
+        z.sleepDur = cresc ? (st.evolved ? 0.65 : 0) + (st.special!.stun ? 0.35 : 0) : 0;
+        z.hit = maskPool.acquire().begin();
+        this.zones.push(z);
+        if (cresc) {
+          for (let i = 0; i < 26; i++) {
+            const a = rand(0, TAU);
+            this.particles.spawn({ x: p.x, y: p.y - 10, vx: Math.cos(a) * rand(60, 260), vy: Math.sin(a) * rand(60, 260), life: rand(0.4, 0.8), size: rand(2, 5), color: '#ffd9a0', mode: 'star', rotV: rand(-5, 5), drag: 0.9 });
+          }
+        }
+        break;
+      }
+      case 'eye': {
+        audio.castEye();
+        const target = this.pickTarget(p.x, p.y, 800);
+        const a0 = target ? Math.atan2(target.y - p.y, target.x - p.x) : rand(0, TAU);
+        const dur = st.duration!;
+        const turns = (st.turns || 1) + (st.special!.turns ? 0.5 : 0);
+        const mkGaze = (ang: number, dir: number) => {
+          const bm = this.beamPool.acquire();
+          bm.dead = false;
+          bm.kind = 'gaze';
+          bm.x = p.x; bm.y = p.y - 20;
+          bm.a = ang; bm.pa = ang;
+          bm.len = st.length!; bm.w = st.width!;
+          bm.life = dur; bm.maxLife = dur;
+          bm.dmg = st.damage! * this.dmgMul();
+          bm.sweep = (dir * turns * TAU) / dur;
+          bm.follow = true;
+          bm.stun = !!st.special!.stun;
+          bm.linger = !!st.evolved;
+          bm.hit = maskPool.acquire().begin();   // first-touch stun tracking
+          bm.hitT = timerPool.acquire().begin(); // re-hit cadence
+          bm.int = 0.4;
+          this.beams.push(bm);
+        };
+        mkGaze(a0, 1);
+        if (st.evolved) mkGaze(a0 + Math.PI, -1);
+        break;
+      }
+      case 'brand': {
+        // write the red name on the biggest things on the field
+        const cand: Enemy[] = [];
+        for (const e of this.visibleEnemies()) if (!e.dead && e.nbT <= 0) cand.push(e);
+        if (!cand.length) return;
+        cand.sort((a, b) =>
+          b.maxHp * (b.boss ? 4 : b.elite ? 2 : 1) - a.maxHp * (a.boss ? 4 : a.elite ? 2 : 1));
+        const names = Math.min(st.count!, cand.length);
+        audio.castBrand(this.panOf(cand[0].x));
+        for (let i = 0; i < names; i++) {
+          const e = cand[i];
+          e.nbT = st.duration!;
+          e.nbDps = st.dps! * this.dmgMul();
+          e.nbPct = e.boss ? Math.min(e.maxHp * 0.005, 40) : Math.min(e.maxHp * 0.01, 50);
+          e.nbTick = 0.5;
+          e.nbAmp = st.special!.ash || 0;
+          e.nbSpread = !!st.evolved;
+          e.nbBurst = st.damage! * this.dmgMul();
+          for (let k = 0; k < 14; k++) {
+            const a = rand(0, TAU);
+            this.particles.spawn({ x: e.x, y: e.y - e.radius, vx: Math.cos(a) * rand(20, 90), vy: Math.sin(a) * rand(20, 90) - 30, life: rand(0.4, 0.8), size: rand(2, 5), color: '#ff5a7a', color2: '#3d1020', mode: 'rune', rotV: rand(-4, 4), drag: 0.92 });
+          }
+          this.spawnText(e.x, e.y - e.radius - 20, 'BRANDED', '#ff5a7a', 0.8, -36, 13);
+        }
+        break;
+      }
+      case 'prism': {
+        audio.castPrism();
+        for (let i = 0; i < st.count!; i++) {
+          const pt = this.densestPoint(st.range! * 0.6);
+          const { x, y } = this.clampToView(
+            pt ? pt.x + rand(-70, 70) : p.x + rand(-220, 220),
+            pt ? pt.y + rand(-70, 70) : p.y + rand(-220, 220),
+          );
+          const z = this.zonePool.acquire();
+          this.resetZone(z, 'prism', x, y - 30);
+          z.r = 26; z.pr = 26;
+          z.maxR = st.range!;
+          z.life = st.duration!; z.maxLife = st.duration!;
+          z.dmg = st.damage! * this.dmgMul();
+          z.int = st.interval!;
+          z.tick = 0.4 + i * 0.2;
+          z.core = !!st.special!.facet;   // Twin Facet: two rays a volley
+          z.evolved = !!st.evolved;       // refraction splinters
+          z.seed = rand(0, TAU);
+          this.zones.push(z);
+        }
+        break;
+      }
     }
+  }
+
+  // a Kaleidoscope refraction: a short-lived analytic ray that hits once
+  private spawnRay(x: number, y: number, a: number, len: number, dmg: number, w: number) {
+    const bm = this.beamPool.acquire();
+    bm.dead = false;
+    bm.kind = 'ray';
+    bm.x = x; bm.y = y;
+    bm.a = a; bm.pa = a;
+    bm.len = len; bm.w = w;
+    bm.life = 0.16; bm.maxLife = 0.16;
+    bm.dmg = dmg;
+    bm.sweep = 0; bm.follow = false; bm.stun = false; bm.linger = false;
+    bm.hit = maskPool.acquire().begin();
+    bm.hitT = null;
+    this.beams.push(bm);
   }
 
   private resetZone(z: Zone, kind: Zone['kind'], x: number, y: number) {
@@ -2151,6 +2431,7 @@ export class Engine {
     z.dmg = 0; z.dps = 0;
     z.c1 = ''; z.c2 = '';
     z.hit = null;
+    z.tick2 = 0; z.grow = 1; z.ox = 0; z.oy = 0;
   }
 
   private spawnBolt(x1: number, y1: number, x2: number, y2: number) {
@@ -2235,6 +2516,8 @@ export class Engine {
     if (this.chillAmp && e.slowT > 0) dmg *= 1 + this.chillAmp / 100;
     // moonlight brand: the marked take more from everything
     if (e.brandT > 0) dmg *= 1.12;
+    // Written in Ash: the nightmare-branded take more from everything
+    if (e.nbT > 0 && e.nbAmp) dmg *= 1 + e.nbAmp / 100;
     let crit = false;
     if (this.meta.crit && Math.random() < this.meta.crit / 100) {
       crit = true;
@@ -2354,6 +2637,43 @@ export class Engine {
         }
       });
       this.dischargeDepth--;
+    }
+    // THE DEBT: a nightmare-branded foe dies — the red name is paid in a dark
+    // burst, and (evolved) leaps to three of its kin, a contagion of debts.
+    if (e.nbT > 0 && e.nbBurst > 0) {
+      const R = 70 * this.aoeMul();
+      const burst = e.nbBurst;
+      e.nbT = 0;
+      this.particles.spawn({ x: e.x, y: e.y, life: 0.4, size: R * 1.15, color: '#ff5a7a', mode: 'ring' });
+      for (let k = 0; k < 18; k++) {
+        const a = rand(0, TAU);
+        this.particles.spawn({ x: e.x, y: e.y, vx: Math.cos(a) * rand(80, 300), vy: Math.sin(a) * rand(80, 300), life: rand(0.25, 0.6), size: rand(2.5, 6), endSize: 0.5, color: '#ff5a7a', color2: '#3d1020', mode: 'glow', drag: 0.88 });
+      }
+      this.grid.queryCircle(e.x, e.y, R + 60, (o) => {
+        if (o === e || o.dead) return;
+        if (dist2(e.x, e.y, o.x, o.y) < (R + o.radius) ** 2) this.damageEnemy(o, burst, '#ff5a7a', 'shadow');
+      });
+      if (e.nbSpread) {
+        const heirs: Enemy[] = [];
+        this.grid.queryCircle(e.x, e.y, 320, (o) => {
+          if (o !== e && !o.dead && o.nbT <= 0 && heirs.length < 3) heirs.push(o);
+        });
+        for (const o of heirs) {
+          o.nbT = 4;
+          o.nbDps = e.nbDps * 0.9;
+          o.nbPct = o.boss ? Math.min(o.maxHp * 0.005, 40) : Math.min(o.maxHp * 0.01, 50);
+          o.nbTick = 0.5;
+          o.nbAmp = e.nbAmp;
+          o.nbSpread = true;
+          o.nbBurst = e.nbBurst * 0.9;
+          // the name travels as a thin red seam
+          const steps = 6;
+          for (let k2 = 1; k2 < steps; k2++) {
+            const f = k2 / steps;
+            this.particles.spawn({ x: e.x + (o.x - e.x) * f, y: e.y + (o.y - e.y) * f, vx: rand(-12, 12), vy: rand(-24, -6), life: rand(0.3, 0.55), size: rand(1.5, 3), color: '#ff5a7a', mode: 'glow', drag: 0.92 });
+          }
+        }
+      }
     }
     const n = e.boss ? 160 : e.elite ? 46 : 18;
     for (let i = 0; i < n; i++) {
@@ -2624,6 +2944,10 @@ export class Engine {
     if (p.moving && Math.random() < 0.5) {
       this.particles.spawn({ x: p.x + rand(-8, 8), y: p.y + rand(-2, 6), vx: rand(-12, 12), vy: rand(-30, -6), life: rand(0.4, 0.9), size: rand(1.5, 3.5), color: pick(['#b48cff', '#7ff5ff', '#ffd27a']), mode: 'glow', drag: 0.96 });
     }
+    // remember where the player stood (Mirrored Self, Wisp Choir)
+    this.histI = (this.histI + 1) & (HIST_N - 1);
+    this.histX[this.histI] = p.x;
+    this.histY[this.histI] = p.y;
 
     this.updateSpawning(dt);
     this.castSpells(dt);
@@ -2640,6 +2964,17 @@ export class Engine {
       e.chargeT = Math.max(0, e.chargeT - dt);
       e.brandT = Math.max(0, e.brandT - dt);
       if (e.chargeT <= 0) e.chargeDmg = 0;
+      // the Nightmare Brand collects its debt in slow red heartbeats
+      if (e.nbT > 0) {
+        e.nbT = Math.max(0, e.nbT - dt);
+        e.nbTick -= dt;
+        if (e.nbTick <= 0) {
+          e.nbTick = 0.5;
+          audio.brandThump(this.panOf(e.x));
+          this.damageEnemy(e, (e.nbDps + e.nbPct) * 0.5, '#ff5a7a', 'shadow');
+          if (e.dead) continue;
+        }
+      }
       // lucid moments: the whole battlefield dilates into slow motion
       const lucid = this.lucidT > 0 ? LUCID_SLOW : 1;
       const slowMul = (e.slowT > 0 ? 1 - e.slow : 1) * lucid;
@@ -2797,32 +3132,54 @@ export class Engine {
     // zones
     this.updateZones(dt);
 
-    // beams
+    // beams — lances flash once per foe; the Sleepless Eye's gaze follows the
+    // player and re-hits on a cadence; Kaleidoscope rays are brief refractions
     for (let i = 0; i < this.beams.length;) {
       const b = this.beams[i];
       b.pa = b.a;
       b.life -= dt;
+      if (b.follow) { b.x = p.x; b.y = p.y - 20; }
       if (b.sweep) b.a += b.sweep * dt;
+      const gaze = b.kind === 'gaze';
+      const ray = b.kind === 'ray';
+      const hitCol = gaze ? '#fff7c9' : ray ? '#f4c9ff' : '#fff3b8';
       const ca = Math.cos(b.a), sa = Math.sin(b.a);
       const mx2 = b.x + ca * b.len * 0.5, my2 = b.y + sa * b.len * 0.5;
       this.grid.queryCircle(mx2, my2, b.len * 0.5 + b.w * 0.5 + 40, (e) => {
-        if (b.hit!.has(e.slot)) return;
+        if (b.hitT) { if (!b.hitT.ready(e.slot, this.t)) return; }
+        else if (b.hit!.has(e.slot)) return;
         const ex = e.x - b.x, ey = e.y - b.y;
         const proj = ex * ca + ey * sa;
         if (proj < 0 || proj > b.len) return;
         const perp = Math.abs(-ex * sa + ey * ca);
         if (perp < b.w * 0.5 + e.radius) {
-          b.hit!.mark(e.slot);
-          this.damageEnemy(e, b.dmg, '#fff3b8', 'light');
-          for (let k = 0; k < 8; k++) this.particles.spawn({ x: e.x, y: e.y, vx: rand(-140, 140), vy: rand(-140, 140), life: rand(0.25, 0.55), size: rand(2, 5), color: '#fff3b8', mode: 'star', rotV: rand(-8, 8), drag: 0.88 });
+          if (b.hitT) {
+            b.hitT.set(e.slot, this.t + b.int);
+            // Blinding Light: the gaze's FIRST touch staggers (mask tracks it)
+            if (b.stun && b.hit && !b.hit.has(e.slot)) {
+              b.hit.mark(e.slot);
+              if (!e.boss && this.hardCC(e, CC_HIT)) { e.slow = 0.92; e.slowT = 0.35; }
+            }
+          } else b.hit!.mark(e.slot);
+          this.damageEnemy(e, b.dmg, hitCol, ray ? 'cosmic' : 'light');
+          const nSpark = ray ? 4 : 8;
+          for (let k = 0; k < nSpark; k++) this.particles.spawn({ x: e.x, y: e.y, vx: rand(-140, 140), vy: rand(-140, 140), life: rand(0.25, 0.55), size: rand(2, 5), color: hitCol, mode: 'star', rotV: rand(-8, 8), drag: 0.88 });
         }
       });
-      for (let k = 0; k < 4; k++) {
-        const dPos = rand(0, b.len);
-        this.particles.spawn({ x: b.x + ca * dPos + rand(-6, 6), y: b.y + sa * dPos + rand(-6, 6), vx: rand(-20, 20), vy: rand(-40, -5), life: rand(0.4, 0.9), size: rand(1.5, 4), color: pick(['#fff3b8', '#bcd9ff']), mode: 'glow', drag: 0.96 });
+      if (!ray) {
+        for (let k = 0; k < 4; k++) {
+          const dPos = rand(0, b.len);
+          this.particles.spawn({ x: b.x + ca * dPos + rand(-6, 6), y: b.y + sa * dPos + rand(-6, 6), vx: rand(-20, 20), vy: rand(-40, -5), life: rand(0.4, 0.9), size: rand(1.5, 4), color: gaze ? pick(['#fff7c9', '#ffb3f2']) : pick(['#fff3b8', '#bcd9ff']), mode: 'glow', drag: 0.96 });
+        }
+      }
+      // Aurora Crown: the wheeling gaze paints fading light on the ground
+      if (gaze && b.linger && Math.random() < dt * 1.6) {
+        const dPos = rand(b.len * 0.25, b.len * 0.9);
+        this.spawnScorch(b.x + ca * dPos, b.y + sa * dPos, b.w * 1.4, b.dmg * 0.3, '#ffd9a0', '#ffb3f2');
       }
       if (b.life <= 0) {
         if (b.hit) { maskPool.release(b.hit); b.hit = null; }
+        if (b.hitT) { timerPool.release(b.hitT); b.hitT = null; }
         this.beamPool.release(b);
         swapRemove(this.beams, i);
         continue;
@@ -3421,6 +3778,106 @@ export class Engine {
         if (Math.random() < 0.5) this.particles.spawn({ x: z.x + rand(-6, 6), y: z.y - 10, vx: rand(-10, 10), vy: rand(-40, -14), life: rand(0.4, 0.9), size: rand(2, 4), color: '#a8ffe8', mode: 'glow', drag: 0.95 });
         // Kindly Lights: an expiring lantern sometimes leaves a healing spark
         if (z.life <= 0 && z.heal && Math.random() * 100 < z.heal) this.spawnGem(z.x, z.y, 0, false, true, false, 0);
+      } else if (z.kind === 'serpent') {
+        // steer toward the densest shoal, weaving as it swims. Re-target often
+        // and turn briskly so the body actually rakes through the crowd.
+        z.tick2 -= dt;
+        if (z.tick2 <= 0) {
+          z.tick2 = 0.28;
+          const pt = this.densestPoint(220);
+          if (pt) { z.ox = pt.x; z.oy = pt.y; }
+          else { z.ox = z.x + rand(-320, 320); z.oy = z.y + rand(-320, 320); }
+        }
+        // if the head is right on its target, aim a little past it so the body
+        // keeps sweeping through rather than stalling on the spot
+        let aimX = z.ox, aimY = z.oy;
+        if (dist2(z.x, z.y, z.ox, z.oy) < 60 * 60) {
+          aimX = z.x + Math.cos(z.spin) * 200;
+          aimY = z.y + Math.sin(z.spin) * 200;
+        }
+        const want = Math.atan2(aimY - z.y, aimX - z.x);
+        const diff = ((want - z.spin + Math.PI * 3) % TAU) - Math.PI;
+        z.spin += clamp(diff, -3.0 * dt, 3.0 * dt);
+        const weave = Math.sin(this.t * 5 + z.seed) * 0.3;
+        z.x += Math.cos(z.spin + weave) * z.knock * dt;
+        z.y += Math.sin(z.spin + weave) * z.knock * dt;
+        // bow-wave bubbles off the head, wake behind
+        if (Math.random() < 0.8) {
+          this.particles.spawn({ x: z.x + rand(-6, 6), y: z.y + rand(-6, 6), vx: rand(-24, 24), vy: rand(-46, -12), life: rand(0.4, 0.9), size: rand(2, 4.5), color: Math.random() < 0.6 ? '#5ad7c9' : '#bffff4', mode: 'glow', drag: 0.94 });
+        }
+        z.tick -= dt;
+        if (z.tick <= 0) {
+          z.tick = 0.12;
+          const R = z.r * z.grow;
+          const L = z.maxR * z.grow;
+          const ca = Math.cos(z.spin), sa = Math.sin(z.spin);
+          const bx = z.x - ca * L * 0.5, by = z.y - sa * L * 0.5;
+          this.grid.queryCircle(bx, by, L * 0.5 + R + 60, (e) => {
+            const ex = e.x - z.x, ey = e.y - z.y;
+            const proj = ex * ca + ey * sa; // + = ahead of the head
+            if (proj > R || proj < -L) return;
+            const perp = Math.abs(-ex * sa + ey * ca);
+            if (perp < R + e.radius) {
+              this.damageEnemy(e, z.dps * 0.12, '#5ad7c9', 'frost');
+              if (e.dead) {
+                // Leviathan of Sleep grows; Salt Hunger lingers
+                if (z.evolved) z.grow = Math.min(1.9, z.grow + 0.06);
+                if (z.core) z.life = Math.min(z.maxLife, z.life + 0.5);
+              }
+            }
+          });
+        }
+      } else if (z.kind === 'chimewave') {
+        const f = 1 - z.life / z.maxLife;
+        z.r = 12 + (z.maxR - 12) * f;
+        this.grid.queryCircle(z.x, z.y, z.r, (e) => {
+          if (z.hit!.has(e.slot)) return;
+          if (dist2(z.x, z.y, e.x, e.y) < z.r * z.r) {
+            z.hit!.mark(e.slot);
+            this.damageEnemy(e, z.dmg, '#ffd9a0');
+            // The Last Hour / Struck Silver: the crescendo holds them still
+            if (z.sleepDur > 0 && !e.boss && !e.dead && this.hardCC(e, CC_HIT)) {
+              e.slow = 0.92;
+              e.slowT = Math.max(e.slowT, z.sleepDur);
+            }
+            for (let k = 0; k < 4; k++) this.particles.spawn({ x: e.x, y: e.y, vx: rand(-100, 100), vy: rand(-120, -20), life: rand(0.25, 0.5), size: rand(2, 4), color: '#ffd9a0', mode: 'star', rotV: rand(-6, 6), drag: 0.9 });
+          }
+        });
+      } else if (z.kind === 'prism') {
+        z.spin += dt * 1.8;
+        z.tick -= dt;
+        if (z.tick <= 0) {
+          z.tick = z.int;
+          const shots = z.core ? 2 : 1;
+          let prev: Enemy | null = null;
+          for (let k = 0; k < shots; k++) {
+            // favour the real threats — bosses first, then whatever's nearest
+            const t2 = this.nearestEnemy(z.x, z.y, z.maxR, prev, true);
+            if (!t2) break;
+            const a = Math.atan2(t2.y - z.y, t2.x - z.x);
+            const d = Math.hypot(t2.x - z.x, t2.y - z.y);
+            this.spawnRay(z.x, z.y, a, d + 30, z.dmg, 9);
+            // a bright refraction bursts where the ray lands, so its work on a
+            // boss (or anything) is unmistakable
+            this.particles.spawn({ x: t2.x, y: t2.y, life: 0.28, size: 26, color: '#f4c9ff', mode: 'ring' });
+            for (let m = 0; m < 9; m++) {
+              const ra = rand(0, TAU);
+              this.particles.spawn({ x: t2.x, y: t2.y, vx: Math.cos(ra) * rand(60, 190), vy: Math.sin(ra) * rand(60, 190), life: rand(0.2, 0.5), size: rand(2, 4.5), endSize: 0.5, color: pick(['#f4c9ff', '#9fffe0', '#ffffff']), mode: 'star', rotV: rand(-8, 8), drag: 0.86 });
+            }
+            audio.prismRay(this.panOf(z.x));
+            // The Unblinking Prism: the ray refracts through its first victim
+            if (z.evolved) {
+              this.spawnRay(t2.x, t2.y, a + 0.5, 170, z.dmg * 0.5, 6);
+              this.spawnRay(t2.x, t2.y, a - 0.5, 170, z.dmg * 0.5, 6);
+            }
+            prev = t2;
+          }
+        }
+        // caustic sparkle drifting beneath the crystal
+        if (Math.random() < 0.4) {
+          const a = rand(0, TAU);
+          this.particles.spawn({ x: z.x + Math.cos(a) * rand(6, 26), y: z.y + rand(16, 40), vx: rand(-10, 10), vy: rand(-8, 8), life: rand(0.4, 0.9), size: rand(1.5, 3), color: pick(['#f4c9ff', '#9fffe0', '#fff']), mode: 'glow', drag: 0.96 });
+        }
       }
 
       if (z.life <= 0) {

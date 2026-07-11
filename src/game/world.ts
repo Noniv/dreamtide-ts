@@ -59,6 +59,10 @@ export interface Enemy {
   // light hits leave a brand that amplifies damage and fuels Eclipse.
   // reactCd is an absolute sim-time stamp gating reactions per enemy.
   chargeT: number; chargeDmg: number; brandT: number; reactCd: number;
+  // Nightmare Brand: a red name written on the strong. Ticks nbDps (+nbPct of
+  // max life) while nbT runs, bursts nbBurst on death, spreads if nbSpread.
+  nbT: number; nbDps: number; nbPct: number; nbTick: number; nbAmp: number;
+  nbSpread: boolean; nbBurst: number;
   hitFlash: number; animT: number; seed: number;
   knbx: number; knby: number;
   goldT: number;
@@ -112,7 +116,9 @@ export interface BossProjectile {
   parryT: number;
 }
 
-export type ZoneKind = 'frostwave' | 'rift' | 'nebula' | 'sigil' | 'scorch' | 'novawave' | 'lantern';
+export type ZoneKind =
+  | 'frostwave' | 'rift' | 'nebula' | 'sigil' | 'scorch' | 'novawave' | 'lantern'
+  | 'serpent' | 'chimewave' | 'prism';
 
 export interface Zone {
   kind: ZoneKind;
@@ -132,6 +138,9 @@ export interface Zone {
   dissolve: number; heal: number;
   c1: string; c2: string;
   hit: HitMask | null;
+  // serpent: second timer (steering cadence), growth multiplier (Leviathan),
+  // and its current steering target (ox/oy)
+  tick2: number; grow: number; ox: number; oy: number;
 }
 
 export interface Beam {
@@ -141,6 +150,12 @@ export interface Beam {
   life: number; maxLife: number;
   dmg: number; sweep: number;
   hit: HitMask | null;
+  // lance = Moonlance flash · gaze = Sleepless Eye's rotating watch (origin
+  // follows the player, re-hits on hitT) · ray = a Kaleidoscope refraction
+  kind: 'lance' | 'gaze' | 'ray';
+  hitT: HitTimer | null; int: number;
+  stun: boolean; follow: boolean;
+  linger: boolean; // Aurora Crown: the gaze leaves fading light behind
 }
 
 export interface Bolt {
@@ -183,6 +198,7 @@ export function makeEnemy(): Enemy {
     x: 0, y: 0, px: 0, py: 0, hp: 1, maxHp: 1, speed: 0, dmg: 0, radius: 10, xp: 1,
     color: '#fff', slow: 0, slowT: 0, ccSat: 0, ccImmT: 0, rageT: 0,
     chargeT: 0, chargeDmg: 0, brandT: 0, reactCd: 0,
+    nbT: 0, nbDps: 0, nbPct: 0, nbTick: 0, nbAmp: 0, nbSpread: false, nbBurst: 0,
     hitFlash: 0, animT: 0, seed: 0,
     knbx: 0, knby: 0, goldT: 0, shootCd: -1, dmgTextT: 0,
     meleeCd: 0, meleeBaseCd: 1, meleeReach: 6, meleeAnim: 0, ranged: null, bossFire: null,
@@ -215,11 +231,15 @@ export function makeZone(): Zone {
     evolved: false, boomed: false, echo: false, echoed: false,
     bossChill: false, bossPull: false, slowIn: 0, core: false, dissolve: 0, heal: 0,
     c1: '', c2: '', hit: null,
+    tick2: 0, grow: 1, ox: 0, oy: 0,
   };
 }
 
 export function makeBeam(): Beam {
-  return { dead: false, x: 0, y: 0, a: 0, pa: 0, len: 0, w: 0, life: 0, maxLife: 1, dmg: 0, sweep: 0, hit: null };
+  return {
+    dead: false, x: 0, y: 0, a: 0, pa: 0, len: 0, w: 0, life: 0, maxLife: 1, dmg: 0, sweep: 0, hit: null,
+    kind: 'lance', hitT: null, int: 0.4, stun: false, follow: false, linger: false,
+  };
 }
 
 export function makeBolt(): Bolt {

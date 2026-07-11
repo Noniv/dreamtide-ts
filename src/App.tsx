@@ -971,7 +971,7 @@ function SkillTree({ meta, reveal, onRevealed, onMeta, onLoadout, onClose }: {
           nodes={CONST_NODES} edges={CONST_EDGES} nodeMap={NODE_MAP}
           owned={owned} allocatable={allocatable} removable={removable} reachable={frontier}
           phase={phase} coreHot={phase === 'done' && canBuyPoint(meta)}
-          variant="arcane" fitRadius={1060}
+          variant="arcane" fitRadius={1055}
           pulse={pulse}
           onNodeClick={clickNode}
           onHoverNode={hoverNode}

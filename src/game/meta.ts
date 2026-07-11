@@ -392,7 +392,9 @@ const NSPOKE = 16;
 const GATE_R = 72;
 const SPOKE_R = [118, 164, 210, 256, 302, 348, 394, 440, 486, 532];
 const POLY_R = 600;
-const SPELL_RING_R = 830;
+// 20 clusters share the ring; at r=920 neighbouring constellations keep
+// ~290 units between centres, so even the widest shapes never touch
+const SPELL_RING_R = 920;
 
 const spokeBase = (i: number) => -112.5 + i * 22.5;
 const spokeAngle = (i: number, _step: number) => spokeBase(i); // exact radial rays — clean diagonals
@@ -583,10 +585,16 @@ for (let t = 0; t < 8; t++) {
 
 // ================================================================ spell clusters
 // The spell constellations keep their hand-drawn shapes but are moored to the
-// outer polygon: 20 slots around the rim, 14 in use, the rest waiting for
-// spells yet undreamt.
-const AOE_SPELLS = ['ember', 'frost', 'void', 'petals', 'moon', 'starfall', 'nebula', 'sigil', 'lantern', 'nova'];
-const DUR_SPELLS = ['frost', 'void', 'nebula', 'sigil', 'lantern'];
+// outer polygon, one slot per spell, spaced evenly however many there are —
+// twenty schools of the dream and counting.
+const AOE_SPELLS = [
+  'ember', 'frost', 'void', 'petals', 'moon', 'starfall', 'nebula', 'sigil', 'lantern', 'nova',
+  'serpent', 'chime', 'eye',
+];
+const DUR_SPELLS = [
+  'frost', 'void', 'nebula', 'sigil', 'lantern',
+  'serpent', 'eye', 'brand', 'prism',
+];
 
 interface MediumDef { n: string; d: string; scount?: number; special?: Record<string, number> }
 
@@ -646,6 +654,30 @@ const MEDIUMS: Record<string, MediumDef[]> = {
   nova: [
     { n: 'Riptide Dusk', d: 'Nova knockback +60%.', special: { knock: 60 } },
     { n: 'Dissolving Dusk', d: 'The wave unmakes enemy shots it washes over (10% chance).', special: { dissolve: 10 } },
+  ],
+  wisps: [
+    { n: 'Fourth Voice', d: '+1 wisp joins the choir.', scount: 1 },
+    { n: 'Eager Chorus', d: 'Wisps dart 25% faster and lunge farther.', special: { dartHaste: 25 } },
+  ],
+  serpent: [
+    { n: 'Long Coils', d: 'The serpent is 40% longer.', special: { longer: 40 } },
+    { n: 'Salt Hunger', d: 'Each kill feeds the serpent half a second of life.', special: { feed: 1 } },
+  ],
+  chime: [
+    { n: 'Deep Resonance', d: 'Every third toll is the crescendo.', special: { res3: 1 } },
+    { n: 'Struck Silver', d: 'The crescendo briefly stuns all it touches.', special: { stun: 1 } },
+  ],
+  eye: [
+    { n: 'Slow Dawn', d: 'The gaze sweeps an extra half-turn.', special: { turns: 1 } },
+    { n: 'Blinding Light', d: 'The gaze’s first touch staggers its victim.', special: { stun: 1 } },
+  ],
+  brand: [
+    { n: 'Old Grudge', d: 'The name is written 2 seconds longer.', special: { vigil: 2 } },
+    { n: 'Written in Ash', d: 'Branded foes take 10% more damage from everything.', special: { ash: 10 } },
+  ],
+  prism: [
+    { n: 'Twin Facet', d: 'The prism fires two rays a volley, at different foes.', special: { facet: 1 } },
+    { n: 'Patient Light', d: 'The prism hangs in the air 2 seconds longer.', special: { vigil: 2 } },
   ],
 };
 
@@ -722,13 +754,54 @@ const SHAPES: Record<string, Shape> = {
     edges: [[0, 1, 14], [1, 2, 14], [2, 3, 14], [3, 4, 14], [4, 5, 14], [5, 6, 14], [6, 7, 14], [7, 0, 14], [8, 9, -8], [9, 10, -8], [10, 8, -8], [11, 8], [11, 9], [11, 10], [0, 8]],
     roles: { entry: 0, evo: 11, start: 4, med: [10, 9] },
   },
+  // a rising spiral — the procession of the choir, its heart the evolution
+  wisps: {
+    pts: [[0, 115], [-87, 61], [-91, -33], [-23, -85], [51, -61], [70, 6], [31, 53], [-22, 47], [-42, 7], [-24, -24], [4, -25], [15, -7]],
+    edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9], [9, 10], [10, 11]],
+    roles: { entry: 0, evo: 11, start: 5, med: [3, 8] },
+  },
+  // an S of stars swimming upward, head crowned, fins trailing
+  serpent: {
+    pts: [[0, 115], [38, 88], [54, 52], [40, 16], [0, -4], [-40, -24], [-54, -60], [-38, -92], [0, -112], [26, -104], [78, 44], [-78, -72]],
+    edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9], [2, 10], [6, 11]],
+    roles: { entry: 0, evo: 8, start: 4, med: [10, 11] },
+  },
+  // a bell in outline, the clapper hanging at its heart
+  chime: {
+    pts: [[0, 115], [-58, 86], [58, 86], [-64, 60], [64, 60], [-52, 10], [52, 10], [-30, -52], [30, -52], [0, -78], [0, -112], [0, 62]],
+    edges: [[0, 1], [0, 2], [1, 3], [3, 5], [5, 7], [7, 9], [9, 8], [8, 6], [6, 4], [4, 2], [9, 10], [0, 11], [11, 9]],
+    roles: { entry: 0, evo: 11, start: 10, med: [3, 4] },
+  },
+  // an open eye, iris at centre, three rays of its gaze
+  eye: {
+    pts: [[0, 115], [-100, 10], [100, 10], [-52, -28], [0, -42], [52, -28], [-52, 44], [52, 44], [0, 0], [0, -88], [-78, -72], [78, -72]],
+    edges: [[0, 6], [0, 7], [6, 1], [1, 3], [3, 4], [4, 5], [5, 2], [7, 2], [6, 8], [7, 8], [8, 4], [4, 9], [3, 10], [5, 11]],
+    roles: { entry: 0, evo: 8, start: 9, med: [10, 11] },
+  },
+  // a jagged rune-scar cut stroke by stroke into the dark
+  brand: {
+    pts: [[0, 115], [-20, 78], [28, 52], [-28, 20], [30, -10], [-24, -42], [26, -72], [0, -108], [-70, 60], [66, -46], [-58, -80], [60, 90]],
+    edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [1, 8], [6, 9], [5, 10], [0, 11], [11, 2]],
+    roles: { entry: 0, evo: 7, start: 10, med: [8, 9] },
+  },
+  // a glass triangle: one ray enters below, a fan of light leaves the apex
+  prism: {
+    pts: [[0, 115], [0, 68], [0, 20], [-52, 20], [52, 20], [0, -70], [-26, -24], [26, -24], [-52, -108], [0, -116], [52, -108], [0, -30]],
+    edges: [[0, 1], [1, 2], [2, 3], [2, 4], [3, 6], [6, 5], [4, 7], [7, 5], [2, 11], [11, 5], [5, 8], [5, 9], [5, 10]],
+    roles: { entry: 0, evo: 9, start: 5, med: [8, 10] },
+  },
 };
 
 // Moorings are spread perfectly evenly around the rim, so the rim-walk
 // between any two neighbouring clusters is (as near as the rim's star
 // spacing allows) the same. A future spell just joins CLUSTER_ORDER and the
-// spacing recomputes itself.
-const CLUSTER_ORDER = ['starfall', 'moon', 'frost', 'storm', 'arcane', 'ember', 'void', 'umbra', 'glaive', 'nebula', 'sigil', 'lantern', 'petals', 'nova'];
+// spacing recomputes itself. Ordered so thematic siblings sit side by side
+// (moths beside the moon, the wake beside the stars, the brand in the dark…)
+const CLUSTER_ORDER = [
+  'starfall', 'moon', 'frost', 'serpent', 'storm', 'chime',
+  'arcane', 'ember', 'void', 'brand', 'umbra', 'glaive',
+  'prism', 'nebula', 'eye', 'sigil', 'lantern', 'wisps', 'petals', 'nova',
+];
 
 {
   CLUSTER_ORDER.forEach((spellId, slot) => {
@@ -796,11 +869,17 @@ const CLUSTER_ORDER = ['starfall', 'moon', 'frost', 'storm', 'arcane', 'ember', 
       da = Math.min(da, Math.PI * 2 - da);
       if (da < bestD) { bestD = da; bestId = n.id; }
     }
+    // two travel stars carry the longer walk out to the constellation
     const host = byId[bestId];
-    const st = nextGen(GEN);
-    const bid = add({ id: `br-${spellId}`, x: Math.round((ex + host.x) / 2), y: Math.round((ey + host.y) / 2), name: st.n, desc: st.d, fx: st.fx, kind: 'small' });
-    link(bestId, bid, 4);
-    link(bid, `${spellId}-${spec.roles.entry}`, 4);
+    let prev = bestId;
+    for (let k = 1; k <= 2; k++) {
+      const f = k / 3;
+      const st = nextGen(GEN);
+      const bid = add({ id: `br-${spellId}-${k}`, x: Math.round(host.x + (ex - host.x) * f), y: Math.round(host.y + (ey - host.y) * f), name: st.n, desc: st.d, fx: st.fx, kind: 'small' });
+      link(prev, bid, 4);
+      prev = bid;
+    }
+    link(prev, `${spellId}-${spec.roles.entry}`, 4);
   });
 }
 

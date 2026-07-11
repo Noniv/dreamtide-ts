@@ -87,6 +87,45 @@ export const ICON_PARTS: Record<string, IconPart[]> = {
     { c: [12, 12, 8.5] },
     { c: [12, 12, 4.2] },
   ],
+  // Wisp Choir — three trailing spirits in a rising arc
+  wisps: [
+    { d: 'M6 18 Q 10 12 15.5 7', opacity: 0.55 },
+    { c: [15.8, 6.6, 2.4], fill: true },
+    { c: [11, 11.6, 2], fill: true },
+    { c: [6.4, 17.4, 1.6], fill: true },
+  ],
+  // Dream Serpent — a swimming sine wave with a crested head
+  serpent: [
+    { d: 'M3.5 15.5 C6 10 8.5 10 11 13.8 C13 16.9 15.3 16.9 17 13.5' },
+    { c: [18.8, 11.5, 2.4] },
+    { c: [19.5, 10.7, 0.7], fill: true },
+  ],
+  // Chime of Hours — a hanging bell with a clapper
+  chime: [
+    { d: 'M12 4.2 v2.2' },
+    { d: 'M8.4 18 C8.4 12.4 9.6 8.6 12 6.6 C14.4 8.6 15.6 12.4 15.6 18 Z' },
+    { d: 'M6.8 18 H17.2' },
+    { c: [12, 20.2, 1.1], fill: true },
+  ],
+  // Sleepless Eye — an open eye with iris and three rays of its gaze
+  eye: [
+    { d: 'M3 12 C6.5 7.4 17.5 7.4 21 12 C17.5 16.6 6.5 16.6 3 12 Z' },
+    { c: [12, 12, 3.1] },
+    { c: [12, 12, 1.1], fill: true },
+    { d: 'M12 2.6 V5 M4.6 5.4 L6.3 7.1 M19.4 5.4 L17.7 7.1', opacity: 0.85 },
+  ],
+  // Nightmare Brand — a target rune, crosshair reaching past the ring
+  brand: [
+    { c: [12, 12, 5.4] },
+    { d: 'M12 1.8 V6.6 M12 17.4 V22.2 M1.8 12 H6.6 M17.4 12 H22.2' },
+    { c: [12, 12, 1.4], fill: true },
+  ],
+  // Kaleidoscope — a glass prism splitting a ray into a diverging fan
+  prism: [
+    { d: 'M12 5 L18.5 16.5 H5.5 Z' },
+    { d: 'M2.5 15.5 H7.5', opacity: 0.9 },
+    { d: 'M16 12.5 L22 11 M16.4 14 L22.4 14 M16 15.5 L22 17', opacity: 0.9 },
+  ],
 };
 
 // raw glyph body for embedding in a caller-controlled <svg> (e.g. tree nodes)
