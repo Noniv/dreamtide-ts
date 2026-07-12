@@ -109,8 +109,8 @@ const SCENE_WGSL = /* wgsl */ `
 struct U {
   viewport: vec2<f32>,   // logical (css px) size of the view
   time: f32,
-  shake: f32,
-  cam: vec2<f32>,        // world position of the view's top-left (css px)
+  viewScale: f32,        // world→screen zoom (innerHeight / DESIGN_H)
+  cam: vec2<f32>,        // world position of the view's top-left (world units)
   res: vec2<f32>,        // framebuffer pixel size of the scene target
 };
 @group(0) @binding(0) var<uniform> u: U;
@@ -178,7 +178,7 @@ fn starLayer(px: vec2<f32>, par: f32, cell: f32, bright: f32, t: f32) -> f32 {
 
 @fragment
 fn bg_fs(in: BGOut) -> @location(0) vec4<f32> {
-  let px = in.uv * u.viewport;          // css-px screen coords
+  let px = in.uv * u.viewport / u.viewScale; // world-unit screen coords (matches u.cam)
   let t = u.time;
 
   // deep dream sky: vertical gradient, slightly denser at the horizon line
@@ -262,7 +262,7 @@ fn quad_vs(
   let c = cos(rot); let s = sin(rot);
   let local = vec2(corner.x * half, corner.y * half * iMisc.y);
   let rotated = vec2(local.x * c - local.y * s, local.x * s + local.y * c);
-  let px = iPos + rotated;
+  let px = (iPos + rotated) * u.viewScale;
   let clip = vec2(px.x / u.viewport.x * 2.0 - 1.0, 1.0 - px.y / u.viewport.y * 2.0);
   var out: QuadVSOut;
   out.pos = vec4(clip, 0.0, 1.0);
@@ -325,7 +325,7 @@ fn shape_vs(
   let local = mix(lo, hi, t01);
   let rot = iPosRotKind.z;
   let c = cos(rot); let s = sin(rot);
-  let world = iPosRotKind.xy + vec2(local.x * c - local.y * s, local.x * s + local.y * c);
+  let world = (iPosRotKind.xy + vec2(local.x * c - local.y * s, local.x * s + local.y * c)) * u.viewScale;
   let clip = vec2(world.x / u.viewport.x * 2.0 - 1.0, 1.0 - world.y / u.viewport.y * 2.0);
   var out: ShapeVSOut;
   out.pos = vec4(clip, 0.0, 1.0);
@@ -499,7 +499,7 @@ export interface WorldGPU {
   readonly device: GPUDevice;
   /** Human-readable adapter identity ("nvidia · rtx 3060 …") for perf logs. */
   readonly adapterLabel: string;
-  resize(cssW: number, cssH: number, dpr: number): void;
+  resize(cssW: number, cssH: number, dpr: number, viewScale?: number): void;
   render(time: number, camX: number, camY: number, shapes: ShapeList, quads: QuadList, over?: ShapeList): void;
   dispose(): void;
 }
@@ -546,6 +546,7 @@ class WorldGPUImpl implements WorldGPU {
 
   private cssW = 1; private cssH = 1;
   private texW = 1; private texH = 1;
+  private viewScale = 1;
 
   // Reused render-pass descriptors (the view/loadOp fields are re-pointed each
   // pass). beginRenderPass copies what it needs, so mutating between passes is
@@ -702,11 +703,12 @@ class WorldGPUImpl implements WorldGPU {
     });
   }
 
-  resize(cssW: number, cssH: number, dpr: number) {
+  resize(cssW: number, cssH: number, dpr: number, viewScale = 1) {
     const w = Math.max(1, Math.round(cssW * dpr)), h = Math.max(1, Math.round(cssH * dpr));
     this.canvas.style.width = cssW + 'px';
     this.canvas.style.height = cssH + 'px';
     this.cssW = cssW; this.cssH = cssH;
+    this.viewScale = viewScale;
     if (this.canvas.width === w && this.canvas.height === h && this.sceneTex) return;
     this.canvas.width = w; this.canvas.height = h;
     this.texW = w; this.texH = h;
@@ -751,7 +753,7 @@ class WorldGPUImpl implements WorldGPU {
     const device = this.device;
     const u = this.uniData;
     u[0] = this.cssW; u[1] = this.cssH;
-    u[2] = time; u[3] = 0;
+    u[2] = time; u[3] = this.viewScale;
     u[4] = camX; u[5] = camY;
     u[6] = this.texW; u[7] = this.texH;
     device.queue.writeBuffer(this.uniBuf, 0, u);

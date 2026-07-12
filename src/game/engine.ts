@@ -23,6 +23,14 @@ import { renderFrame } from './render';
 import { prebakeSprites } from './enemySprites';
 import { RELICS, RELIC_IDS, PACTS, type Element, type PactDef, type PactFx } from './relics';
 
+// Logical resolution: every 16:9 monitor sees exactly this slice of the world,
+// regardless of pixel resolution (which only affects sharpness). A camera zoom
+// (viewScale) maps this design size onto the real window. Off-16:9 monitors
+// keep the same vertical framing and see a little extra margin on the long axis
+// (option B — never letterboxed, never distorted).
+export const DESIGN_W = 1920;
+export const DESIGN_H = 1080;
+
 export const STEP = 1 / 60; // fixed simulation timestep (render interpolates against it)
 const MAX_STEPS = 5;      // spiral-of-death guard: sim slows instead of hanging
 // duration of the melee strike lunge/slash effect (sim + render share it so the
@@ -349,7 +357,8 @@ export class Engine {
   orbitals: Orbital[] = [];
   frostOrbs: FrostOrb[] = [];
   wisps: Wisp[] = [];
-  cam = { x: 0, y: 0, w: 1, h: 1 };
+  cam = { x: 0, y: 0, w: 1, h: 1 }; // extent (w/h) is in world units, not pixels
+  viewScale = 1;                    // world→screen zoom = innerHeight / DESIGN_H
   shake = 0;
   flash: { color: string; a: number } | null = null;
   banner: { str: string; color: string; life: number; maxLife: number; size: number } | null = null;
@@ -593,7 +602,10 @@ export class Engine {
     this.bossCount = 0;
     this.flash = null;
     this.levelUpActive = false;
-    const vw = window.innerWidth, vh = window.innerHeight;
+    // cam extent is world units (see resize): derive it from the same zoom so a
+    // run started before the first resize still frames the player correctly.
+    const viewScale = window.innerHeight / DESIGN_H;
+    const vw = window.innerWidth / viewScale, vh = window.innerHeight / viewScale;
     this.cam = { x: -vw / 2, y: -vh / 2, w: vw, h: vh };
     // (stars and dream-motes are procedural in the background shader now)
     this.player = {
@@ -677,28 +689,38 @@ export class Engine {
 
 
   resize() {
+    const vw = window.innerWidth, vh = window.innerHeight;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const worldDpr = dpr * this.renderScale;
+    // Anchor the view to a fixed design height so a 16:9 monitor of any
+    // resolution shows the same slice of world. Height is the anchor; a wider-
+    // than-16:9 window simply reveals extra world on the sides, a taller one on
+    // top/bottom — never stretched. dpr/renderScale stay quality-only.
+    const viewScale = vh / DESIGN_H;
+    this.viewScale = viewScale;
     this.perf.dpr = dpr;
     this.perf.renderScale = this.renderScale;
-    this.perf.viewW = window.innerWidth;
-    this.perf.viewH = window.innerHeight;
-    this.cam.w = window.innerWidth;
-    this.cam.h = window.innerHeight;
+    this.perf.viewW = vw;
+    this.perf.viewH = vh;
+    this.cam.w = vw / viewScale; // world units visible (== DESIGN_W on 16:9)
+    this.cam.h = vh / viewScale; // world units visible (== DESIGN_H)
     // World canvas rasterizes at renderScale and is stretched by the
     // compositor; the 2D overlay (text) stays at full resolution so it's crisp.
     if (this.world) {
-      this.world.resize(window.innerWidth, window.innerHeight, worldDpr);
+      this.world.resize(vw, vh, worldDpr, viewScale);
     } else {
-      this.canvas.style.width = window.innerWidth + 'px';
-      this.canvas.style.height = window.innerHeight + 'px';
+      this.canvas.style.width = vw + 'px';
+      this.canvas.style.height = vh + 'px';
     }
     if (this.overlay && this.octx) {
-      this.overlay.width = window.innerWidth * dpr;
-      this.overlay.height = window.innerHeight * dpr;
-      this.overlay.style.width = window.innerWidth + 'px';
-      this.overlay.style.height = window.innerHeight + 'px';
-      this.octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      this.overlay.width = vw * dpr;
+      this.overlay.height = vh * dpr;
+      this.overlay.style.width = vw + 'px';
+      this.overlay.style.height = vh + 'px';
+      // Overlay draws in world units too (so damage text/health bars stay pinned
+      // to entities): dpr for crispness × viewScale for the world zoom. The few
+      // screen-space HUD pieces (banner, perf) un-zoom themselves in render.
+      this.octx.setTransform(dpr * viewScale, 0, 0, dpr * viewScale, 0, 0);
     }
   }
 

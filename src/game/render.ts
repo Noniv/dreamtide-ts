@@ -129,7 +129,7 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
   const world = eng.world;
   if (!world) {
     // WebGPU device still attaching (first few frames) — nothing to draw yet.
-    if (octx) eng.perf.draw(octx, w);
+    if (octx) { octx.save(); octx.scale(1 / eng.viewScale, 1 / eng.viewScale); eng.perf.draw(octx, eng.perf.viewW); octx.restore(); }
     return;
   }
 
@@ -304,6 +304,8 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
     const uiS = uiScale();
     const bSize = (b.size || 24) * uiS;
     octx.save();
+    // banner is screen-space (follows --ui-scale, not the world zoom)
+    octx.scale(1 / eng.viewScale, 1 / eng.viewScale);
     octx.globalAlpha = a;
     octx.textAlign = 'center';
     // event banners speak in the UI's engraved display face
@@ -313,7 +315,7 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
     octx.fillStyle = b.color;
     octx.shadowColor = b.color;
     octx.shadowBlur = (18 + (b.size > 24 ? 14 : 0)) * uiS;
-    octx.fillText(b.str, w / 2, (176 + ((b.size || 24) - 24) * 0.6) * uiS);
+    octx.fillText(b.str, eng.perf.viewW / 2, (176 + ((b.size || 24) - 24) * 0.6) * uiS);
     octx.restore();
   }
 
@@ -326,8 +328,11 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
     octx.fillRect(0, 0, w, h);
   }
 
-  // perf overlay always sits on the topmost 2D layer
-  eng.perf.draw(octx, w);
+  // perf overlay always sits on the topmost 2D layer, in screen (css-px) space
+  octx.save();
+  octx.scale(1 / eng.viewScale, 1 / eng.viewScale);
+  eng.perf.draw(octx, eng.perf.viewW);
+  octx.restore();
 }
 
 // Lucid-moment overlay: a cool wash, a breathing vignette, rising dream-motes and
