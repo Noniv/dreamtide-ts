@@ -1061,6 +1061,16 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 .tip-kind.keystone { color: var(--gold); opacity: 0.95; }
 .tip-kind.notable { color: var(--arcane); opacity: 0.95; }
 .tip-desc { font-size: 15px; opacity: 0.95; margin-top: 7px; line-height: 1.45; }
+/* a dedicated, smaller footnote that explains a complex mechanic (surge,
+   evolution, mastery, critical strike); shown on every node that uses it */
+.tip-note {
+  margin-top: 9px; padding-top: 8px;
+  border-top: 1px solid rgba(180, 196, 255, 0.16);
+  font-size: 12.5px; line-height: 1.4; opacity: 0.72;
+  font-family: var(--ui);
+}
+.tip-note b { font-weight: 700; opacity: 0.9; letter-spacing: 0.02em; }
+.node-tip.dark .tip-note { border-top-color: rgba(255, 150, 170, 0.18); }
 .tip-row { display: flex; align-items: center; gap: 16px; margin-top: 10px; }
 .tip-cost { font-family: var(--display); font-weight: 700; font-size: 16px; color: var(--gold); }
 .tip-hint { font-family: var(--flavor); font-style: italic; font-weight: 500; font-size: 15.5px; color: var(--gold); }

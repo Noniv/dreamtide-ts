@@ -22,51 +22,51 @@ export interface RelicDef {
 export const RELICS: Record<string, RelicDef> = {
   cinderheart: {
     id: 'cinderheart', name: 'Cinderheart', icon: '✹', color: '#ff8c5a',
-    desc: 'Every explosion you cause leaves the ground burning where it bloomed.',
+    desc: 'Your explosions leave the ground burning where they land.',
   },
   frozentear: {
     id: 'frozentear', name: 'Frozen Tear', icon: '❆', color: '#8fe8ff',
-    desc: 'When you are struck, winter answers — a frost bloom erupts from you. (6s rest)',
+    desc: 'When you take damage, a frost blast erupts from you (every 6s at most).',
   },
   stormcrown: {
     id: 'stormcrown', name: 'Stormcrown', icon: '☈', color: '#7ad7ff',
-    desc: 'Every fifth spell you cast calls a charged bolt down on the nearest foe.',
+    desc: 'Every 5th spell you cast also strikes the nearest foe with a bolt.',
   },
   hourglass: {
     id: 'hourglass', name: 'Hourglass of the Deep', icon: '⧗', color: '#7dffb0',
-    desc: 'Slaying an elite floods you with every surge at once for 4 seconds.',
+    desc: 'Killing an elite triggers every surge at once for 4 seconds.',
   },
   thornedhalo: {
     id: 'thornedhalo', name: 'Thorned Halo', icon: '✥', color: '#fff3b8',
-    desc: 'Every foe that wounds you is branded with vengeful moonlight — branded foes take more from everything.',
+    desc: 'Foes that damage you are branded — branded foes take 12% more damage from everything.',
   },
   moonsickle: {
     id: 'moonsickle', name: 'Moonlit Sickle', icon: '☾', color: '#fff3b8',
-    desc: 'Your critical strikes brand foes with moonlight — branded foes take more from everything.',
+    desc: 'Your critical strikes brand foes — branded foes take 12% more damage from everything.',
   },
   anchor: {
     id: 'anchor', name: 'Dream Anchor', icon: '⚓', color: '#9fd8ff',
-    desc: 'Stand your ground: after a moment of stillness your spells strike 25% harder.',
+    desc: 'Hold still: after a moment without moving, your spells deal 25% more damage.',
   },
   cometring: {
     id: 'cometring', name: 'Ring of the Comet', icon: '☄', color: '#ffb3f2',
-    desc: 'Every 12 seconds a comet falls upon the thickest of the horde, unbidden.',
+    desc: 'Every 12 seconds, a comet falls on the thickest part of the horde.',
   },
   chalice: {
     id: 'chalice', name: 'Night Chalice', icon: '⚗', color: '#7dffb0',
-    desc: 'Foes that die near you spill a drop of life back into you.',
+    desc: 'Enemies that die near you heal you a little.',
   },
   prismheart: {
     id: 'prismheart', name: 'Prism Heart', icon: '◬', color: '#e6d1ff',
-    desc: 'Your marks cling twice as long, and every resonance reaction strikes half again as hard.',
+    desc: 'Your elemental marks last twice as long, and resonance bursts deal 50% more damage.',
   },
   cartographer: {
     id: 'cartographer', name: 'Cartographer’s Dream', icon: '✯', color: '#ffd27a',
-    desc: 'Fallen stars, whispering altars and golden wisps all find their way to you far more often.',
+    desc: 'Golden wisps, whispering altars and fallen stars seek you out far more often.',
   },
   sovereign: {
     id: 'sovereign', name: 'Sovereign’s Pact', icon: '♛', color: '#ff9ad5',
-    desc: 'Your spells strike 35% harder — but a fifth of your life is the price, paid now and forever.',
+    desc: 'Your spells deal 35% more damage — but you lose a fifth of your max life for the rest of the dream.',
   },
 };
 
@@ -94,13 +94,13 @@ export interface PactDef {
 export const PACTS: PactDef[] = [
   {
     id: 'embers', name: 'Pact of Embers', icon: '🜂',
-    boon: 'Your spells strike 18% harder',
+    boon: 'Your spells deal 18% more damage',
     curse: 'the horde moves 12% faster',
     fx: { dmg: 18, curseSpd: 12 },
   },
   {
     id: 'deep', name: 'Pact of the Deep', icon: '🜄',
-    boon: 'Every area of effect widens by 25%',
+    boon: 'Every area of effect grows 25% larger',
     curse: '12 more enemies swarm you at all times',
     fx: { aoe: 25, curseFloor: 12 },
   },
@@ -112,19 +112,19 @@ export const PACTS: PactDef[] = [
   },
   {
     id: 'blood', name: 'Pact of Blood', icon: '❤',
-    boon: 'Your wounds close and your heart grows by 40 life',
+    boon: 'Heal to full, and +40 max life',
     curse: 'enemies gain 22% more life',
     fx: { hp: 40, healFull: 1, curseHp: 22 },
   },
   {
     id: 'greed', name: 'Pact of Greed', icon: '❂',
-    boon: 'You glean 35% more essence',
+    boon: 'Gain 35% more essence',
     curse: 'elites stir 35% more often',
     fx: { xp: 35, curseElite: 35 },
   },
   {
     id: 'stillness', name: 'Pact of Stillness', icon: '☽',
-    boon: 'Mend 2 more life every 2 seconds',
+    boon: 'Regenerate 2 more life every 2 seconds',
     curse: 'the horde moves 10% faster and hits 10% harder',
     fx: { regen: 2, curseSpd: 10, curseDmg: 10 },
   },

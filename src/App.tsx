@@ -621,7 +621,7 @@ function LevelUp({ choices, level, banishes, rerolls, showBanish, showReroll, ma
                 <div className="card-school">{school}</div>
                 <div className="card-line" aria-hidden="true" />
                 <div className="card-desc">
-                  {isEvolve ? EVOLVE[c.id].desc : c.kind === 'generic' ? def.desc : (isSpell ? (c.isNew ? spellDef!.desc : c.mastery ? `Power beyond its final form — +${masteryPer}% ${spellDef!.kind === 'defense' ? 'strength' : 'damage'}, diminishing with each rank.` : spellDef!.levelText(c.level!)) : def.desc)}
+                  {isEvolve ? EVOLVE[c.id].desc : c.kind === 'generic' ? def.desc : (isSpell ? (c.isNew ? spellDef!.desc : c.mastery ? `Past max level — this rank adds +${(masteryPer * (Math.sqrt(c.level!) - Math.sqrt(c.level! - 1))).toFixed(1)}% ${spellDef!.kind === 'defense' ? 'strength' : 'damage'} (each rank adds less).` : spellDef!.levelText(c.level!)) : def.desc)}
                 </div>
               </button>
               {showBanish && (
@@ -700,7 +700,7 @@ function RelicChoice({ choices, onPick }: { choices: string[]; onPick: (id: stri
                 <div className="card-rank">Relic</div>
                 <div className="card-glyph">{r.icon}</div>
                 <div className="card-name">{r.name}</div>
-                <div className="card-school">Once per dream</div>
+                <div className="card-school">Kept for the rest of this dream</div>
                 <div className="card-line" aria-hidden="true" />
                 <div className="card-desc">{r.desc}</div>
               </button>
@@ -765,7 +765,7 @@ function PactChoice({ pact, onAnswer }: { pact: PactDef; onAnswer: (accept: bool
             <div className="card-name">A quiet blessing</div>
             <div className="card-school">the cautious road</div>
             <div className="card-line" aria-hidden="true" />
-            <div className="card-desc">Mend a fifth of your life and gather a scatter of essence. The altar sleeps again.</div>
+            <div className="card-desc">Restore a fifth of your life and gather a little essence. The altar sleeps again.</div>
           </button>
         </div>
       </div>
@@ -845,12 +845,29 @@ const uiScale = () => parseFloat(getComputedStyle(document.documentElement).getP
 
 interface TipState { id: string; x: number; y: number }
 
+// A small footnote explaining a complex mechanic, shown on every node that uses
+// it (derived from the node's fx, so new nodes get it automatically).
+function noteFor(fx: Record<string, any> | undefined): { label: string; text: string } | null {
+  if (!fx) return null;
+  if (fx.evo) return { label: 'Evolution', text: 'Offered as a level-up once this spell reaches its max level in a dream.' };
+  if (fx.masteryPlus) return { label: 'Mastery', text: 'The bonus level-ups a spell earns past its max level; each rank adds a smaller damage boost than the last.' };
+  if (Object.keys(fx).some((k) => k.startsWith('surge'))) return { label: 'Surge', text: 'Every 8s, each surge you own rolls its chance to fire for 4s — swiftness +35% move speed, power +30% damage, haste +30% cast speed, area +30% area, pickup +60% pickup range.' };
+  if (fx.spellSlots) return { label: 'Spell slots', text: 'How many spells you carry into each dream. Choose them in the loadout bar below the tree.' };
+  if (fx.banish) return { label: 'Banish', text: 'At a level-up, remove one offered card; that upgrade will not be offered again for the rest of the dream.' };
+  if (fx.reroll) return { label: 'Reroll', text: 'At a level-up, replace all the offered cards with a fresh set.' };
+  if (fx.golden) return { label: 'Golden wisp', text: 'A rare, fleeing spark. Catch it before it escapes for a burst of stardust and essence.' };
+  if (fx.crit || fx.critDmg) return { label: 'Critical strike', text: 'Each hit has a chance to deal 150% damage; critical-damage bonuses add on top of that 150%.' };
+  if (fx.xp || fx.extraGem) return { label: 'Essence', text: 'The motes fallen foes drop; gathering them fills your Reverie bar to reach the next level.' };
+  return null;
+}
+
 function NodeTip({ tip, meta, dark, frontier, removable }: {
   tip: TipState; meta: Meta; dark: boolean;
   frontier: Set<string>; removable: Set<string>;
 }) {
   const node = NODE_MAP[tip.id];
   if (!node) return null;
+  const note = noteFor(node.fx);
   const ownedList = dark ? meta.darkOwned : meta.owned;
   const isOwned = ownedList.includes(node.id);
   const isCore = node.kind === 'core';
@@ -865,6 +882,7 @@ function NodeTip({ tip, meta, dark, frontier, removable }: {
         <span className={`tip-kind ${node.kind}`}>{isCore ? 'origin' : node.kind}</span>
       </div>
       <div className="tip-desc">{node.desc}</div>
+      {note && <div className="tip-note"><b>{note.label}</b> — {note.text}</div>}
       {isCore ? (
         <div className="tip-row">
           <span className={`tip-cost ${dark ? 'shards' : ''}`}>{cur} {mintCost}</span>

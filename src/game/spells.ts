@@ -51,7 +51,7 @@ export const SPELLS: Record<string, SpellDef> = {
   ember: {
     id: 'ember', name: 'Emberfall', school: 'Pyromancy',
     color: '#ff8c5a', color2: '#ffd27a', icon: '🜂',
-    desc: 'Lob dreaming embers that burst into blossoms of flame.',
+    desc: 'Lob embers that burst into blooms of fire.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(0.55, 1.35 - lv * 0.13),
@@ -59,12 +59,12 @@ export const SPELLS: Record<string, SpellDef> = {
       count: 1 + Math.floor(lv / 2),
       radius: 62 + lv * 9,
     }),
-    levelText: (lv) => (lv % 2 === 0 ? `+1 ember (${1 + Math.floor(lv / 2)} total), hotter blossoms` : 'Faster casting, bigger blossoms'),
+    levelText: (lv) => (lv % 2 === 0 ? `+1 ember (${1 + Math.floor(lv / 2)} total), bigger bursts` : 'Faster casts, stronger embers'),
   },
   arcane: {
     id: 'arcane', name: 'Arcane Missiles', school: 'Arcana',
     color: '#b48cff', color2: '#e6d1ff', icon: '🜁',
-    desc: 'Violet seekers spiral through the dream toward your foes.',
+    desc: 'Homing missiles that chase down the nearest foes.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(0.28, 0.85 - lv * 0.09),
@@ -72,12 +72,12 @@ export const SPELLS: Record<string, SpellDef> = {
       count: 1 + Math.floor((lv + 1) / 2),
       speed: 420 + lv * 30,
     }),
-    levelText: (lv) => (lv % 2 === 1 ? `+1 missile (${1 + Math.floor((lv + 1) / 2)} total), sharper hunger` : 'Faster, harder-hitting missiles'),
+    levelText: (lv) => (lv % 2 === 1 ? `+1 missile (${1 + Math.floor((lv + 1) / 2)} total)` : 'Faster, harder-hitting missiles'),
   },
   frost: {
     id: 'frost', name: 'Frostbloom', school: 'Cryomancy',
     color: '#8fe8ff', color2: '#e8fbff', icon: '🜄',
-    desc: 'A ring of winter unfolds from you, slowing all it kisses.',
+    desc: 'A ring of frost sweeps out, damaging and slowing all it touches.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(2.2, 4.4 - lv * 0.35),
@@ -86,12 +86,12 @@ export const SPELLS: Record<string, SpellDef> = {
       slow: 0.45 + lv * 0.04,
       slowDur: 1.6 + lv * 0.25,
     }),
-    levelText: () => 'Wider bloom, deeper cold',
+    levelText: () => 'Wider ring, stronger slow',
   },
   storm: {
     id: 'storm', name: 'Stormcall', school: 'Tempestry',
     color: '#7ad7ff', color2: '#ffffff', icon: '🜃',
-    desc: 'Sky-veins of lightning leap from foe to foe.',
+    desc: 'Lightning that arcs from one foe to the next.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(0.8, 2.1 - lv * 0.2),
@@ -99,12 +99,12 @@ export const SPELLS: Record<string, SpellDef> = {
       chains: 2 + lv,
       range: 360,
     }),
-    levelText: (lv) => `+1 chain (${2 + lv} total), quicker thunder`,
+    levelText: (lv) => `+1 chain (${2 + lv} total), faster casts`,
   },
   void: {
     id: 'void', name: 'Void Rift', school: 'Umbramancy',
     color: '#9a5cff', color2: '#2b1050', icon: '🜏',
-    desc: 'Tear a hungry wound in the dream that drinks your enemies in.',
+    desc: 'Tear a rift that pulls enemies in and burns them.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(4.5, 8 - lv * 0.55),
@@ -113,12 +113,12 @@ export const SPELLS: Record<string, SpellDef> = {
       pull: 120 + lv * 22,
       duration: 2.6 + lv * 0.3,
     }),
-    levelText: () => 'Hungrier, wider, longer-lived',
+    levelText: () => 'Wider rift, stronger pull, more damage',
   },
   petals: {
     id: 'petals', name: 'Petal Waltz', school: 'Verdancy',
     color: '#7dffb0', color2: '#ffd1ec', icon: '🜍',
-    desc: 'Spirit petals orbit you in a razor-sweet waltz.',
+    desc: 'Petals orbit you, cutting any foe they touch.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: 0,
@@ -127,12 +127,12 @@ export const SPELLS: Record<string, SpellDef> = {
       radius: 78 + lv * 6,
       speed: 2.4 + lv * 0.28,
     }),
-    levelText: (lv) => `+1 petal (${2 + lv} total), faster waltz`,
+    levelText: (lv) => `+1 petal (${2 + lv} total), faster spin`,
   },
   moon: {
     id: 'moon', name: 'Moonlance', school: 'Lunamancy',
     color: '#fff3b8', color2: '#bcd9ff', icon: '☾',
-    desc: 'A lance of condensed moonlight pierces the horde.',
+    desc: 'A lance of moonlight that pierces everything in a line.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(1.4, 3.2 - lv * 0.3),
@@ -141,12 +141,12 @@ export const SPELLS: Record<string, SpellDef> = {
       length: 460 + lv * 50,
       beams: lv >= 4 ? 2 : 1,
     }),
-    levelText: (lv) => (lv === 4 ? 'A second lance, opposite the first' : 'Brighter, broader light'),
+    levelText: (lv) => (lv === 4 ? 'A second lance, opposite the first' : 'Longer, wider lance'),
   },
   starfall: {
     id: 'starfall', name: 'Starfall', school: 'Cosmology',
     color: '#ffb3f2', color2: '#8a7bff', icon: '✧',
-    desc: 'Call sleeping stars down from the firmament to burst upon your foes.',
+    desc: 'Stars fall from the sky and burst where they land.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(1.1, 2.6 - lv * 0.22),
@@ -154,12 +154,12 @@ export const SPELLS: Record<string, SpellDef> = {
       count: 1 + Math.floor(lv / 2),
       radius: 70 + lv * 10,
     }),
-    levelText: (lv) => (lv % 2 === 0 ? `+1 falling star (${1 + Math.floor(lv / 2)} total)` : 'Heavier, brighter impacts'),
+    levelText: (lv) => (lv % 2 === 0 ? `+1 star (${1 + Math.floor(lv / 2)} total)` : 'Harder-hitting stars'),
   },
   umbra: {
     id: 'umbra', name: 'Shadowfang', school: 'Umbramancy',
     color: '#8a5cd9', color2: '#20123d', icon: '🜚',
-    desc: 'Crescents of living shadow scythe through everything in their path.',
+    desc: 'Crescents of shadow that scythe through the horde.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(0.7, 1.7 - lv * 0.15),
@@ -167,12 +167,12 @@ export const SPELLS: Record<string, SpellDef> = {
       count: 1 + Math.floor((lv + 1) / 2),
       speed: 380 + lv * 25,
     }),
-    levelText: (lv) => (lv % 2 === 1 ? `+1 fang (${1 + Math.floor((lv + 1) / 2)} total), deeper shadow` : 'Faster, crueller crescents'),
+    levelText: (lv) => (lv % 2 === 1 ? `+1 crescent (${1 + Math.floor((lv + 1) / 2)} total)` : 'Faster, sharper crescents'),
   },
   glaive: {
     id: 'glaive', name: 'Astral Glaive', school: 'Astromancy',
     color: '#9fd8ff', color2: '#e8f6ff', icon: '✵',
-    desc: 'A blade of starlight sails out and returns, reaping as it goes.',
+    desc: 'A starlight blade flies out and boomerangs back, cutting all it passes.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(1.2, 2.8 - lv * 0.25),
@@ -181,12 +181,12 @@ export const SPELLS: Record<string, SpellDef> = {
       range: 300 + lv * 35,
       speed: 520 + lv * 30,
     }),
-    levelText: (lv) => (lv === 3 ? 'A second glaive takes wing' : lv === 6 ? 'A third glaive takes wing' : 'Farther flight, keener edge'),
+    levelText: (lv) => (lv === 3 ? 'A second glaive takes wing' : lv === 6 ? 'A third glaive takes wing' : 'Longer flight, sharper edge'),
   },
   nebula: {
     id: 'nebula', name: 'Nebula Bloom', school: 'Cosmology',
     color: '#c48cff', color2: '#ff9ad5', icon: '❋',
-    desc: 'A drifting cloud of newborn stars smothers all who wander inside.',
+    desc: 'A drifting star-cloud that damages everything inside it.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(5, 9 - lv * 0.6),
@@ -194,12 +194,12 @@ export const SPELLS: Record<string, SpellDef> = {
       radius: 110 + lv * 16,
       duration: 4 + lv * 0.5,
     }),
-    levelText: () => 'Vaster, denser stellar mist',
+    levelText: () => 'Bigger, longer-lasting cloud',
   },
   sigil: {
     id: 'sigil', name: 'Sigil of Sleep', school: 'Oneiromancy',
     color: '#ffd27a', color2: '#b48cff', icon: '✪',
-    desc: 'Inscribe a drowsy rune that detonates, lulling survivors to stillness.',
+    desc: 'Plant a rune that arms, then bursts for heavy damage; survivors are left asleep.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(2.4, 5 - lv * 0.4),
@@ -207,12 +207,12 @@ export const SPELLS: Record<string, SpellDef> = {
       radius: 90 + lv * 13,
       sleepDur: 1 + lv * 0.25,
     }),
-    levelText: () => 'Louder waking, longer sleep',
+    levelText: () => 'More damage, longer sleep',
   },
   lantern: {
     id: 'lantern', name: 'Soul Lanterns', school: 'Spiritism',
     color: '#a8ffe8', color2: '#4ad9c4', icon: 'ϟ',
-    desc: 'Hang ghost-lanterns over the horde that pulse with cold green fire.',
+    desc: 'Hang lanterns that pulse, damaging foes beneath them.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(4.2, 7 - lv * 0.45),
@@ -221,12 +221,12 @@ export const SPELLS: Record<string, SpellDef> = {
       radius: 85 + lv * 12,
       duration: 3 + lv * 0.4,
     }),
-    levelText: (lv) => (lv % 2 === 0 ? `+1 lantern (${1 + Math.floor(lv / 2)} total)` : 'Brighter, longer-burning lanterns'),
+    levelText: (lv) => (lv % 2 === 0 ? `+1 lantern (${1 + Math.floor(lv / 2)} total)` : 'Brighter, longer-lasting lanterns'),
   },
   nova: {
     id: 'nova', name: 'Twilight Nova', school: 'Duskweaving',
     color: '#ff9ad5', color2: '#5a2a6e', icon: '◈',
-    desc: 'Dusk erupts outward from you, hurling the horde back into the dark.',
+    desc: 'A blast of dusk that damages nearby foes and hurls them back.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(2.8, 5.4 - lv * 0.4),
@@ -234,12 +234,12 @@ export const SPELLS: Record<string, SpellDef> = {
       radius: 140 + lv * 24,
       knock: 260 + lv * 40,
     }),
-    levelText: () => 'Wider dusk, harder throw',
+    levelText: () => 'Wider blast, harder knockback',
   },
   wisps: {
     id: 'wisps', name: 'Wisp Choir', school: 'Spiritism',
     color: '#8cf7e2', color2: '#35c9b8', icon: '⁂',
-    desc: 'Singing wisps trail behind you and dart at whatever draws near.',
+    desc: 'Wisps trail behind you and dart at foes that come near.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(0.8, 1.65 - lv * 0.12), // per-wisp dart cadence
@@ -247,12 +247,12 @@ export const SPELLS: Record<string, SpellDef> = {
       count: 2 + Math.floor(lv / 2),
       range: 340,
     }),
-    levelText: (lv) => (lv % 2 === 0 ? `+1 wisp (${2 + Math.floor(lv / 2)} total)` : 'Quicker, hungrier darts'),
+    levelText: (lv) => (lv % 2 === 0 ? `+1 wisp (${2 + Math.floor(lv / 2)} total)` : 'Faster, harder darts'),
   },
   serpent: {
     id: 'serpent', name: 'Dream Serpent', school: 'Thalassomancy',
     color: '#5ad7c9', color2: '#1e4d6e', icon: '∿',
-    desc: 'Loose a ribbon of deep water that swims through the thickest shoal.',
+    desc: 'A serpent of water winds through the horde, biting all it passes.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(5, 9 - lv * 0.55),
@@ -262,24 +262,24 @@ export const SPELLS: Record<string, SpellDef> = {
       length: 90 + lv * 26,      // body length — visibly longer with levels
       speed: 250 + lv * 14,
     }),
-    levelText: () => 'A longer, thicker, hungrier serpent',
+    levelText: () => 'A longer, thicker, harder-hitting serpent',
   },
   chime: {
     id: 'chime', name: 'Chime of Hours', school: 'Chronomancy',
     color: '#ffd9a0', color2: '#b08a4a', icon: 'Ω',
-    desc: 'A drowsy bell tolls around you on the beat; every fourth toll is a crescendo.',
+    desc: 'A bell tolls around you on a steady beat; every fourth toll hits harder.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(1.55, 2.1 - lv * 0.08), // the beat itself
       damage: 5 + lv * 3,
       radius: 108 + lv * 12,
     }),
-    levelText: (lv) => (lv === 3 ? 'The beat quickens' : 'Wider ring, harder toll'),
+    levelText: (lv) => (lv === 3 ? 'Faster beat' : 'Wider ring, harder tolls'),
   },
   eye: {
     id: 'eye', name: 'Sleepless Eye', school: 'Oneiromancy',
     color: '#fff7c9', color2: '#ffb3f2', icon: '☉',
-    desc: 'An eye opens above you and its gaze sweeps the field like a lighthouse.',
+    desc: 'An eye opens above you and sweeps a beam across the field.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(5.5, 9 - lv * 0.5),
@@ -289,12 +289,12 @@ export const SPELLS: Record<string, SpellDef> = {
       duration: 2 + lv * 0.15,      // seconds of sweep
       turns: lv >= 4 ? 1.5 : 1,
     }),
-    levelText: (lv) => (lv === 4 ? 'The gaze lingers, sweeping half again' : 'A longer, keener gaze'),
+    levelText: (lv) => (lv === 4 ? 'The beam sweeps half a turn farther' : 'Longer, wider beam'),
   },
   brand: {
     id: 'brand', name: 'Nightmare Brand', school: 'Maleficy',
     color: '#ff5a7a', color2: '#3d1020', icon: '⌖',
-    desc: 'Write a red name on the strongest thing on the field; the dream collects its debt.',
+    desc: 'Brand the toughest foe: it takes damage over time, then bursts when it dies.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(2.6, 4.6 - lv * 0.33),
@@ -303,12 +303,12 @@ export const SPELLS: Record<string, SpellDef> = {
       duration: 5 + lv * 0.25,
       count: 1 + (lv >= 3 ? 1 : 0) + (lv >= 6 ? 1 : 0),
     }),
-    levelText: (lv) => (lv === 3 || lv === 6 ? 'Another name is written' : 'A heavier debt'),
+    levelText: (lv) => (lv === 3 || lv === 6 ? 'Brand one more foe at once' : 'Heavier damage, bigger burst'),
   },
   ward: {
     id: 'ward', name: 'Somnal Ward', school: 'Aegis',
     color: '#8fb8ff', color2: '#e6f0ff', icon: '⛨',
-    desc: 'Panes of dream-glass wheel about you, drinking harm; when they break they shatter the horde outward.',
+    desc: 'Glass wards circle you and soak damage; when they shatter, they knock foes back.',
     maxLevel: 6, kind: 'defense',
     stats: (lv) => ({
       cooldown: 0,
@@ -318,12 +318,12 @@ export const SPELLS: Record<string, SpellDef> = {
       radius: 118 + lv * 12,                           // shatter reach
       knock: 240,
     }),
-    levelText: (lv) => (lv % 2 === 0 ? 'Tougher glass, wider shatter' : 'Swifter mending, shorter silence'),
+    levelText: (lv) => (lv % 2 === 0 ? 'Tougher glass, wider shatter' : 'Faster recharge, shorter downtime'),
   },
   hush: {
     id: 'hush', name: 'Hush', school: 'Lullaby',
     color: '#b7a7ff', color2: '#e9dcff', icon: '☾',
-    desc: 'A drowsy veil settles around you; all who wander in grow heavy-limbed, and each soft sigh pushes them back.',
+    desc: 'A quiet aura slows nearby foes, and pulses outward now and then to push them back.',
     maxLevel: 6, kind: 'defense',
     stats: (lv) => ({
       cooldown: 0,
@@ -333,12 +333,12 @@ export const SPELLS: Record<string, SpellDef> = {
       knock: 120 + lv * 16,              // the sigh's push
       interval: Math.max(1.3, 2.3 - lv * 0.14), // seconds between sighs
     }),
-    levelText: (lv) => (lv % 2 === 0 ? 'A wider, heavier hush' : 'Deeper drowse, quicker sighs'),
+    levelText: (lv) => (lv % 2 === 0 ? 'Wider aura, stronger slow' : 'Deeper slow, faster pulses'),
   },
   prism: {
     id: 'prism', name: 'Kaleidoscope', school: 'Chromamancy',
     color: '#f4c9ff', color2: '#9fffe0', icon: '◭',
-    desc: 'Hang a turning prism in the air; it tastes the dream’s light and spits rays at your foes.',
+    desc: 'Hang a prism that fires rays at nearby foes until it fades.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(5, 8.2 - lv * 0.55),
@@ -348,50 +348,50 @@ export const SPELLS: Record<string, SpellDef> = {
       range: 420,
       count: 1 + (lv >= 6 ? 1 : 0),
     }),
-    levelText: (lv) => (lv === 6 ? 'A second prism takes the air' : 'Faster, brighter refractions'),
+    levelText: (lv) => (lv === 6 ? 'A second prism takes the air' : 'Faster, brighter rays'),
   },
 };
 
 // evolutions: unlocked by raising a spell to max level, then choosing its
 // transcendent form on a later level-up
 export const EVOLVE: Record<string, { name: string; desc: string }> = {
-  ember: { name: 'Pyre Bloom', desc: 'Embers scorch the ground where they burst.' },
-  arcane: { name: 'Arcane Torrent', desc: 'Missiles splinter into seeking shards on impact.' },
-  frost: { name: 'Absolute Winter', desc: 'The bloom freezes foes solid where they stand.' },
-  storm: { name: 'Skyfracture', desc: 'Thunder leaps three chains farther, barely fading.' },
-  void: { name: 'Event Horizon', desc: 'The rift collapses in a hungry burst when it closes.' },
-  petals: { name: 'Wild Garden', desc: 'A second ring of petals waltzes against the first.' },
-  moon: { name: 'Eclipsing Lance', desc: 'Lances sweep across the field as they burn.' },
-  starfall: { name: 'Cosmic Ruin', desc: 'Fallen stars leave pools of burning starlight.' },
-  umbra: { name: 'Night’s Teeth', desc: 'Two more fangs, striking half again as hard.' },
-  glaive: { name: 'Star Sovereign', desc: 'Glaives burst into stardust as they return to you.' },
-  nebula: { name: 'Genesis Cloud', desc: 'The nebula grows vast and follows its maker.' },
-  sigil: { name: 'The Great Seal', desc: 'The rune sounds twice.' },
-  lantern: { name: 'Lantern Procession', desc: 'Lanterns burn far longer and pulse twice as fast.' },
-  nova: { name: 'Endless Dusk', desc: 'Each nova echoes a second wave.' },
-  wisps: { name: 'Choir Eternal', desc: 'Every eighth dart, the whole choir strikes one foe as a single chord.' },
-  serpent: { name: 'Leviathan of Sleep', desc: 'The serpent grows with every kill, up to twice its size and hunger.' },
-  chime: { name: 'The Last Hour', desc: 'The crescendo stops time — everything in the ring freezes mid-stride.' },
-  eye: { name: 'Aurora Crown', desc: 'A second gaze wheels against the first, and the light lingers on the ground.' },
-  brand: { name: 'The Devouring Name', desc: 'When a branded foe dies, the name leaps to three of its kin.' },
-  prism: { name: 'The Unblinking Prism', desc: 'Rays refract through their first victim into two splinters.' },
-  ward: { name: 'Looking-Glass Aegis', desc: 'The glass mends twice as fast, and each shatter throws back every enemy shot and veils you from harm for a moment.' },
-  hush: { name: 'Deep Hush', desc: 'The drowse deepens almost to sleep, and you mend life while you stand within your own quiet.' },
+  ember: { name: 'Pyre Bloom', desc: 'Bursts leave fire burning on the ground.' },
+  arcane: { name: 'Arcane Torrent', desc: 'On impact, missiles split into homing shards.' },
+  frost: { name: 'Absolute Winter', desc: 'The ring freezes foes solid instead of only slowing them.' },
+  storm: { name: 'Skyfracture', desc: 'Lightning leaps 3 more times and barely weakens.' },
+  void: { name: 'Event Horizon', desc: 'When the rift closes, it collapses in a damaging burst.' },
+  petals: { name: 'Wild Garden', desc: 'A second ring of petals spins the opposite way.' },
+  moon: { name: 'Eclipsing Lance', desc: 'Lances sweep sideways across the field as they burn.' },
+  starfall: { name: 'Cosmic Ruin', desc: 'Fallen stars leave burning pools of starlight.' },
+  umbra: { name: 'Night’s Teeth', desc: '+2 crescents, each striking 50% harder.' },
+  glaive: { name: 'Star Sovereign', desc: 'Returning glaives burst into damaging stardust.' },
+  nebula: { name: 'Genesis Cloud', desc: 'The cloud grows huge and follows you.' },
+  sigil: { name: 'The Great Seal', desc: 'The rune detonates twice.' },
+  lantern: { name: 'Lantern Procession', desc: 'Lanterns last far longer and pulse twice as fast.' },
+  nova: { name: 'Endless Dusk', desc: 'Each blast is followed by a second wave.' },
+  wisps: { name: 'Choir Eternal', desc: 'Every 8th dart, the whole choir strikes one foe at once.' },
+  serpent: { name: 'Leviathan of Sleep', desc: 'The serpent grows with every kill, up to twice its size and damage.' },
+  chime: { name: 'The Last Hour', desc: 'Every crescendo freezes all foes in the ring for a moment.' },
+  eye: { name: 'Aurora Crown', desc: 'A second beam sweeps the other way, and the light lingers on the ground.' },
+  brand: { name: 'The Devouring Name', desc: 'When a branded foe dies, the brand jumps to 3 nearby foes.' },
+  prism: { name: 'The Unblinking Prism', desc: 'Rays split through their first target into two more.' },
+  ward: { name: 'Looking-Glass Aegis', desc: 'Wards recharge twice as fast; each shatter reflects enemy shots and briefly shields you from all harm.' },
+  hush: { name: 'Deep Hush', desc: 'The slow deepens almost to a full stop, and you heal while standing in your aura.' },
 };
 
 export interface BoonDef { id: string; name: string; icon: string; desc: string; max: number }
 
 export const BOONS: Record<string, BoonDef> = {
-  power: { id: 'power', name: 'Lucid Focus', icon: '✦', desc: 'Your will sharpens — spells strike 12% harder.', max: 5 },
-  haste: { id: 'haste', name: 'Quickened Reverie', icon: '≋', desc: 'The dream hurries — spells cast 10% faster (diminishing).', max: 5 },
-  vitality: { id: 'vitality', name: 'Heartbloom', icon: '❤', desc: '+25 max life, and 25 life blooms back at once.', max: 5 },
-  swift: { id: 'swift', name: 'Zephyr Step', icon: '➳', desc: 'The wind carries you 10% faster.', max: 4 },
-  magnet: { id: 'magnet', name: 'Dream Lure', icon: '◉', desc: 'Essence drifts to you from 45% farther away.', max: 4 },
-  regen: { id: 'regen', name: 'Moonmilk', icon: '☽', desc: 'Mend 1 life every 2 seconds.', max: 3 },
+  power: { id: 'power', name: 'Lucid Focus', icon: '✦', desc: 'Spells deal 12% more damage.', max: 5 },
+  haste: { id: 'haste', name: 'Quickened Reverie', icon: '≋', desc: 'Spells cast 10% faster (each stack adds less).', max: 5 },
+  vitality: { id: 'vitality', name: 'Heartbloom', icon: '❤', desc: '+25 max life, and restore 25 now.', max: 5 },
+  swift: { id: 'swift', name: 'Zephyr Step', icon: '➳', desc: 'Move 10% faster.', max: 4 },
+  magnet: { id: 'magnet', name: 'Dream Lure', icon: '◉', desc: 'Pull in essence from 45% farther away.', max: 4 },
+  regen: { id: 'regen', name: 'Moonmilk', icon: '☽', desc: 'Regenerate 1 life every 2 seconds.', max: 3 },
 };
 
 export const GENERIC: Record<string, BoonDef> = {
-  power: { id: 'power', name: 'Arcane Amplification', icon: '✴', desc: 'Every spell you hold strikes 10% harder.', max: Infinity },
-  aoe: { id: 'aoe', name: 'Expanding Reverie', icon: '◎', desc: 'Every area of effect widens by 10%.', max: Infinity },
-  vital: { id: 'vital', name: 'Dream Fortitude', icon: '⬡', desc: '+15 max life, and 15 life restored now.', max: Infinity },
+  power: { id: 'power', name: 'Arcane Amplification', icon: '✴', desc: 'Every spell deals 10% more damage.', max: Infinity },
+  aoe: { id: 'aoe', name: 'Expanding Reverie', icon: '◎', desc: 'Every area of effect grows 10% larger.', max: Infinity },
+  vital: { id: 'vital', name: 'Dream Fortitude', icon: '⬡', desc: '+15 max life, and restore 15 now.', max: Infinity },
 };

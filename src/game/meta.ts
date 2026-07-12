@@ -137,52 +137,52 @@ const THEMES: Theme[] = [
       S('Ember Thought', '+3% spell damage', { dmg: 3 }),
       S('Cruel Glint', '+2% critical chance', { crit: 2 }),
       S('Sharpened Dream', '+4% spell damage', { dmg: 4 }),
-      S('Wicked Edge', 'Crits deal +8% more', { critDmg: 8 }),
+      S('Wicked Edge', '+8% critical damage', { critDmg: 8 }),
     ],
     notables: [
       S('Kindled Will', '+12% spell damage', { dmg: 12 }),
-      S('Red Portent', '+6% crit chance, crits deal +15% more', { crit: 6, critDmg: 15 }),
+      S('Red Portent', '+6% crit chance, +15% critical damage', { crit: 6, critDmg: 15 }),
     ],
     clusters: [
       {
-        name: 'Bloodmoon', notable: S('Bloodmoon', '+8% crit chance, crits deal +35% more', { crit: 8, critDmg: 35 }),
-        smalls: [S('Red Sliver', '+3% critical chance', { crit: 3 }), S('Moon Scar', 'Crits deal +10% more', { critDmg: 10 }), S('Ember Thought', '+4% spell damage', { dmg: 4 })],
+        name: 'Bloodmoon', notable: S('Bloodmoon', '+8% crit chance, +35% critical damage', { crit: 8, critDmg: 35 }),
+        smalls: [S('Red Sliver', '+3% critical chance', { crit: 3 }), S('Moon Scar', '+10% critical damage', { critDmg: 10 }), S('Ember Thought', '+4% spell damage', { dmg: 4 })],
       },
       {
-        name: 'Butcher’s Dream', notable: S('Butcher’s Dream', 'Crits deal +40% more', { critDmg: 40 }),
-        smalls: [S('Keen Fang', 'Crits deal +12% more', { critDmg: 12 }), S('Cruel Glint', '+3% critical chance', { crit: 3 }), S('Sharpened Dream', '+4% spell damage', { dmg: 4 })],
+        name: 'Butcher’s Dream', notable: S('Butcher’s Dream', '+40% critical damage', { critDmg: 40 }),
+        smalls: [S('Keen Fang', '+12% critical damage', { critDmg: 12 }), S('Cruel Glint', '+3% critical chance', { crit: 3 }), S('Sharpened Dream', '+4% spell damage', { dmg: 4 })],
       },
       {
         name: 'Warlike Reverie', notable: S('Warlike Reverie', '+18% spell damage', { dmg: 18 }),
         smalls: [S('Deep Focus', '+5% spell damage', { dmg: 5 }), S('Kindled Ember', '+5% spell damage', { dmg: 5 }), S('War Whisper', '+2% crit chance, +3% damage', { crit: 2, dmg: 3 })],
       },
     ],
-    keystone: S('Overmind', 'Multi-shot spells fire +1 projectile', { extraCount: 1 }),
+    keystone: S('Overmind', 'Spells that fire several projectiles fire one more', { extraCount: 1 }),
   },
   {
     key: 'tempo', label: 'Haste',
     travel: [
-      S('Quick Breath', '+3% spell haste', { cast: 3 }),
+      S('Quick Breath', '+3% cast speed', { cast: 3 }),
       S('Feather Step', '+2% move speed', { speed: 2 }),
-      S('Restless Sleep', '+3% spell haste', { cast: 3 }),
+      S('Restless Sleep', '+3% cast speed', { cast: 3 }),
       S('Light Feet', '+3% move speed', { speed: 3 }),
     ],
     notables: [
-      S('Racing Pulse', '+10% spell haste', { cast: 10 }),
-      S('Slipstream', '+6% move speed, +5% spell haste', { speed: 6, cast: 5 }),
+      S('Racing Pulse', '+10% cast speed', { cast: 10 }),
+      S('Slipstream', '+6% move speed, +5% cast speed', { speed: 6, cast: 5 }),
     ],
     clusters: [
       {
-        name: 'Timeweaver', notable: S('Timeweaver', '+15% spell haste', { cast: 15 }),
-        smalls: [S('Loose Thread', '+4% spell haste', { cast: 4 }), S('Quick Stitch', '+4% spell haste', { cast: 4 }), S('Feather Step', '+3% move speed', { speed: 3 })],
+        name: 'Timeweaver', notable: S('Timeweaver', '+15% cast speed', { cast: 15 }),
+        smalls: [S('Loose Thread', '+4% cast speed', { cast: 4 }), S('Quick Stitch', '+4% cast speed', { cast: 4 }), S('Feather Step', '+3% move speed', { speed: 3 })],
       },
       {
         name: 'Gale Stride', notable: S('Gale Stride', '+10% move speed', { speed: 10 }),
-        smalls: [S('Wind at Heel', '+4% move speed', { speed: 4 }), S('Light Feet', '+3% move speed', { speed: 3 }), S('Quick Breath', '+4% spell haste', { cast: 4 })],
+        smalls: [S('Wind at Heel', '+4% move speed', { speed: 4 }), S('Light Feet', '+3% move speed', { speed: 3 }), S('Quick Breath', '+4% cast speed', { cast: 4 })],
       },
       {
-        name: 'Heartbeat of the Deep', notable: S('Heartbeat of the Deep', '+12% spell haste, +4% move speed', { cast: 12, speed: 4 }),
-        smalls: [S('Tidal Rhythm', '+4% spell haste', { cast: 4 }), S('Racing Thought', '+4% spell haste', { cast: 4 }), S('Restless Sleep', '+3% spell haste', { cast: 3 })],
+        name: 'Heartbeat of the Deep', notable: S('Heartbeat of the Deep', '+12% cast speed, +4% move speed', { cast: 12, speed: 4 }),
+        smalls: [S('Tidal Rhythm', '+4% cast speed', { cast: 4 }), S('Racing Thought', '+4% cast speed', { cast: 4 }), S('Restless Sleep', '+3% cast speed', { cast: 3 })],
       },
     ],
     keystone: S('Echoing Thought', '10% chance to cast every spell twice', { echo: 10 }),
@@ -230,7 +230,7 @@ const THEMES: Theme[] = [
     ],
     clusters: [
       {
-        name: 'Dreamsurge', notable: S('Dreamsurge', '+8% chance to every kind of surge', { surgeAll: 8 }),
+        name: 'Dreamsurge', notable: S('Dreamsurge', '+8% chance to trigger every kind of surge', { surgeAll: 8 }),
         smalls: [S('Rising Swell', '+6% power surge chance', { surgeDmg: 6 }), S('Second Ripple', '+6% swiftness surge chance', { surgeSpeed: 6 }), S('Quickwater', '+6% haste surge chance', { surgeHaste: 6 })],
       },
       {
@@ -242,32 +242,32 @@ const THEMES: Theme[] = [
         smalls: [S('Swelling Dream', '+6% area surge chance', { surgeAoe: 6 }), S('Moonpull', '+7% pickup surge chance', { surgeMagnet: 7 }), S('Foam Trail', '+5% swiftness surge chance', { surgeSpeed: 5 })],
       },
     ],
-    keystone: S('Perpetual Tide', 'Surges last 3 seconds longer', { surgeDur: 3 }),
+    keystone: S('Perpetual Tide', 'Surges last 3 seconds longer (4s → 7s)', { surgeDur: 3 }),
   },
   {
     key: 'gleaning', label: 'Harvest',
     travel: [
       S('Gleaner', '+3% essence gained', { xp: 3 }),
-      S('Spare Dreams', '+3% bonus orb chance', { extraGem: 3 }),
+      S('Spare Dreams', '+3% bonus essence orb chance', { extraGem: 3 }),
       S('Keen Eye', '+3% essence gained', { xp: 3 }),
-      S('Scattered Sleep', '+3% bonus orb chance', { extraGem: 3 }),
+      S('Scattered Sleep', '+3% bonus essence orb chance', { extraGem: 3 }),
     ],
     notables: [
-      S('Bountiful Sleep', '+10% bonus orb chance', { extraGem: 10 }),
-      S('Harvest of Sighs', '+8% bonus orb chance, +6% essence gained', { extraGem: 8, xp: 6 }),
+      S('Bountiful Sleep', '+10% bonus essence orb chance', { extraGem: 10 }),
+      S('Harvest of Sighs', '+8% bonus essence orb chance, +6% essence gained', { extraGem: 8, xp: 6 }),
     ],
     clusters: [
       {
         name: 'Confluence', notable: S('Confluence', 'Essence orbs that drift together merge into one brighter orb', { gemMerge: 1 }),
-        smalls: [S('Braided Light', '+4% essence gained', { xp: 4 }), S('Gleaner', '+4% essence gained', { xp: 4 }), S('Spare Dreams', '+4% bonus orb chance', { extraGem: 4 })],
+        smalls: [S('Braided Light', '+4% essence gained', { xp: 4 }), S('Gleaner', '+4% essence gained', { xp: 4 }), S('Spare Dreams', '+4% bonus essence orb chance', { extraGem: 4 })],
       },
       {
-        name: 'Tithe of Night', notable: S('Tithe of Night', '+12% bonus orb chance', { extraGem: 12 }),
-        smalls: [S('Night Offering', '+4% bonus orb chance', { extraGem: 4 }), S('Scattered Sleep', '+4% bonus orb chance', { extraGem: 4 }), S('Keen Eye', '+4% essence gained', { xp: 4 })],
+        name: 'Tithe of Night', notable: S('Tithe of Night', '+12% bonus essence orb chance', { extraGem: 12 }),
+        smalls: [S('Night Offering', '+4% bonus essence orb chance', { extraGem: 4 }), S('Scattered Sleep', '+4% bonus essence orb chance', { extraGem: 4 }), S('Keen Eye', '+4% essence gained', { xp: 4 })],
       },
       {
         name: 'Field of Sighs', notable: S('Field of Sighs', '+12% essence gained', { xp: 12 }),
-        smalls: [S('Quiet Reaping', '+4% essence gained', { xp: 4 }), S('Gleaner', '+4% essence gained', { xp: 4 }), S('Dream Sheaf', '+3% essence, +3% orb chance', { xp: 3, extraGem: 3 })],
+        smalls: [S('Quiet Reaping', '+4% essence gained', { xp: 4 }), S('Gleaner', '+4% essence gained', { xp: 4 }), S('Dream Sheaf', '+3% essence gained, +3% bonus essence orb chance', { xp: 3, extraGem: 3 })],
       },
     ],
     keystone: S('Golden Dream', 'Golden wisps visit twice as often', { golden: 1 }),
@@ -306,23 +306,23 @@ const THEMES: Theme[] = [
       S('Warm Blood', '+8 max life', { hp: 8 }),
       S('Thick Skin', '+10 max life', { hp: 10 }),
       S('Deep Roots', '+8 max life', { hp: 8 }),
-      S('Dewdrop', 'Mend 1 life every 4s', { regen: 0.5 }),
+      S('Dewdrop', 'Regenerate 1 life every 4s', { regen: 0.5 }),
     ],
     notables: [
       S('Heartroot', '+30 max life', { hp: 30 }),
-      S('Evergreen Sleep', '+20 max life · mend 1 more life every 2s', { hp: 20, regen: 1 }),
+      S('Evergreen Sleep', '+20 max life · regenerate 1 more life every 2s', { hp: 20, regen: 1 }),
     ],
     clusters: [
       {
-        name: 'Moonmilk Vein', notable: S('Moonmilk Vein', '+15 max life · mend 2 more life every 2s', { regen: 2, hp: 15 }),
-        smalls: [S('Milk Drop', 'Mend 1 life every 4s', { regen: 0.5 }), S('Warm Blood', '+10 max life', { hp: 10 }), S('Dewdrop', 'Mend 1 life every 4s', { regen: 0.5 })],
+        name: 'Moonmilk Vein', notable: S('Moonmilk Vein', '+15 max life · regenerate 2 more life every 2s', { regen: 2, hp: 15 }),
+        smalls: [S('Milk Drop', 'Regenerate 1 life every 4s', { regen: 0.5 }), S('Warm Blood', '+10 max life', { hp: 10 }), S('Dewdrop', 'Regenerate 1 life every 4s', { regen: 0.5 })],
       },
       {
         name: 'Heart of the Dream', notable: S('Heart of the Dream', '+40 max life', { hp: 40 }),
         smalls: [S('Heartwood', '+12 max life', { hp: 12 }), S('Deep Roots', '+10 max life', { hp: 10 }), S('Thick Skin', '+10 max life', { hp: 10 })],
       },
       {
-        name: 'Old Growth', notable: S('Old Growth', '+25 max life · mend 1 more life every 2s', { hp: 25, regen: 1 }),
+        name: 'Old Growth', notable: S('Old Growth', '+25 max life · regenerate 1 more life every 2s', { hp: 25, regen: 1 }),
         smalls: [S('Ring of Years', '+12 max life', { hp: 12 }), S('Warm Blood', '+10 max life', { hp: 10 }), S('Deep Roots', '+10 max life', { hp: 10 })],
       },
     ],
@@ -331,19 +331,19 @@ const THEMES: Theme[] = [
   {
     key: 'fate', label: 'Fate',
     travel: [
-      S('Clear Sight', '+2% damage, +2% spell haste', { dmg: 2, cast: 2 }),
+      S('Clear Sight', '+2% damage, +2% cast speed', { dmg: 2, cast: 2 }),
       S('Dream Logic', '+3% essence gained', { xp: 3 }),
-      S('Woven Fate', '+2% area, +2% spell haste', { aoe: 2, cast: 2 }),
+      S('Woven Fate', '+2% area, +2% cast speed', { aoe: 2, cast: 2 }),
       S('Quiet Omen', '+2% damage, +2% area', { dmg: 2, aoe: 2 }),
     ],
     notables: [
       S('The Refused Dream', 'You may banish one level-up offer each dream', { banish: 1 }),
-      S('Woven Fate', '+6% damage, +6% spell haste', { dmg: 6, cast: 6 }),
+      S('Woven Fate', '+6% damage, +6% cast speed', { dmg: 6, cast: 6 }),
     ],
     clusters: [
       {
         name: 'Loom of Nights', notable: S('Loom of Nights', 'You may reroll one set of level-up choices each dream', { reroll: 1 }),
-        smalls: [S('Spindle', '+3% spell haste', { cast: 3 }), S('Thread of Dawn', '+3% essence gained', { xp: 3 }), S('Clear Sight', '+2% damage, +2% haste', { dmg: 2, cast: 2 })],
+        smalls: [S('Spindle', '+3% cast speed', { cast: 3 }), S('Thread of Dawn', '+3% essence gained', { xp: 3 }), S('Clear Sight', '+2% damage, +2% cast speed', { dmg: 2, cast: 2 })],
       },
       {
         name: 'The Second Refusal', notable: S('The Second Refusal', 'You may banish one more offer each dream', { banish: 1 }),
@@ -351,7 +351,7 @@ const THEMES: Theme[] = [
       },
       {
         name: 'Turning Page', notable: S('Turning Page', 'You may reroll one more set of choices each dream', { reroll: 1 }),
-        smalls: [S('Dog-ear', '+3% essence gained', { xp: 3 }), S('Margin Note', '+2% damage, +2% haste', { dmg: 2, cast: 2 }), S('Woven Fate', '+2% area, +2% haste', { aoe: 2, cast: 2 })],
+        smalls: [S('Dog-ear', '+3% essence gained', { xp: 3 }), S('Margin Note', '+2% damage, +2% cast speed', { dmg: 2, cast: 2 }), S('Woven Fate', '+2% area, +2% cast speed', { aoe: 2, cast: 2 })],
       },
     ],
     keystone: S('Fourfold Path', 'Level-ups offer a fourth choice', { fourfold: 1 }),
@@ -361,7 +361,7 @@ const THEMES: Theme[] = [
 // tiny mixed travel stats for rings & the outer polygon (PoE's "attributes")
 const GEN: Stat[] = [
   S('Faint Ember', '+2% spell damage', { dmg: 2 }),
-  S('Silver Wisp', '+2% spell haste', { cast: 2 }),
+  S('Silver Wisp', '+2% cast speed', { cast: 2 }),
   S('Pale Halo', '+2% area of effect', { aoe: 2 }),
   S('Dewlight', '+8 max life', { hp: 8 }),
   S('Moth Dust', '+6% pickup radius', { magnet: 6 }),
@@ -371,7 +371,7 @@ const GEN: Stat[] = [
 ];
 const POLY: Stat[] = [
   S('Wayfarer’s Ember', '+3% spell damage', { dmg: 3 }),
-  S('Wayfarer’s Breath', '+3% spell haste', { cast: 3 }),
+  S('Wayfarer’s Breath', '+3% cast speed', { cast: 3 }),
   S('Wayfarer’s Halo', '+3% area of effect', { aoe: 3 }),
   S('Wayfarer’s Blood', '+12 max life', { hp: 12 }),
   S('Wayfarer’s Lure', '+8% pickup radius', { magnet: 8 }),
@@ -543,7 +543,7 @@ for (let i = 0; i < NSPOKE; i++) {
 const GAP_CHAINS: { id: string; steps: Stat[]; end: Stat }[] = [
   { id: 'ssA', steps: [S('Open Palm', '+3% area of effect', { aoe: 3 }), S('Open Mind', '+3% spell damage', { dmg: 3 })], end: S('Unbound Firmament', '+1 spell slot — hold one more spell at once', { spellSlots: 1 }) },
   { id: 'ssB', steps: [S('Open Door', '+3% essence gained', { xp: 3 }), S('Open Sky', '+8% pickup radius', { magnet: 8 })], end: S('Boundless Reverie', '+1 spell slot — hold one more spell at once', { spellSlots: 1 }) },
-  { id: 'ssC', steps: [S('Open Book', '+3% spell haste', { cast: 3 }), S('Open Heart', '+10 max life', { hp: 10 })], end: S('Widening Loom', '+1 spell slot — hold one more spell at once', { spellSlots: 1 }) },
+  { id: 'ssC', steps: [S('Open Book', '+3% cast speed', { cast: 3 }), S('Open Heart', '+10 max life', { hp: 10 })], end: S('Widening Loom', '+1 spell slot — hold one more spell at once', { spellSlots: 1 }) },
   { id: 'ssD', steps: [S('Loose Change', '+3% essence gained', { xp: 3 }), S('Silver Tongue', '+6% pickup radius', { magnet: 6 })], end: S('The Quiet Bargain', '+15% stardust earned', { dust: 15 }) },
 ];
 {
@@ -608,7 +608,7 @@ const MEDIUMS: Record<string, MediumDef[]> = {
     { n: 'Tight Carpet', d: 'Embers fall in a tighter, overlapping carpet.', special: { carpet: 1 } },
   ],
   frost: [
-    { n: 'Creeping Cold', d: 'Even bosses feel the bloom’s chill, at half strength.', special: { bossChill: 1 } },
+    { n: 'Creeping Cold', d: 'Bosses can be slowed too, at half strength.', special: { bossChill: 1 } },
     { n: 'Brittle Dreams', d: 'Slowed foes take 15% more damage from everything.', special: { chillAmp: 15 } },
   ],
   storm: [
@@ -617,7 +617,7 @@ const MEDIUMS: Record<string, MediumDef[]> = {
   ],
   void: [
     { n: 'Deeper Hunger', d: 'Rifts pull 50% harder.', special: { pull: 50 } },
-    { n: 'Inevitable Gravity', d: 'Even bosses are dragged toward the rift.', special: { bossPull: 1 } },
+    { n: 'Inevitable Gravity', d: 'Bosses are pulled toward the rift too.', special: { bossPull: 1 } },
   ],
   petals: [
     { n: 'Mirror Waltz', d: 'Petals bat enemy shots back the way they came (10% chance).', special: { reflect: 10 } },
@@ -640,7 +640,7 @@ const MEDIUMS: Record<string, MediumDef[]> = {
     { n: 'Razor Cycle', d: 'Glaives can strike the same foe far more often.', special: { fastHit: 1 } },
   ],
   nebula: [
-    { n: 'Whispering Mist', d: 'The cloud slows foes wandering inside it.', special: { slowIn: 25 } },
+    { n: 'Whispering Mist', d: 'The cloud slows foes inside it.', special: { slowIn: 25 } },
     { n: 'Newborn Heart', d: 'The cloud’s dense heart deals double damage.', special: { core: 1 } },
   ],
   sigil: [
@@ -653,7 +653,7 @@ const MEDIUMS: Record<string, MediumDef[]> = {
   ],
   nova: [
     { n: 'Riptide Dusk', d: 'Nova knockback +60%.', special: { knock: 60 } },
-    { n: 'Dissolving Dusk', d: 'The wave unmakes enemy shots it washes over (10% chance).', special: { dissolve: 10 } },
+    { n: 'Dissolving Dusk', d: 'The wave destroys enemy shots it passes over (10% chance).', special: { dissolve: 10 } },
   ],
   wisps: [
     { n: 'Fourth Voice', d: '+1 wisp joins the choir.', scount: 1 },
@@ -668,11 +668,11 @@ const MEDIUMS: Record<string, MediumDef[]> = {
     { n: 'Struck Silver', d: 'The crescendo briefly stuns all it touches.', special: { stun: 1 } },
   ],
   eye: [
-    { n: 'Slow Dawn', d: 'The gaze sweeps an extra half-turn.', special: { turns: 1 } },
-    { n: 'Blinding Light', d: 'The gaze’s first touch staggers its victim.', special: { stun: 1 } },
+    { n: 'Slow Dawn', d: 'The beam sweeps an extra half-turn.', special: { turns: 1 } },
+    { n: 'Blinding Light', d: 'The beam’s first touch staggers foes.', special: { stun: 1 } },
   ],
   brand: [
-    { n: 'Old Grudge', d: 'The name is written 2 seconds longer.', special: { vigil: 2 } },
+    { n: 'Old Grudge', d: 'The brand lasts 2 seconds longer.', special: { vigil: 2 } },
     { n: 'Written in Ash', d: 'Branded foes take 10% more damage from everything.', special: { ash: 10 } },
   ],
   prism: [
@@ -680,12 +680,12 @@ const MEDIUMS: Record<string, MediumDef[]> = {
     { n: 'Patient Light', d: 'The prism hangs in the air 2 seconds longer.', special: { vigil: 2 } },
   ],
   ward: [
-    { n: 'Bright Facets', d: 'The glass drinks a third more harm before it breaks.', special: { temper: 33 } },
-    { n: 'Answering Glass', d: 'Even bosses are hurled back when the ward shatters.', special: { bossKnock: 1 } },
+    { n: 'Bright Facets', d: 'Wards soak a third more damage before they break.', special: { temper: 33 } },
+    { n: 'Answering Glass', d: 'Bosses are knocked back by the shatter too.', special: { bossKnock: 1 } },
   ],
   hush: [
-    { n: 'Leaden Limbs', d: 'The hush weighs a third heavier on all it holds.', special: { leaden: 33 } },
-    { n: 'Distant Dreaming', d: 'Each sigh throws the horde far and staggers it.', special: { stun: 1 } },
+    { n: 'Leaden Limbs', d: 'The slow is a third stronger.', special: { leaden: 33 } },
+    { n: 'Distant Dreaming', d: 'Each pulse throws foes farther and staggers them.', special: { stun: 1 } },
   ],
 };
 
@@ -848,7 +848,7 @@ const CLUSTER_ORDER = [
     // instead read as strength / quickening / radius / hold and are folded onto
     // the ward's shield & mending (see Engine.spellStats)
     const dmgWord = isDef ? 'strength' : 'damage';
-    const cdWord = isDef ? 'quickens' : 'haste';
+    const cdWord = isDef ? 'recharge' : 'cast speed';
     const aoeWord = isDef ? 'radius' : 'area';
     const durWord = isDef ? 'hold' : 'duration';
     const smallTpl = [
@@ -864,9 +864,9 @@ const CLUSTER_ORDER = [
     world.forEach((pt, i) => {
       let def: { kind: NodeKind; name: string; desc: string; fx: Record<string, any> };
       if (i === spec.roles.entry) {
-        def = { kind: 'small', name: `Dream of ${s.name}`, desc: `${s.name} appears far more often among your level-up choices.`, fx: { spell: spellId, weight: 1 } };
+        def = { kind: 'small', name: `Dream of ${s.name}`, desc: `${s.name} appears more often in your level-up choices.`, fx: { spell: spellId, weight: 1 } };
       } else if (i === spec.roles.evo) {
-        def = { kind: 'keystone', name: EVOLVE[spellId].name, desc: `Unlock ${s.name}'s evolution — ${EVOLVE[spellId].desc}`, fx: { spell: spellId, evo: 1 } };
+        def = { kind: 'keystone', name: EVOLVE[spellId].name, desc: `Unlock ${s.name}'s evolution: ${EVOLVE[spellId].desc}`, fx: { spell: spellId, evo: 1 } };
       } else if (i === spec.roles.start) {
         def = spellId === LOADOUT_BASE
           ? { kind: 'notable', name: `Waking ${s.icon}`, desc: `Begin every dream with ${s.name} one level stronger.`, fx: { spell: spellId, startLv: 1 } }
