@@ -122,6 +122,11 @@ export default function App() {
   // gesture that opens the AudioContext, so the menu ambience starts breathing
   // on the very first interaction.
   useEffect(() => {
+    // Try to open the audio context right away. On the Tauri desktop build
+    // (WebView2 launched with --autoplay-policy=no-user-gesture-required) this
+    // starts the menu ambience instantly; in the browser it stays suspended
+    // and the first pointerdown below resumes it, per autoplay policy.
+    audio.resume();
     const onDown = (ev: PointerEvent) => {
       audio.userGesture();
       if ((ev.target as HTMLElement).closest?.('button')) audio.uiClick();
