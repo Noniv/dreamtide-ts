@@ -815,8 +815,11 @@ export class Engine {
       * (this.relics.has('anchor') && this.standT >= 0.8 ? 1.25 : 1);
   }
   cdMul() {
-    const haste = (this.player.boons.haste || 0) * 10 + (this.meta.cast || 0) + (this.surges.haste > 0 ? 30 : 0) + this.pact.haste;
-    return 1 / (1 + haste / 100);
+    const haste = (this.player.boons.haste || 0) * 10 + (this.meta.cast || 0) + this.pact.haste;
+    // the surge is multiplicative like every other surge: 30% MORE cast speed on
+    // top of whatever haste is already stacked, not a flat +30 points into the sum
+    const surge = this.surges.haste > 0 ? 1.3 : 1;
+    return 1 / ((1 + haste / 100) * surge);
   }
   magnetR() {
     // combined pull with a soft cap: the first stacks land in full, everything
@@ -824,10 +827,9 @@ export class Engine {
     const mul = (1 + 0.45 * (this.player.boons.magnet || 0)) * this.player.metaMagnet * (this.surges.magnet > 0 ? 1.6 : 1);
     return 90 * (mul <= 2 ? mul : 2 * Math.pow(mul / 2, 0.4));
   }
-  // tree "area of effect" nodes grow the covered AREA by their %, so they enter
-  // as sqrt (a +100% area node = x1.41 radius, exactly double the footprint).
-  // The run boon, surge and pact still scale radius directly.
-  aoeMul() { return (1 + 0.1 * this.player.genericAoe) * Math.sqrt(1 + (this.meta.aoe || 0) / 100) * (this.surges.aoe > 0 ? 1.3 : 1) * (1 + this.pact.aoe / 100); }
+  // every AoE source — the tree's "area of effect" nodes, the run boon, surge
+  // and pact — scales the spell's radius directly.
+  aoeMul() { return (1 + 0.1 * this.player.genericAoe) * (1 + (this.meta.aoe || 0) / 100) * (this.surges.aoe > 0 ? 1.3 : 1) * (1 + this.pact.aoe / 100); }
   // resonance marks last longer under the Prism Heart
   markDur(base: number) { return base * (this.relics.has('prismheart') ? 2 : 1); }
   // bonus stardust that keeps pace with the run — a flat "+10" reads as an
@@ -1406,20 +1408,13 @@ export class Engine {
     // Where the newcomer tears into the dream:
     //   bosses  — already on-screen, but hugging the very edges: a nightmare you
     //             see arrive, never one that blooms in your lap
-    //   elites  — on-screen too, out near the rim, giving room to read them
-    //   ambush  — the deep-endgame claw-in stays on-screen, but out toward the
-    //             edges rather than right on top of the dreamer
-    //   trash   — just beyond the visible rectangle, streaming inward as before
+    //   everyone else (elites + trash) — just beyond the visible rectangle,
+    //             streaming inward. Nothing but a boss ever spawns in view, so a
+    //             foe can never simply pop into being on top of the dreamer.
     const offscreen = Math.hypot(this.cam.w, this.cam.h) * 0.5;
     let sx: number, sy: number;
     if (boss) {
       const pt = this.visibleEdgePoint(ang, 0.86, 1.0, 70);
-      sx = pt.x; sy = pt.y;
-    } else if (elite) {
-      const pt = this.visibleEdgePoint(ang, 0.62, 0.94, 60);
-      sx = pt.x; sy = pt.y;
-    } else if (d.esc > 2 && Math.random() < Math.min(0.42, (d.esc - 2) * 0.038)) {
-      const pt = this.visibleEdgePoint(ang, 0.55, 0.9, 50);
       sx = pt.x; sy = pt.y;
     } else {
       const R = offscreen + 80;

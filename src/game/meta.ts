@@ -847,8 +847,7 @@ const CLUSTER_ORDER = [
     // defensive spells have no "damage"; the same mote slots (sdmg/scd/saoe/sdur)
     // instead read as strength / quickening / radius / hold and are folded onto
     // the ward's shield & mending (see Engine.spellStats).
-    // saoe scales the spell's RADIUS directly (unlike the generic tree's "area
-    // of effect" nodes, which grow the area), so every cluster mote says radius.
+    // saoe scales the spell's radius directly, so every cluster mote says radius.
     const dmgWord = isDef ? 'strength' : 'damage';
     const cdWord = isDef ? 'recharge' : 'cast speed';
     const aoeWord = 'radius';
