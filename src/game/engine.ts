@@ -672,7 +672,7 @@ export class Engine {
 
   private onKeyDown = (e: KeyboardEvent) => {
     this.keys[e.key.toLowerCase()] = true;
-    if (e.key === ' ') e.preventDefault();
+    if (e.key === ' ' && !(e.target instanceof HTMLElement && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable))) e.preventDefault();
     if (e.key === 'Escape' && this.inRun && !this.player.dead && !this.levelUpActive && !this.relicChoiceActive && !this.pactActive) {
       this.paused = !this.paused;
       this.pushHud(true);
