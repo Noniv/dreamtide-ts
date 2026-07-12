@@ -482,6 +482,7 @@ export class Engine {
     // the player changes it in Settings.
     this.renderScale = settings.renderScale;
     settings.bindResolution((scale) => { this.renderScale = scale; this.resize(); });
+    settings.bindHdr((on) => this.world?.setHDR(on));
     // Canvas topology (bottom → top):
     //   world  (this.canvas, WebGPU) — background, zones, entities, particles,
     //                                  bloom — the entire game world
@@ -494,6 +495,7 @@ export class Engine {
     createWorldGPU(canvas).then((world) => {
       if (this.disposed) { world.dispose(); return; }
       this.world = world;
+      world.setHDR(settings.hdr);
       this.perf.gpuBackend = `webgpu (${world.adapterLabel})`;
       this.perf.layers = 2;
       this.resize();

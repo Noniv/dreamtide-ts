@@ -5,7 +5,7 @@ import { SPELLS, BOONS, GENERIC, EVOLVE } from './game/spells';
 import { RELICS, type PactDef } from './game/relics';
 import { SpellIcon, HAS_ICON } from './game/spellIcons';
 import { audio } from './game/audio';
-import { settings, RESOLUTION_OPTIONS, type Preset, type PerfPresets, type ResolutionScale } from './game/settings';
+import { settings, RESOLUTION_OPTIONS, hdrSupported, watchHdrSupport, type Preset, type PerfPresets, type ResolutionScale } from './game/settings';
 import { isNative, exitApp } from './game/nativeWindow';
 import {
   CONST_NODES, CONST_EDGES, DARK_NODES, DARK_EDGES, NODE_MAP, ADJACENT,
@@ -497,6 +497,8 @@ function Settings({ onClose }: { onClose: () => void }) {
   const [sfx, setSfx] = useState(settings.sfxVol);
   const [perf, setPerf] = useState<PerfPresets>({ ...settings.perf });
   const [res, setRes] = useState<ResolutionScale>(settings.resolution);
+  const [hdr, setHdr] = useState(settings.hdr);
+  const [hdrOk, setHdrOk] = useState(hdrSupported());
   const [dev, setDev] = useState(settings.devEndgame);
   const [devTree, setDevTree] = useState(settings.devFreeTree);
 
@@ -504,6 +506,11 @@ function Settings({ onClose }: { onClose: () => void }) {
   const changeSfx = (v: number) => { settings.setSfxVol(v); audio.setSfxVolume(v); setSfx(v); };
   const changePerf = (k: keyof PerfPresets, p: Preset) => { settings.setPerf(k, p); setPerf({ ...settings.perf }); };
   const changeRes = (v: ResolutionScale) => { settings.setResolution(v); setRes(v); };
+  const changeHdr = (v: boolean) => { settings.setHdr(v); setHdr(v); };
+
+  // track live HDR capability: flips when the player toggles Windows HDR while
+  // the settings panel is open.
+  useEffect(() => watchHdrSupport(setHdrOk), []);
   const changeDev = (v: boolean) => { settings.setDevEndgame(v); setDev(v); };
   const changeDevTree = (v: boolean) => { settings.setDevFreeTree(v); setDevTree(v); };
   const resetDefaults = () => {
@@ -514,6 +521,7 @@ function Settings({ onClose }: { onClose: () => void }) {
     setSfx(settings.sfxVol);
     setPerf({ ...settings.perf });
     setRes(settings.resolution);
+    setHdr(settings.hdr);
     setDev(settings.devEndgame);
     setDevTree(settings.devFreeTree);
   };
@@ -561,6 +569,20 @@ function Settings({ onClose }: { onClose: () => void }) {
                     {Math.round(v * 100)}%
                   </button>
                 ))}
+              </div>
+            </div>
+            <div className="set-row" style={hdrOk ? undefined : { opacity: 0.5 }}>
+              <div className="set-label">
+                <span className="set-name">HDR</span>
+                <span className="set-hint">
+                  {hdrOk
+                    ? 'Let bright spells bloom past white into your display’s headroom'
+                    : 'No HDR display detected — turn on “Use HDR” in Windows display settings'}
+                </span>
+              </div>
+              <div className="preset-group">
+                <button className={`preset-btn ${!hdr ? 'active' : ''}`} onClick={() => changeHdr(false)}>Off</button>
+                <button className={`preset-btn ${hdr ? 'active' : ''}`} disabled={!hdrOk} onClick={() => changeHdr(true)}>On</button>
               </div>
             </div>
           </section>

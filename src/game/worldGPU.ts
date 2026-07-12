@@ -26,6 +26,7 @@
 // WebGPU is REQUIRED — there is no fallback renderer.
 
 import { getAtlas, type Atlas, type AtlasEntry } from './enemySprites';
+import { hdrSupported } from './settings';
 
 export const FLOATS_PER_QUAD = 16;
 const MAX_QUADS = 16384; // entities + particles ceiling, with headroom
@@ -404,6 +405,7 @@ struct U {
   shake: f32,
   cam: vec2<f32>,
   res: vec2<f32>,
+  hdr: f32,              // >0.5 → present in HDR (extended-range highlights)
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var samp: sampler;
@@ -475,13 +477,20 @@ fn composite_fs(in: FSIn) -> @location(0) vec4<f32> {
   var c = textureSampleLevel(src, samp, in.uv, 0.0).rgb;
   let bloom = textureSampleLevel(bloomTex, samp, in.uv, 0.0).rgb;
   c += bloom * 0.62;
-  // Shoulder-only tonemap: IDENTITY below the knee so sprites keep their full
-  // contrast against the dark sky; only the overbright range (stacked additive
-  // effects, HDR values past ~0.72 luma) is compressed toward white.
-  let luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  let e = max(luma - 0.72, 0.0);
-  let lumaC = min(luma, 0.72) + e / (1.0 + e * 3.0);
-  c *= lumaC / max(luma, 1e-4);
+  if (u.hdr > 0.5) {
+    // HDR present: 1.0 is SDR white and brighter pixels drive into the display's
+    // headroom instead of compressing to white. Cap the headroom (~+2.6 stops)
+    // so stacked additive bursts stay a highlight, not a floodlight.
+    c = min(c, vec3<f32>(6.0));
+  } else {
+    // Shoulder-only tonemap: IDENTITY below the knee so sprites keep their full
+    // contrast against the dark sky; only the overbright range (stacked additive
+    // effects, HDR values past ~0.72 luma) is compressed toward white.
+    let luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    let e = max(luma - 0.72, 0.0);
+    let lumaC = min(luma, 0.72) + e / (1.0 + e * 3.0);
+    c *= lumaC / max(luma, 1e-4);
+  }
   // vignette
   let dc = (in.uv - 0.5) * vec2(u.viewport.x / u.viewport.y, 1.0) * 1.35;
   let vig = 1.0 - smoothstep(0.52, 1.15, length(dc)) * 0.52;
@@ -499,6 +508,9 @@ export interface WorldGPU {
   readonly adapterLabel: string;
   resize(cssW: number, cssH: number, dpr: number, viewScale?: number): void;
   render(time: number, camX: number, camY: number, shapes: ShapeList, quads: QuadList, over?: ShapeList): void;
+  /** Switch HDR presentation on/off. Silently stays SDR if the display can't
+   *  do HDR right now. Returns whether HDR is actually active afterwards. */
+  setHDR(enabled: boolean): boolean;
   dispose(): void;
 }
 
@@ -510,6 +522,9 @@ class WorldGPUImpl implements WorldGPU {
   readonly adapterLabel: string;
   private ctx: GPUCanvasContext;
   private format: GPUTextureFormat;
+  private hdrActive = false;
+  private postModule!: GPUShaderModule;
+  private postPL!: GPUPipelineLayout;
 
   private pipeBG!: GPURenderPipeline;
   private pipeShape!: GPURenderPipeline;
@@ -523,7 +538,7 @@ class WorldGPUImpl implements WorldGPU {
   private sceneLayout!: GPUBindGroupLayout;
   private postLayout!: GPUBindGroupLayout;
   private uniBuf: GPUBuffer;
-  private uniData = new Float32Array(8);
+  private uniData = new Float32Array(12);
   private sampler: GPUSampler;
   private atlasTex: GPUTexture;
   private sceneBind!: GPUBindGroup;
@@ -568,7 +583,7 @@ class WorldGPUImpl implements WorldGPU {
     if (!ctx) throw new Error('could not create a WebGPU canvas context');
     this.ctx = ctx;
     this.format = navigator.gpu.getPreferredCanvasFormat();
-    this.ctx.configure({ device, format: this.format, alphaMode: 'opaque' });
+    this.configureCanvas();
 
     // atlas texture
     this.atlasTex = device.createTexture({
@@ -582,7 +597,7 @@ class WorldGPUImpl implements WorldGPU {
       [atlas.size, atlas.size],
     );
     this.sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
-    this.uniBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.uniBuf = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.quadBuf = device.createBuffer({ size: MAX_QUADS * FLOATS_PER_QUAD * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     this.shapeBuf = device.createBuffer({ size: MAX_SHAPES * FLOATS_PER_SHAPE * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     this.shapeOverBuf = device.createBuffer({ size: MAX_SHAPES * FLOATS_PER_SHAPE * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
@@ -612,6 +627,8 @@ class WorldGPUImpl implements WorldGPU {
     });
     const scenePL = device.createPipelineLayout({ bindGroupLayouts: [this.sceneLayout] });
     const postPL = device.createPipelineLayout({ bindGroupLayouts: [this.postLayout] });
+    this.postModule = postModule;
+    this.postPL = postPL;
 
     // premultiplied "over" blending: additive instances emit alpha 0, so a
     // single pipeline serves both source-over and lighter composition
@@ -689,7 +706,7 @@ class WorldGPUImpl implements WorldGPU {
       color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
       alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
     });
-    this.pipeComposite = mkPost('composite_fs', this.format);
+    this.buildComposite();
 
     this.sceneBind = device.createBindGroup({
       layout: this.sceneLayout,
@@ -699,6 +716,44 @@ class WorldGPUImpl implements WorldGPU {
         { binding: 2, resource: this.atlasTex.createView() },
       ],
     });
+  }
+
+  // (re)configure the swapchain for the current SDR/HDR mode. HDR uses an
+  // rgba16float canvas with extended tone mapping so highlights can exceed SDR
+  // white; SDR uses the preferred 8-bit format.
+  private configureCanvas() {
+    this.format = this.hdrActive ? 'rgba16float' : navigator.gpu.getPreferredCanvasFormat();
+    const config: GPUCanvasConfiguration = { device: this.device, format: this.format, alphaMode: 'opaque' };
+    // toneMapping is newer than these @webgpu/types; attach it untyped.
+    if (this.hdrActive) (config as { toneMapping?: { mode: string } }).toneMapping = { mode: 'extended' };
+    this.ctx.configure(config);
+  }
+
+  // Composite is the only pipeline whose target is the swapchain, so its format
+  // tracks SDR↔HDR and it is rebuilt whenever the mode changes.
+  private buildComposite() {
+    this.pipeComposite = this.device.createRenderPipeline({
+      layout: this.postPL,
+      vertex: { module: this.postModule, entryPoint: 'fs_vs' },
+      fragment: { module: this.postModule, entryPoint: 'composite_fs', targets: [{ format: this.format }] },
+      primitive: { topology: 'triangle-list' },
+    });
+  }
+
+  setHDR(enabled: boolean): boolean {
+    const active = enabled && hdrSupported();
+    if (active === this.hdrActive) return this.hdrActive;
+    this.hdrActive = active;
+    try {
+      this.configureCanvas();
+      this.buildComposite();
+    } catch (e) {
+      console.warn('[dreamtide] HDR presentation unavailable, staying SDR:', e);
+      this.hdrActive = false;
+      this.configureCanvas();
+      this.buildComposite();
+    }
+    return this.hdrActive;
   }
 
   resize(cssW: number, cssH: number, dpr: number, viewScale = 1) {
@@ -754,6 +809,7 @@ class WorldGPUImpl implements WorldGPU {
     u[2] = time; u[3] = this.viewScale;
     u[4] = camX; u[5] = camY;
     u[6] = this.texW; u[7] = this.texH;
+    u[8] = this.hdrActive ? 1 : 0;
     device.queue.writeBuffer(this.uniBuf, 0, u);
     if (quads.n > 0) device.queue.writeBuffer(this.quadBuf, 0, quads.data, 0, quads.n * FLOATS_PER_QUAD);
     if (shapes.n > 0) device.queue.writeBuffer(this.shapeBuf, 0, shapes.data, 0, shapes.n * FLOATS_PER_SHAPE);

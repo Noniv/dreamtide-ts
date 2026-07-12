@@ -48,6 +48,7 @@ export interface StoredSettings {
   sfxVol: number;     // 0..1
   perf: PerfPresets;
   resolution: ResolutionScale;
+  hdr: boolean;       // present the scene in HDR when the display supports it
   devEndgame: boolean; // dev-only: start runs in the endgame test scenario
   devFreeTree: boolean; // dev-only: constellation nodes cost nothing
 }
@@ -57,9 +58,27 @@ const DEFAULTS: StoredSettings = {
   sfxVol: 0.9,
   perf: { particles: 'medium', dmgText: 'medium', hpBars: 'medium' },
   resolution: 1,
+  hdr: false,
   devEndgame: false,
   devFreeTree: false,
 };
+
+// Whether the current display + OS are in HDR mode. `(dynamic-range: high)` is
+// true only when the monitor reports HDR capability AND HDR is switched on in
+// the OS (Windows "Use HDR"), so this doubles as the "is HDR usable right now"
+// check. Live: the media query fires `change` when the OS toggle flips.
+export function hdrSupported(): boolean {
+  try { return typeof matchMedia !== 'undefined' && matchMedia('(dynamic-range: high)').matches; }
+  catch { return false; }
+}
+
+export function watchHdrSupport(cb: (ok: boolean) => void): () => void {
+  if (typeof matchMedia === 'undefined') return () => {};
+  const mq = matchMedia('(dynamic-range: high)');
+  const handler = () => cb(mq.matches);
+  mq.addEventListener('change', handler);
+  return () => mq.removeEventListener('change', handler);
+}
 
 // Legacy: render scale used to live under its own key set from the old menu.
 // Honour it once so existing players keep their choice, snapped to the nearest
@@ -80,6 +99,7 @@ class Settings {
   sfxVol = DEFAULTS.sfxVol;
   perf: PerfPresets = { ...DEFAULTS.perf };
   resolution: ResolutionScale = DEFAULTS.resolution; // render scale, 0.5/0.75/1
+  hdr = DEFAULTS.hdr;
   devEndgame = DEFAULTS.devEndgame;
   devFreeTree = DEFAULTS.devFreeTree;
 
@@ -91,6 +111,7 @@ class Settings {
   hpBarCap = HP_BAR.medium;
 
   private onResolutionChange: ((scale: number) => void) | null = null;
+  private onHdrChange: ((on: boolean) => void) | null = null;
 
   constructor() {
     this.load();
@@ -110,6 +131,7 @@ class Settings {
         if (typeof d.sfxVol === 'number') this.sfxVol = clamp01(d.sfxVol);
         if (d.perf) this.perf = { ...DEFAULTS.perf, ...d.perf };
         if (d.resolution === 0.5 || d.resolution === 0.75 || d.resolution === 1) this.resolution = d.resolution;
+        if (typeof d.hdr === 'boolean') this.hdr = d.hdr;
         if (typeof d.devEndgame === 'boolean') this.devEndgame = d.devEndgame;
         if (typeof d.devFreeTree === 'boolean') this.devFreeTree = d.devFreeTree;
       } else {
@@ -121,7 +143,7 @@ class Settings {
 
   private save() {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({ musicVol: this.musicVol, sfxVol: this.sfxVol, perf: this.perf, resolution: this.resolution, devEndgame: this.devEndgame, devFreeTree: this.devFreeTree } satisfies StoredSettings));
+      localStorage.setItem(STORE_KEY, JSON.stringify({ musicVol: this.musicVol, sfxVol: this.sfxVol, perf: this.perf, resolution: this.resolution, hdr: this.hdr, devEndgame: this.devEndgame, devFreeTree: this.devFreeTree } satisfies StoredSettings));
     } catch { /* private mode */ }
   }
 
@@ -135,6 +157,15 @@ class Settings {
 
   setMusicVol(v: number) { this.musicVol = clamp01(v); this.save(); }
   setSfxVol(v: number) { this.sfxVol = clamp01(v); this.save(); }
+
+  // The engine registers this so an HDR change reconfigures the renderer.
+  bindHdr(cb: (on: boolean) => void) { this.onHdrChange = cb; }
+
+  setHdr(on: boolean) {
+    this.hdr = on;
+    this.save();
+    if (this.onHdrChange) this.onHdrChange(on);
+  }
   setDevEndgame(v: boolean) { this.devEndgame = v; this.save(); }
   setDevFreeTree(v: boolean) { this.devFreeTree = v; this.save(); }
 
@@ -160,11 +191,13 @@ class Settings {
     this.sfxVol = DEFAULTS.sfxVol;
     this.perf = { ...DEFAULTS.perf };
     this.resolution = DEFAULTS.resolution;
+    this.hdr = DEFAULTS.hdr;
     this.devEndgame = DEFAULTS.devEndgame;
     this.devFreeTree = DEFAULTS.devFreeTree;
     this.recompute();
     this.save();
     if (this.onResolutionChange) this.onResolutionChange(this.resolution);
+    if (this.onHdrChange) this.onHdrChange(this.hdr);
   }
 }
 
