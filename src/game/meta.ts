@@ -588,7 +588,7 @@ for (let t = 0; t < 8; t++) {
 // outer polygon, one slot per spell, spaced evenly however many there are —
 // twenty schools of the dream and counting.
 const AOE_SPELLS = [
-  'ember', 'frost', 'void', 'petals', 'moon', 'starfall', 'nebula', 'sigil', 'lantern', 'nova',
+  'ember', 'void', 'petals', 'moon', 'starfall', 'nebula', 'sigil', 'lantern', 'nova',
   'serpent', 'chime', 'eye', 'ward', 'hush',
 ];
 const DUR_SPELLS = [
@@ -608,8 +608,8 @@ const MEDIUMS: Record<string, MediumDef[]> = {
     { n: 'Tight Carpet', d: 'Embers fall in a tighter, overlapping carpet.', special: { carpet: 1 } },
   ],
   frost: [
-    { n: 'Creeping Cold', d: 'Bosses can be slowed too, at half strength.', special: { bossChill: 1 } },
-    { n: 'Brittle Dreams', d: 'Slowed foes take 15% more damage from everything.', special: { chillAmp: 15 } },
+    { n: 'Twin Rime', d: '+1 orbiting orb of cold.', scount: 1 },
+    { n: 'Brittle Dreams', d: 'Chilled foes take 15% more damage from everything.', special: { chillAmp: 15 } },
   ],
   storm: [
     { n: 'Longer Ladder', d: 'Lightning leaps one more time.', scount: 1 },

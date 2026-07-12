@@ -618,6 +618,15 @@ class AudioEngine {
     this.tone({ freq: vary(pent(15 + ((Math.random() * 5) | 0)), 0.01), type: 'sine', d: 0.05, peak: 0.018 * rg, pan, pri: 0 });
   }
 
+  // Rimeheart's Winterloom shard: a brittle glassy tick with a whisper of air
+  iceShard(pan = 0) {
+    if (this.throttled('iceshard', 70)) return;
+    const rg = this.busy('iceshard', 300);
+    const f = vary(nt(48 + ((Math.random() * 4) | 0)), 0.01);
+    this.tone({ freq: f, to: f * 1.4, glide: 0.04, type: 'triangle', d: 0.08, peak: 0.02 * rg, pan, verb: 0.4, pri: 0 });
+    this.noise({ dur: 0.06, peak: 0.012 * rg, freq: 7200, q: 2.4, type: 'highpass', pan, pri: 0 });
+  }
+
   // ------- the twelve new schools -------
   // Wisp Choir: each dart is a tiny voice; overlapping darts land on a triad
   wispDart(pan = 0) {

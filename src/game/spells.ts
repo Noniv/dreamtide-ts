@@ -75,18 +75,20 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: (lv) => (lv % 2 === 1 ? `+1 missile (${1 + Math.floor((lv + 1) / 2)} total)` : 'Faster, harder-hitting missiles'),
   },
   frost: {
-    id: 'frost', name: 'Frostbloom', school: 'Cryomancy',
+    id: 'frost', name: 'Rimeheart', school: 'Cryomancy',
     color: '#8fe8ff', color2: '#e8fbff', icon: '🜄',
-    desc: 'A ring of frost sweeps out, damaging and slowing all it touches.',
+    desc: 'A slow orb of condensed cold drifts around you at medium range, chilling all it grazes.',
     maxLevel: 6,
     stats: (lv) => ({
-      cooldown: Math.max(2.2, 4.4 - lv * 0.35),
-      damage: 12 + lv * 6,
-      radius: 130 + lv * 22,
-      slow: 0.45 + lv * 0.04,
-      slowDur: 1.6 + lv * 0.25,
+      cooldown: 0,                                  // continuous — the orb simply orbits
+      damage: 15 + lv * 8,                          // heavy per-graze, on a per-foe cooldown
+      count: 1 + (lv >= 3 ? 1 : 0),                 // a second orb at level 3 (capped at 2)
+      radius: 195 + lv * 13,                        // base orbit range; the orb breathes out to ~+30% and back (AoE fattens the ball, not this)
+      speed: 0.95 + lv * 0.08,                      // slow drift (rad/s)
+      slow: 0.5 + lv * 0.035,                       // depth of the chill
+      slowDur: 1.8 + lv * 0.2,                      // how long the chill clings
     }),
-    levelText: () => 'Wider ring, stronger slow',
+    levelText: (lv) => (lv === 3 ? 'A second orb of cold joins the orbit' : 'A colder, heavier, harder-hitting orb'),
   },
   storm: {
     id: 'storm', name: 'Stormcall', school: 'Tempestry',
@@ -242,8 +244,8 @@ export const SPELLS: Record<string, SpellDef> = {
     desc: 'Wisps trail behind you and dart at foes that come near.',
     maxLevel: 6,
     stats: (lv) => ({
-      cooldown: Math.max(0.8, 1.65 - lv * 0.12), // per-wisp dart cadence
-      damage: 10 + lv * 5,
+      cooldown: Math.max(0.55, 1.15 - lv * 0.085), // per-wisp dart cadence (~30% quicker)
+      damage: 15 + lv * 7.5,                       // ~50% harder darts
       count: 3 + Math.floor(lv / 2),
       range: 510,
     }),
@@ -267,14 +269,14 @@ export const SPELLS: Record<string, SpellDef> = {
   chime: {
     id: 'chime', name: 'Chime of Hours', school: 'Chronomancy',
     color: '#ffd9a0', color2: '#b08a4a', icon: 'Ω',
-    desc: 'A bell tolls around you on a steady beat; every fourth toll hits harder.',
+    desc: 'A clock-hand of sound sweeps a wedge of the field each beat; every fourth beat the whole hour tolls at once.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(1.55, 2.1 - lv * 0.08), // the beat itself
-      damage: 5 + lv * 3,
+      damage: 7 + lv * 4,
       radius: 108 + lv * 12,
     }),
-    levelText: (lv) => (lv === 3 ? 'Faster beat' : 'Wider ring, harder tolls'),
+    levelText: (lv) => (lv === 3 ? 'Faster beat' : 'Wider sweep, harder tolls'),
   },
   eye: {
     id: 'eye', name: 'Sleepless Eye', school: 'Oneiromancy',
@@ -283,7 +285,7 @@ export const SPELLS: Record<string, SpellDef> = {
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(5.5, 9 - lv * 0.5),
-      damage: 6 + lv * 3,           // per touch of the gaze
+      damage: 7.8 + lv * 3.9,       // per touch of the gaze (~30% stronger)
       length: 290 + lv * 32,
       width: 26 + lv * 3,
       duration: 2 + lv * 0.15,      // seconds of sweep
@@ -357,7 +359,7 @@ export const SPELLS: Record<string, SpellDef> = {
 export const EVOLVE: Record<string, { name: string; desc: string }> = {
   ember: { name: 'Pyre Bloom', desc: 'Bursts leave fire burning on the ground.' },
   arcane: { name: 'Arcane Torrent', desc: 'On impact, missiles split into homing shards.' },
-  frost: { name: 'Absolute Winter', desc: 'The ring freezes foes solid instead of only slowing them.' },
+  frost: { name: 'Winterloom', desc: 'The orbs crystallize and loose ice shards at nearby foes.' },
   storm: { name: 'Skyfracture', desc: 'Lightning leaps 3 more times and barely weakens.' },
   void: { name: 'Event Horizon', desc: 'When the rift closes, it collapses in a damaging burst.' },
   petals: { name: 'Wild Garden', desc: 'A second ring of petals spins the opposite way.' },

@@ -141,6 +141,7 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
   emitPlayer(q, eng, ipx - camX, ipy - camY);
   for (const e of eng.enemies) emitEnemy(q, shOver, eng, e, alpha, camX, camY);
   emitOrbitals(q, eng, alpha, camX, camY);
+  emitFrostOrbs(q, eng, alpha, camX, camY);
   emitWisps(q, eng, alpha, camX, camY);
   emitDefenseOver(q, eng, ipx - camX, ipy - camY);
   for (const pr of eng.projectiles) emitProjectile(q, eng, pr, alpha, camX, camY);
@@ -216,6 +217,52 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
     octx.shadowBlur = 18;
     octx.beginPath();
     octx.arc(-13, 0, 3.6, 0, Math.PI * 2);
+    octx.fill();
+    // chevron with a dark rim so it survives bright backdrops
+    octx.beginPath();
+    octx.moveTo(16, 0);
+    octx.lineTo(-8, -9);
+    octx.lineTo(-3.5, 0);
+    octx.lineTo(-8, 9);
+    octx.closePath();
+    octx.shadowBlur = 0;
+    octx.lineJoin = 'round';
+    octx.lineWidth = 4;
+    octx.strokeStyle = 'rgba(6,4,16,0.85)';
+    octx.stroke();
+    octx.shadowBlur = 18;
+    octx.fill();
+    octx.restore();
+  }
+
+  // guide arrow toward a golden wisp — it flits in fast and flees, so a gold
+  // chevron near the player marks the way to chase it down before it escapes.
+  // Fades out on close approach so it never sits on top of the wisp.
+  for (const gw of eng.enemies) {
+    if (!gw.golden || gw.dead) continue;
+    const gx = lerp(gw.px, gw.x, alpha), gy = lerp(gw.py, gw.y, alpha);
+    const dx = gx - ipx, dy = gy - ipy;
+    const d = Math.hypot(dx, dy);
+    const near = clamp((d - 120) / 140, 0, 1);
+    if (near <= 0) continue;
+    const ang = Math.atan2(dy, dx);
+    const pulse = 0.5 + 0.5 * Math.sin(vt * 6);
+    const orbitR = 92 + 14 * pulse;
+    const ax = ipx - camX + Math.cos(ang) * orbitR;
+    const ay = ipy - camY + Math.sin(ang) * orbitR;
+    const arrowC = '#ffd27a';
+    octx.save();
+    octx.translate(ax, ay);
+    octx.rotate(ang);
+    const sc = 1.1 + 0.14 * pulse;
+    octx.scale(sc, sc);
+    octx.globalAlpha = near * (0.92 + 0.08 * pulse);
+    // a golden mote trailing behind the chevron
+    octx.fillStyle = arrowC;
+    octx.shadowColor = arrowC;
+    octx.shadowBlur = 18;
+    octx.beginPath();
+    octx.arc(-13, 0, 3.8, 0, Math.PI * 2);
     octx.fill();
     // chevron with a dark rim so it survives bright backdrops
     octx.beginPath();
@@ -481,10 +528,11 @@ function emitZone(sh: ShapeList, q: QuadList, eng: Engine, z: Zone, alpha: numbe
     const glowSE = q.uv('glow')!;
     q.push(true, glowSE, x + ca * zr * g * 0.4, y + sa * zr * g * 0.4, 5 * g, 0, 0.9 * fade, 0.9, 1, 0.97, 1);
   } else if (z.kind === 'chimewave') {
-    // Chime of Hours: a brass ring engraved with clock-dust; the crescendo
-    // (z.evolved) rings double and brighter
+    // Chime of Hours: a brass wavefront engraved with clock-dust. Ordinary
+    // tolls sweep a wedge (z.ph = half-width, z.spin = its heading); the
+    // crescendo (z.evolved, z.ph = 0) tolls the whole hour, full and brighter.
     const t = Math.max(0, lifeI / z.maxLife);
-    sh.push(SHAPE_RING, x, y, 0, zr, 2.2, 9, 0, 1, 0.85, 0.63, t * (z.evolved ? 1 : 0.75), 0.40 * t, 0.28 * t, 0.10 * t);
+    sh.push(SHAPE_RING, x, y, z.spin, zr, 2.2, 9, z.ph, 1, 0.85, 0.63, t * (z.evolved ? 1 : 0.75), 0.40 * t, 0.28 * t, 0.10 * t);
     if (z.evolved) {
       sh.push(SHAPE_RING, x, y, 0, zr * 0.8, 1.6, 6, 0, 1, 0.95, 0.80, 0.6 * t, 0.30 * t, 0.24 * t, 0.10 * t);
       const starE2 = q.uv('p:star')!;
@@ -965,6 +1013,28 @@ function emitOrbitals(q: QuadList, eng: Engine, alpha: number, camX: number, cam
   }
 }
 
+// Rimeheart: a dense orb of cold — a wide frozen aura wrapping a bright, faintly
+// pulsing crystalline heart, with a crown of slow-turning ice facets.
+function emitFrostOrbs(q: QuadList, eng: Engine, alpha: number, camX: number, camY: number) {
+  if (!eng.frostOrbs.length) return;
+  const glowE = q.uv('glow')!;
+  const shardE = q.uv('shard')!;
+  const s = eng.aoeMul(); // AoE fattens the ball, so the visual grows with the hitbox
+  for (const o of eng.frostOrbs) {
+    const x = lerp(o.px, o.x, alpha) - camX, y = lerp(o.py, o.y, alpha) - camY;
+    const pulse = 0.85 + 0.15 * Math.sin(eng.vt * 3 + o.seed);
+    q.push(true, glowE, x, y, 26 * pulse * s, 0, 0.34, 0.42, 0.86, 1, 1); // cold aura
+    q.push(true, glowE, x, y, 13 * s, 0, 0.48, 0.58, 0.92, 1, 1);         // inner frost
+    q.push(true, glowE, x, y, 6 * s, 0, 0.6, 0.72, 0.95, 1, 1);           // translucent cyan core (no white-out)
+    // three ice facets orbiting the core, turning slowly
+    for (let k = 0; k < 3; k++) {
+      const fa = eng.vt * 1.1 + o.seed + (k / 3) * TAU;
+      const fx = x + Math.cos(fa) * 11 * s, fy = y + Math.sin(fa) * 11 * s;
+      q.push(false, shardE, fx, fy, 6.5 * s, fa + Math.PI / 2, 0.78, 0.56, 0.91, 1, 1);
+    }
+  }
+}
+
 // the Wisp Choir: teal spirit-flames trailing the player — kin to the Soul
 // Lanterns and the Dream Serpent, not anonymous white dots. Each is a soft
 // aura around a hot core with a flickering tail streaming behind its motion.
@@ -1030,6 +1100,14 @@ function emitProjectile(q: QuadList, eng: Engine, pr: Projectile, alpha: number,
     // smaller and it blurs together with Arcane Missiles
     q.push(false, e, x, y, e.half * 0.78, pr.spin, 1);
     q.push(true, e, x, y, e.half * 0.78, pr.spin, 0.18); // faint additive glint on the edge
+  } else if (pr.kind === 'iceshard') {
+    // a slender crystal of cold, elongated along its flight
+    const glowE = q.uv('glow')!;
+    const shardE = q.uv('shard')!;
+    const a = Math.atan2(pr.vy, pr.vx);
+    q.push(true, glowE, x, y, 13, 0, 0.5, 0.56, 0.91, 1, 1);                     // icy halo
+    q.push(false, shardE, x, y, 11, a + Math.PI / 2, 1, 0.56, 0.91, 1, 1, 1.9);  // elongated shard
+    q.push(true, shardE, x, y, 11, a + Math.PI / 2, 0.4, 0.91, 0.98, 1, 1, 1.9); // bright core glint
   }
 }
 

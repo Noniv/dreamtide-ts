@@ -207,8 +207,8 @@ const BOSS_ARCHS: BossArch[] = [
 ];
 
 // spells that live outside the cooldown loop: petals orbit, wisps hover and
-// dart on their own clocks
-const CONTINUOUS = new Set(['petals', 'wisps', 'ward', 'hush']);
+// dart on their own clocks, rimeheart orbs drift
+const CONTINUOUS = new Set(['petals', 'wisps', 'ward', 'hush', 'frost']);
 
 // player position history: 512 steps ≈ 8.5 s at 60 Hz. Powers the Wisp
 // Choir's trailing procession.
@@ -218,6 +218,15 @@ const HIST_N = 512;
 export interface PlayerSpell { id: string; level: number; cd: number; evolved?: boolean; mastery?: number }
 
 // a singing wisp of the Choir: hovers on the player's path, darts, drifts home
+// Rimeheart: a slow orb of condensed cold drifting on a wide orbit. `a` is its
+// orbit angle, `hitCd` gates its heavy per-foe graze, `shardCd` clocks the
+// evolution's ice-shard volleys.
+export interface FrostOrb {
+  a: number; radF: number;
+  x: number; y: number; px: number; py: number;
+  hitCd: HitTimer; shardCd: number; seed: number;
+}
+
 export interface Wisp {
   x: number; y: number; px: number; py: number;
   cd: number;                 // time until it may dart again
@@ -327,6 +336,7 @@ export class Engine {
   texts: FloatText[] = [];
   pickups: Pickup[] = [];
   orbitals: Orbital[] = [];
+  frostOrbs: FrostOrb[] = [];
   wisps: Wisp[] = [];
   cam = { x: 0, y: 0, w: 1, h: 1 };
   shake = 0;
@@ -599,6 +609,7 @@ export class Engine {
       if (bump) s.level = Math.min(this.statCap(), s.level + bump);
     }
     this.rebuildOrbitals();
+    this.rebuildFrostOrbs();
     this.rebuildWisps();
     prebakeSprites(); // one-time atlas bake so the first heavy frame doesn't stall
   }
@@ -879,6 +890,7 @@ export class Engine {
     if (s) s.level++;
     else this.player.spells.push({ id, level: 1, cd: 0.4 });
     if (id === 'petals') this.rebuildOrbitals();
+    if (id === 'frost') this.rebuildFrostOrbs();
     if (id === 'wisps') this.rebuildWisps();
   }
 
@@ -896,6 +908,25 @@ export class Engine {
     // Wild Garden: a second, wider ring waltzing the other way
     if (s.evolved) {
       for (let i = 0; i < st.count!; i++) this.orbitals.push(mk((i / st.count!) * TAU + TAU / (st.count! * 2), -1, 1.45));
+    }
+  }
+
+  rebuildFrostOrbs() {
+    const s = this.player.spells.find((s) => s.id === 'frost');
+    for (const o of this.frostOrbs) timerPool.release(o.hitCd);
+    this.frostOrbs = [];
+    if (!s) return;
+    const st = this.spellStats('frost', s.level, s.mastery || 0);
+    const n = Math.max(1, st.count!);
+    for (let i = 0; i < n; i++) {
+      // spread the orbs evenly around the orbit; alternate their orbit radius a
+      // touch so two orbs sweep slightly different rings rather than trailing in
+      // lockstep
+      this.frostOrbs.push({
+        a: (i / n) * TAU, radF: 1 + (i % 2) * 0.16,
+        x: this.player.x, y: this.player.y, px: this.player.x, py: this.player.y,
+        hitCd: timerPool.acquire().begin(), shardCd: rand(0.2, 0.6), seed: rand(0, TAU),
+      });
     }
   }
 
@@ -1072,6 +1103,7 @@ export class Engine {
         s.evolved = true;
         s.level = Math.max(s.level, SPELLS[choice.id].maxLevel);
         if (choice.id === 'petals') this.rebuildOrbitals();
+        if (choice.id === 'frost') this.rebuildFrostOrbs();
         this.setBanner(`${SPELLS[choice.id].name.toUpperCase()} → ${EVOLVE[choice.id].name.toUpperCase()}`, SPELLS[choice.id].color);
         this.flash = { color: '255,210,122', a: 0.3 };
       }
@@ -1206,6 +1238,7 @@ export class Engine {
       else s.level = this.statCap();
     }
     this.rebuildOrbitals();
+    this.rebuildFrostOrbs();
     this.rebuildWisps();
     this.setBanner('⚗ ENDGAME TEST — 6:00', '#7ff5ff');
     this.pushHud(true);
@@ -1264,6 +1297,18 @@ export class Engine {
     return Math.max(0, (this.t - 420) / 60);
   }
 
+  // Beta players felt overwhelmed too quickly: the first minutes ramped a touch
+  // too steeply. This eases early spawn pressure (fewer concurrent bodies, a
+  // slightly slower tide) with the relief weighted toward the early minutes,
+  // then relaxes to exactly 1.0 by the 7-minute mark — so mid/endgame pacing is
+  // left precisely as it was. Both ends (t=0 and t=420) sit at ~1; only the
+  // steep middle of the early ramp is flattened.
+  private earlyEase() {
+    if (this.t >= 420) return 1;
+    const x = this.t / 420; // 0 at the start → 1 at the 7-minute mark
+    return 1 - 0.10 * Math.sin(Math.PI * Math.sqrt(x));
+  }
+
   // Bargain-summoned extras grant no net essence: essence is scaled by the
   // share of the horde that would exist anyway (Dark Bargain floor nodes and
   // the Pact of the Deep both count). More action and more stardust for the
@@ -1295,6 +1340,20 @@ export class Engine {
   }
 
   // -------------------------------------------------------------- spawning
+  // A point inside the visible rectangle along ray `ang` from the player.
+  // frac scales the distance toward the screen edge (1 = right at the edge minus
+  // `margin`), computed against the true rectangle boundary so foes land in a
+  // band near the rim without ever slipping off-screen on any aspect ratio.
+  private visibleEdgePoint(ang: number, fracMin: number, fracMax: number, margin: number) {
+    const c = Math.cos(ang), s = Math.sin(ang);
+    const hx = Math.max(20, this.cam.w * 0.5 - margin);
+    const hy = Math.max(20, this.cam.h * 0.5 - margin);
+    const tx = Math.abs(c) > 1e-4 ? hx / Math.abs(c) : Infinity;
+    const ty = Math.abs(s) > 1e-4 ? hy / Math.abs(s) : Infinity;
+    const R = Math.min(tx, ty) * rand(fracMin, fracMax);
+    return { x: this.player.x + c * R, y: this.player.y + s * R };
+  }
+
   spawnEnemy(typeId: string, elite = false, boss = false): Enemy | null {
     if (this.freeSlots.length === 0) return null; // hard cap, never reached in practice
     // bosses cycle through the three nightmares from a per-run random start
@@ -1303,15 +1362,28 @@ export class Engine {
     const def = ENEMY_TYPES[typeId] || ENEMY_TYPES.wisp;
     const d = this.diff;
     const ang = Math.random() * TAU;
-    // spawn just outside the visible rectangle. The farthest-visible point from
-    // the player (screen centre) is the corner, at half the screen diagonal —
-    // using max(w,h) under-covered the corners on square/portrait windows and
-    // let foes appear on-screen. hypot()/2 is correct for every aspect ratio.
+    // Where the newcomer tears into the dream:
+    //   bosses  — already on-screen, but hugging the very edges: a nightmare you
+    //             see arrive, never one that blooms in your lap
+    //   elites  — on-screen too, out near the rim, giving room to read them
+    //   ambush  — the deep-endgame claw-in stays on-screen, but out toward the
+    //             edges rather than right on top of the dreamer
+    //   trash   — just beyond the visible rectangle, streaming inward as before
     const offscreen = Math.hypot(this.cam.w, this.cam.h) * 0.5;
-    let R = boss ? offscreen + 40 : offscreen + 80;
-    // deep-endgame ambush: a growing share of the tide claws its way in close
-    if (!boss && d.esc > 2 && Math.random() < Math.min(0.42, (d.esc - 2) * 0.038)) {
-      R = rand(90, 150);
+    let sx: number, sy: number;
+    if (boss) {
+      const pt = this.visibleEdgePoint(ang, 0.86, 1.0, 70);
+      sx = pt.x; sy = pt.y;
+    } else if (elite) {
+      const pt = this.visibleEdgePoint(ang, 0.62, 0.94, 60);
+      sx = pt.x; sy = pt.y;
+    } else if (d.esc > 2 && Math.random() < Math.min(0.42, (d.esc - 2) * 0.038)) {
+      const pt = this.visibleEdgePoint(ang, 0.55, 0.9, 50);
+      sx = pt.x; sy = pt.y;
+    } else {
+      const R = offscreen + 80;
+      sx = this.player.x + Math.cos(ang) * R;
+      sy = this.player.y + Math.sin(ang) * R;
     }
     const mul = boss ? 1 : elite ? 7 : 1;
     const e = this.enemyPool.acquire();
@@ -1322,8 +1394,8 @@ export class Engine {
     e.elite = elite;
     e.golden = false;
     e.dead = false;
-    e.x = this.player.x + Math.cos(ang) * R;
-    e.y = this.player.y + Math.sin(ang) * R;
+    e.x = sx;
+    e.y = sy;
     e.px = e.x; e.py = e.y;
     e.hp = arch
       ? arch.hp * d.hpMul * (35 + this.bossCount * 25)
@@ -1652,9 +1724,11 @@ export class Engine {
       const esc = this.endgame();
       const escFloor = Math.floor(esc * esc * 2.2);
       // the director's hand: intensity swells the floor and quickens the tide
-      // when the player is cruising, and eases both when they're drowning
-      const floor = Math.round((w.floor + (this.meta.baneFloor || 0) + escFloor + this.pact.curseFloor) * this.intensity);
-      const rate = w.rate / (1 + (this.meta.baneRate || 0) / 100) / (1 + Math.min(2.5, esc * 0.2)) / this.intensity;
+      // when the player is cruising, and eases both when they're drowning.
+      // earlyEase() additionally softens the first-minutes ramp (a no-op past 7m).
+      const ease = this.earlyEase();
+      const floor = Math.round((w.floor + (this.meta.baneFloor || 0) + escFloor + this.pact.curseFloor) * this.intensity * ease);
+      const rate = w.rate / (1 + (this.meta.baneRate || 0) / 100) / (1 + Math.min(2.5, esc * 0.2)) / this.intensity / ease;
       const cap = Math.min(420, 230 + escFloor);
       if (alive < floor && this.spawnTimer <= 0) {
         this.spawnTimer = Math.max(0.08, 0.2 - esc * 0.01);
@@ -1746,6 +1820,9 @@ export class Engine {
     if (this.freeSlots.length === 0) return;
     const d = this.diff;
     const a = rand(0, TAU);
+    // the golden wisp flits into view rather than lurking off-screen: it spawns
+    // on the visible field, out near the rim, so the player can spot and chase it
+    const pt = this.visibleEdgePoint(a, 0.6, 0.9, 60);
     const e = this.enemyPool.acquire();
     e.uid = this.uidCounter++;
     e.slot = this.freeSlots.pop()!;
@@ -1754,8 +1831,8 @@ export class Engine {
     e.boss = false;
     e.elite = false;
     e.dead = false;
-    e.x = this.player.x + Math.cos(a) * 480;
-    e.y = this.player.y + Math.sin(a) * 480;
+    e.x = pt.x;
+    e.y = pt.y;
     e.px = e.x; e.py = e.y;
     e.hp = 70 * d.hpMul; e.maxHp = 70 * d.hpMul;
     e.speed = 150; e.dmg = 0; e.radius = 14; e.xp = 4; e.color = '#ffd27a';
@@ -1886,6 +1963,7 @@ export class Engine {
       if (this.meta.echo && Math.random() < this.meta.echo / 100) this.cast(s.id, st);
     }
     this.updateOrbitals(dt);
+    this.updateFrostOrbs(dt);
     this.updateWisps(dt);
     this.updateDefense(dt);
   }
@@ -1980,8 +2058,8 @@ export class Engine {
     const evolved = !!ward.evolved;
     const bossKnock = !!st.special!.bossKnock;
     audio.wardBreak(this.panOf(p.x));
-    this.shake = Math.min(9, this.shake + 5);
-    this.flash = { color: '143,184,255', a: 0.3 };
+    this.shake = Math.min(10, this.shake + 6);
+    this.flash = { color: '143,184,255', a: 0.42 };
     this.grid.queryCircle(p.x, p.y, R, (e) => {
       if (e.dead) return;
       if (e.boss && !bossKnock) return;
@@ -2006,11 +2084,13 @@ export class Engine {
       p.invuln = Math.max(p.invuln, 1.2);
       this.spawnText(p.x, p.y - 60, 'AEGIS', '#8fb8ff', 1.4, -22, 18);
     }
-    // the glass flying apart: a bright ring and a spray of pale shards
+    // the glass flying apart: twin bright rings and a heavier spray of pale shards
     this.particles.spawn({ x: p.x, y: p.y - 14, life: 0.5, size: R * 1.1, color: '#e6f0ff', mode: 'ring' });
-    for (let k = 0; k < 34; k++) {
+    this.particles.spawn({ x: p.x, y: p.y - 14, life: 0.35, size: R * 0.78, color: '#bcd6ff', mode: 'ring' });
+    this.particles.spawn({ x: p.x, y: p.y - 14, life: 0.22, size: 46, endSize: 4, color: '#ffffff', color2: '#8fb8ff', mode: 'glow', drag: 1 });
+    for (let k = 0; k < 46; k++) {
       const a = rand(0, TAU);
-      this.particles.spawn({ x: p.x + Math.cos(a) * 16, y: p.y - 14 + Math.sin(a) * 16, vx: Math.cos(a) * rand(160, 460), vy: Math.sin(a) * rand(160, 460), life: rand(0.35, 0.8), size: rand(3, 7), endSize: 0.5, color: Math.random() < 0.5 ? '#e6f0ff' : '#8fb8ff', mode: 'shard', rotV: rand(-10, 10), drag: 0.87 });
+      this.particles.spawn({ x: p.x + Math.cos(a) * 16, y: p.y - 14 + Math.sin(a) * 16, vx: Math.cos(a) * rand(180, 520), vy: Math.sin(a) * rand(180, 520), life: rand(0.35, 0.85), size: rand(3, 7.5), endSize: 0.5, color: Math.random() < 0.5 ? '#e6f0ff' : '#8fb8ff', mode: 'shard', rotV: rand(-10, 10), drag: 0.87 });
     }
   }
 
@@ -2203,25 +2283,6 @@ export class Engine {
           this.projectiles.push(pr);
         }
         audio.castEmber();
-        break;
-      }
-      case 'frost': {
-        audio.castFrost();
-        const R = st.radius! * this.aoeMul();
-        const z = this.zonePool.acquire();
-        this.resetZone(z, 'frostwave', p.x, p.y);
-        z.r = 10; z.pr = 10; z.maxR = R;
-        z.life = 0.45; z.maxLife = 0.45;
-        z.dmg = st.damage! * this.dmgMul();
-        z.slow = st.evolved ? 1 : st.slow!;
-        z.slowDur = st.slowDur! + (st.evolved ? 0.8 : 0);
-        z.hit = maskPool.acquire().begin();
-        z.bossChill = !!st.special!.bossChill;
-        this.zones.push(z);
-        for (let i = 0; i < 70; i++) {
-          const a = rand(0, TAU);
-          this.particles.spawn({ x: p.x + Math.cos(a) * 14, y: p.y + Math.sin(a) * 14, vx: Math.cos(a) * rand(180, R * 2.4), vy: Math.sin(a) * rand(180, R * 2.4), life: rand(0.35, 0.7), size: rand(3, 8), endSize: 1, color: '#e8fbff', color2: '#8fe8ff', mode: Math.random() < 0.5 ? 'shard' : 'glow', rotV: rand(-8, 8), drag: 0.88 });
-        }
         break;
       }
       case 'storm': {
@@ -2506,16 +2567,32 @@ export class Engine {
         z.r = 12; z.pr = 12; z.maxR = R;
         z.life = 0.4; z.maxLife = 0.4;
         z.dmg = st.damage! * this.dmgMul() * (cresc ? 2.2 : 1);
-        z.evolved = cresc; // render: the crescendo rings brighter
+        z.evolved = cresc; // render: the crescendo rings full and brighter
         // The Last Hour stops time on the crescendo; Struck Silver stuns
         z.sleepDur = cresc ? (st.evolved ? 0.65 : 0) + (st.special!.stun ? 0.35 : 0) : 0;
+        // the clock hand: each ordinary toll strikes one wedge of the hour,
+        // advancing around the face; the crescendo tolls the whole circle at
+        // once. The wedges tile the circle across a cycle, and the whole face
+        // drifts slowly so the hand keeps ticking rather than strobing the same
+        // sectors. z.ph = wedge half-width (0 = full circle), z.spin = its centre.
+        if (cresc) {
+          z.spin = 0; z.ph = 0;
+        } else {
+          const cones = every - 1;
+          const coneW = TAU / cones;
+          const idx = (this.chimeN % every) - 1;             // 0..cones-1 within the cycle
+          const cyc = Math.floor((this.chimeN - 1) / every); // which full cycle
+          z.spin = cyc * 0.45 + (idx + 0.5) * coneW;
+          z.ph = coneW * 0.5;
+        }
         z.hit = maskPool.acquire().begin();
         this.zones.push(z);
-        if (cresc) {
-          for (let i = 0; i < 26; i++) {
-            const a = rand(0, TAU);
-            this.particles.spawn({ x: p.x, y: p.y - 10, vx: Math.cos(a) * rand(60, 260), vy: Math.sin(a) * rand(60, 260), life: rand(0.4, 0.8), size: rand(2, 5), color: '#ffd9a0', mode: 'star', rotV: rand(-5, 5), drag: 0.9 });
-          }
+        // sparks fan out along the struck wedge, or ring the whole face on the toll
+        const sparkN = cresc ? 26 : 14;
+        for (let i = 0; i < sparkN; i++) {
+          const a = z.ph > 0 ? z.spin + rand(-z.ph, z.ph) : rand(0, TAU);
+          const sp = rand(cresc ? 60 : 120, cresc ? 260 : 300);
+          this.particles.spawn({ x: p.x, y: p.y - 10, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: rand(0.4, 0.8), size: rand(2, 5), color: '#ffd9a0', mode: 'star', rotV: rand(-5, 5), drag: 0.9 });
         }
         break;
       }
@@ -2699,6 +2776,66 @@ export class Engine {
         }
       }
     }
+  }
+
+  // Rimeheart: slow orbs of condensed cold sweeping a wide orbit. Each graze is
+  // heavy but gated per-foe, and leaves a clinging chill; the Winterloom
+  // evolution has the orbs loose ice shards at nearby foes.
+  private updateFrostOrbs(dt: number) {
+    const s = this.player.spells.find((s) => s.id === 'frost');
+    if (!s) { if (this.frostOrbs.length) this.rebuildFrostOrbs(); return; }
+    const st = this.spellStats('frost', s.level, s.mastery || 0);
+    const want = Math.max(1, st.count!);
+    if (this.frostOrbs.length !== want) this.rebuildFrostOrbs(); // second orb / Twin Rime
+    const p = this.player;
+    const R = st.radius!;                              // fixed orbit range — AoE does NOT push it outward
+    const orbR = (24 + s.level * 1.5) * this.aoeMul(); // AoE fattens the ball itself
+    const dmg = st.damage! * this.dmgMul();
+    const slow = st.slow!, slowDur = st.slowDur!;
+    const evolved = !!s.evolved;
+    for (const o of this.frostOrbs) {
+      o.px = o.x; o.py = o.y;
+      o.a += st.speed! * dt;
+      // the orbit breathes: each orb drifts smoothly out to ~+30% of the base
+      // range and back on a slow cycle, slightly out of phase per orb
+      const breath = 1.15 + 0.15 * Math.sin(this.t * 0.8 + o.seed);
+      const rr = R * o.radF * breath;
+      o.x = p.x + Math.cos(o.a) * rr;
+      o.y = p.y + Math.sin(o.a) * rr * 0.92; // the dream's shallow perspective tilt
+      // a slow veil of frost-motes trailing the orb
+      if (Math.random() < 0.7) this.particles.spawn({ x: o.x + rand(-6, 6), y: o.y + rand(-6, 6), vx: rand(-14, 14), vy: rand(-24, 6), life: rand(0.4, 0.9), size: rand(2.5, 5.5), endSize: 1, color: Math.random() < 0.5 ? '#e8fbff' : '#8fe8ff', mode: Math.random() < 0.35 ? 'shard' : 'glow', rotV: rand(-5, 5), drag: 0.93 });
+      // heavy graze: wound and chill everything the orb sweeps, gated per-foe
+      this.grid.queryCircle(o.x, o.y, orbR + 60, (e) => {
+        if (!o.hitCd.ready(e.slot, this.t)) return;
+        if (dist2(o.x, o.y, e.x, e.y) < (e.radius + orbR) ** 2) {
+          o.hitCd.set(e.slot, this.t + 0.55);
+          this.damageEnemy(e, dmg, '#bff1ff', 'frost');
+          if (!e.boss) { e.slow = Math.max(e.slow, slow); e.slowT = Math.max(e.slowT, slowDur); }
+          audio.petalTick(this.panOf(e.x));
+          for (let k = 0; k < 5; k++) this.particles.spawn({ x: e.x, y: e.y, vx: rand(-120, 120), vy: rand(-120, 120), life: rand(0.2, 0.45), size: rand(2, 4), color: '#cdf3ff', mode: 'shard', rotV: rand(-8, 8), drag: 0.86 });
+        }
+      });
+      // Winterloom: the crystallized orb looses ice shards at nearby foes — a
+      // rapid stream, ~3x the old cadence, retargeting the nearest foe each shot
+      if (evolved) {
+        o.shardCd -= dt;
+        if (o.shardCd <= 0) {
+          const target = this.nearestEnemy(o.x, o.y, 380);
+          if (target) { o.shardCd = 0.4 * this.cdMul(); this.fireIceShard(o.x, o.y, target, dmg * 0.5); }
+          else o.shardCd = 0.2; // keep watching rather than idling a full beat
+        }
+      }
+    }
+  }
+
+  private fireIceShard(x: number, y: number, target: Enemy, dmg: number) {
+    const a = Math.atan2(target.y - y, target.x - x);
+    const pr = this.newProj('iceshard');
+    pr.x = x; pr.y = y; pr.px = x; pr.py = y;
+    pr.vx = Math.cos(a) * 640; pr.vy = Math.sin(a) * 640;
+    pr.dmg = dmg; pr.r = 9; pr.life = 1.0; pr.a = a; pr.chill = true;
+    this.projectiles.push(pr);
+    audio.iceShard(this.panOf(x));
   }
 
   // -------------------------------------------------------------- damage
@@ -2980,7 +3117,12 @@ export class Engine {
       p.shield -= soak;
       dmg -= soak;
       audio.wardHit(this.panOf(p.x));
-      for (let i = 0; i < 10; i++) this.particles.spawn({ x: p.x + rand(-16, 16), y: p.y - 20 + rand(-16, 16), vx: rand(-150, 150), vy: rand(-170, 40), life: rand(0.2, 0.5), size: rand(2, 5), endSize: 0.5, color: Math.random() < 0.5 ? '#e6f0ff' : '#8fb8ff', mode: 'shard', rotV: rand(-8, 8), drag: 0.86 });
+      // shield-hit feedback: a soft blue flash + a light kick — clearly a blow
+      // caught by the glass, gentler than a wound to the flesh. (If this hit also
+      // breaks the ward, wardShatter's stronger flash below overrides it.)
+      this.flash = { color: '143,184,255', a: 0.16 };
+      this.shake = Math.min(4, this.shake + 2);
+      for (let i = 0; i < 12; i++) this.particles.spawn({ x: p.x + rand(-16, 16), y: p.y - 20 + rand(-16, 16), vx: rand(-170, 170), vy: rand(-190, 40), life: rand(0.2, 0.5), size: rand(2, 5), endSize: 0.5, color: Math.random() < 0.5 ? '#e6f0ff' : '#8fb8ff', mode: 'shard', rotV: rand(-8, 8), drag: 0.86 });
       if (p.shield <= 0) { p.shield = 0; p.shieldT = p.shieldDelay; this.wardShatter(); }
       if (dmg <= 0.001) return; // the glass caught it whole — no life lost
     }
@@ -3750,6 +3892,20 @@ export class Engine {
             for (let k = 0; k < 6; k++) this.particles.spawn({ x: e.x, y: e.y, vx: rand(-130, 130), vy: rand(-130, 130), life: rand(0.2, 0.45), size: rand(2, 4), color: '#8a5cd9', mode: 'glow', drag: 0.86 });
           }
         });
+      } else if (pr.kind === 'iceshard') {
+        pr.life -= dt;
+        pr.x += pr.vx * dt;
+        pr.y += pr.vy * dt;
+        if (Math.random() < 0.8) this.particles.spawn({ x: pr.x, y: pr.y, vx: rand(-10, 10), vy: rand(-10, 10), life: rand(0.2, 0.4), size: rand(2, 4.5), endSize: 0.5, color: Math.random() < 0.5 ? '#e8fbff' : '#8fe8ff', mode: 'shard', rotV: rand(-8, 8), drag: 0.9 });
+        this.grid.queryCircle(pr.x, pr.y, pr.r + 45, (e) => {
+          if (pr.life <= 0) return; // already spent this frame
+          if (dist2(pr.x, pr.y, e.x, e.y) < (e.radius + pr.r) ** 2) {
+            this.damageEnemy(e, pr.dmg, '#bff1ff', 'frost');
+            if (pr.chill && !e.boss) { e.slow = Math.max(e.slow, 0.4); e.slowT = Math.max(e.slowT, 1.4); }
+            for (let k = 0; k < 7; k++) this.particles.spawn({ x: e.x, y: e.y, vx: rand(-140, 140), vy: rand(-140, 140), life: rand(0.2, 0.45), size: rand(2, 4), color: '#cdf3ff', mode: 'shard', rotV: rand(-9, 9), drag: 0.85 });
+            pr.life = 0; // a single icy bite, then it shatters
+          }
+        });
       } else if (pr.kind === 'glaive') {
         pr.life -= dt;
         pr.spin += dt * 14;
@@ -4068,18 +4224,24 @@ export class Engine {
       } else if (z.kind === 'chimewave') {
         const f = 1 - z.life / z.maxLife;
         z.r = 12 + (z.maxR - 12) * f;
+        const arc = z.ph; // 0 = full circle (the crescendo)
         this.grid.queryCircle(z.x, z.y, z.r, (e) => {
           if (z.hit!.has(e.slot)) return;
-          if (dist2(z.x, z.y, e.x, e.y) < z.r * z.r) {
-            z.hit!.mark(e.slot);
-            this.damageEnemy(e, z.dmg, '#ffd9a0');
-            // The Last Hour / Struck Silver: the crescendo holds them still
-            if (z.sleepDur > 0 && !e.boss && !e.dead && this.hardCC(e, CC_HIT)) {
-              e.slow = 0.92;
-              e.slowT = Math.max(e.slowT, z.sleepDur);
-            }
-            for (let k = 0; k < 4; k++) this.particles.spawn({ x: e.x, y: e.y, vx: rand(-100, 100), vy: rand(-120, -20), life: rand(0.25, 0.5), size: rand(2, 4), color: '#ffd9a0', mode: 'star', rotV: rand(-6, 6), drag: 0.9 });
+          if (dist2(z.x, z.y, e.x, e.y) >= z.r * z.r) return;
+          // ordinary tolls only strike within their wedge of the hour
+          if (arc > 0) {
+            let d = Math.atan2(e.y - z.y, e.x - z.x) - z.spin;
+            d = Math.atan2(Math.sin(d), Math.cos(d)); // wrap to [-PI, PI]
+            if (Math.abs(d) > arc) return;
           }
+          z.hit!.mark(e.slot);
+          this.damageEnemy(e, z.dmg, '#ffd9a0');
+          // The Last Hour / Struck Silver: the crescendo holds them still
+          if (z.sleepDur > 0 && !e.boss && !e.dead && this.hardCC(e, CC_HIT)) {
+            e.slow = 0.92;
+            e.slowT = Math.max(e.slowT, z.sleepDur);
+          }
+          for (let k = 0; k < 4; k++) this.particles.spawn({ x: e.x, y: e.y, vx: rand(-100, 100), vy: rand(-120, -20), life: rand(0.25, 0.5), size: rand(2, 4), color: '#ffd9a0', mode: 'star', rotV: rand(-6, 6), drag: 0.9 });
         });
       } else if (z.kind === 'prism') {
         z.spin += dt * 1.8;

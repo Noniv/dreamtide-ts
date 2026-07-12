@@ -76,7 +76,7 @@ export interface Enemy {
   bossFire: BossFire | null;
 }
 
-export type ProjKind = 'arcane' | 'ember' | 'comet' | 'fang' | 'glaive';
+export type ProjKind = 'arcane' | 'ember' | 'comet' | 'fang' | 'glaive' | 'iceshard';
 
 export interface Projectile {
   kind: ProjKind;

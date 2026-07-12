@@ -25,7 +25,7 @@ export const ICON_PARTS: Record<string, IconPart[]> = {
   ember: [
     { d: 'M12 2.5 C12.6 6 16.5 8.5 16.5 13.5 a4.5 4.5 0 0 1-9 0 C7.5 10.5 9 9.5 9.8 7.5 C10.2 9 11 9.6 12 10 C13 9.2 12.6 5 12 2.5 Z' },
   ],
-  // Frostbloom — six-armed snowflake with outward-opening dendrites
+  // Rimeheart — six-armed snowflake with outward-opening dendrites
   frost: [
     { d: 'M12 2.5 V21.5 M3.77 7.25 L20.23 16.75 M20.23 7.25 L3.77 16.75' },
     { d: 'M12.0 5.8 L9.5 3.8 M12.0 5.8 L14.5 3.8' },
