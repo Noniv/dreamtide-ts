@@ -1,9 +1,7 @@
-// Canvas renderer for the skill webs. The old SVG tree re-rasterized ~360
-// retained-mode nodes on every pan frame and got slower with each node added;
-// this draws ~700 stars immediate-mode with viewport culling, batched edge
-// strokes and zoom-dependent detail, so panning stays flat no matter how big
-// the web grows. Also owns the first-discovery reveal, the allocation pulses
-// and the hover/hit-testing.
+// Canvas renderer for the skill webs. Draws ~700 stars immediate-mode with
+// viewport culling, batched edge strokes and zoom-dependent detail, so panning
+// stays flat no matter how big the web grows. Also owns the first-discovery
+// reveal, the allocation pulses and the hover/hit-testing.
 import React, { useEffect, useMemo, useRef } from 'react';
 import type { TreeNode, TreeEdge } from './meta';
 import { ICON_PARTS } from './spellIcons';

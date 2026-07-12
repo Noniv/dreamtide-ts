@@ -38,9 +38,8 @@ function uiScale(): number {
 }
 
 // generic colour parse → [r,g,b,a] 0..1 (cached). The alpha of rgba() strings
-// MUST be honoured: the Canvas2D era baked it into each glow sprite's
-// gradient, so effects authored as rgba(...,0.5) render at double strength if
-// the GPU path drops it (the lantern's damage pulse became a white ball).
+// MUST be honoured: effects authored as rgba(...,0.5) render at double
+// strength if the alpha is dropped.
 const _rgbCache = new Map<string, [number, number, number, number]>();
 function rgb(str: string): [number, number, number, number] {
   let c = _rgbCache.get(str);
@@ -391,8 +390,7 @@ function emitZone(sh: ShapeList, q: QuadList, eng: Engine, z: Zone, alpha: numbe
   if (x < -m || y < -m || x > cam.w + m || y > cam.h + m) return;
 
   // life ticks down on the 60Hz sim clock; interpolate it onto the render
-  // clock like positions, or growth/fade animations step visibly at 120Hz+
-  // (the sigil's charge-up ring was the worst offender).
+  // clock like positions, or growth/fade animations step visibly at 120Hz+.
   const lifeI = Math.min(z.maxLife, z.life + (1 - alpha) * STEP);
 
   if (z.kind === 'frostwave') {
@@ -607,10 +605,10 @@ function emitBeam(sh: ShapeList, eng: Engine, b: Beam, alpha: number, camX: numb
     return;
   }
   const wNow = b.w * (0.4 + 0.6 * Math.sin(t * Math.PI));
-  // radiant lance, two layers like the Canvas2D original: a translucent body
-  // whose bright extent sits at the collision half-width (w/2) so what you see
-  // is what hits, plus a thin hot core. Alphas stay modest so enemies under
-  // several stacked lances remain readable.
+  // radiant lance, two layers: a translucent body whose bright extent sits at
+  // the collision half-width (w/2) so what you see is what hits, plus a thin
+  // hot core. Alphas stay modest so enemies under several stacked lances
+  // remain readable.
   sh.push(SHAPE_CAPSULE, x, y, a, b.len, wNow * 0.5, wNow * 0.4, 0, 1, 0.99, 0.95, 0.27 * t + 0.05, 0.36 * t, 0.38 * t, 0.48 * t);
   sh.push(SHAPE_CAPSULE, x, y, a, b.len, wNow * 0.16, wNow * 0.22, 0, 1, 0.99, 0.92, 0.50 * t + 0.04, 0.46 * t, 0.38 * t, 0.22 * t);
   // origin crescent: fades + expands as the lance dissipates
@@ -635,11 +633,11 @@ function emitBolt(sh: ShapeList, b: Bolt, alpha: number, camX: number, camY: num
 }
 
 // ==================================================== quad emitters
-// Each translates an entity into instanced atlas quads. Motions that were
-// live in the Canvas2D era (rotation, bob, tint) are per-instance params.
+// Each translates an entity into instanced atlas quads. Rotation, bob and tint
+// are per-instance params.
 
 const FROZEN_TINT: [number, number, number] = [0.72, 0.89, 1];
-// nebula lobe hues (violet / pink / indigo) — hoisted, were per-frame literals
+// nebula lobe hues (violet / pink / indigo)
 const NEBULA_LOBES: [number, number, number][] = [[0.77, 0.55, 1], [1, 0.60, 0.84], [0.54, 0.48, 1]];
 
 function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha: number, camX: number, camY: number) {
@@ -703,7 +701,7 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
   }
 
   const glowE = q.uv('glow')!;
-  // soft ground shadow (the Canvas2D era had one; the GPU port lost it)
+  // soft ground shadow
   q.push(false, glowE, x, y + e.radius * 0.55, e.radius * 1.05 * bodyS, 0, 0.38 * bodyA, 0.01, 0.005, 0.03, 1, 0.34);
 
   // smooth hit-flash fade + freeze tint via per-instance shader mix
@@ -724,7 +722,7 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
   if (!entry) return;
   const half = entry.half * sc;
   // eye tentacle crown: emitted UNDER the body as one live, continuously
-  // rotating quad — smooth at any scale (this fixed the boss's choppiness)
+  // rotating quad — smooth at any scale
   if (e.type === 'eye') {
     const tentE = q.uv('tentacles');
     if (tentE) {
@@ -826,7 +824,6 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
     drawStats.enemyLiveOps++;
   }
   // warlock: floating grimoire + orbiting charge-orbs, both on the smooth clock
-  // (the book used to be baked into the frames, which read choppy at boss scale)
   if (e.type === 'warlock') {
     const grimE = q.uv('grimoire');
     if (grimE) {
@@ -1140,7 +1137,7 @@ function emitBossProjectile(q: QuadList, sh: ShapeList, eng: Engine, bp: BossPro
   if (x < -40 || y < -40 || x > cam.w + 40 || y > cam.h + 40) return;
   const s = bp.r / 6;
   const pulse = 0.85 + 0.15 * Math.sin(eng.vt * 12 + (bp.x + bp.y) * 0.05);
-  // velocity trail (was Canvas2D-only; capsule shape brings it back)
+  // velocity trail
   const sp = Math.hypot(bp.vx, bp.vy) || 1;
   const tl = Math.min(26, sp * 0.045) * s;
   // a Mirror Waltz reflection turns the entire shot petal-mint — trail, halo
@@ -1161,9 +1158,8 @@ function emitBossProjectile(q: QuadList, sh: ShapeList, eng: Engine, bp: BossPro
 }
 
 // ---------------------------------------------------------------- particles
-// Every particle mode maps to a real atlas sprite now — the WebGL-era "all
-// particles are round glows" approximation is gone. Sparks stretch along
-// their velocity; runes/stars/shards/petals spin; rings expand.
+// Every particle mode maps to a real atlas sprite. Sparks stretch along their
+// velocity; runes/stars/shards/petals spin; rings expand.
 let _runeE: AtlasEntry[] | null = null;
 function emitParticles(q: QuadList, eng: Engine, camX: number, camY: number) {
   const pool = eng.particles.pool;
@@ -1224,9 +1220,9 @@ function emitParticles(q: QuadList, eng: Engine, camX: number, camY: number) {
 
 // ---------------------------------------------------------------- enemies
 // Per-type mapping from the animation clock to a baked-loop phase, plus the
-// live vertical bob/hover kept continuous at blit time. `rate` matches the
-// dominant sin() frequency each original live draw used (bat flap = animT*14);
-// `bob(animT)` returns the live y-offset applied per-instance.
+// live vertical bob/hover kept continuous at blit time. `rate` is the sin()
+// frequency of the body's baked loop (e.g. bat flap = animT*14); `bob(animT)`
+// returns the live y-offset applied per-instance.
 interface EnemyAnim { rate: number; bob: (animT: number) => number }
 const ENEMY_ANIM: Record<string, EnemyAnim> = {
   wisp: { rate: 9, bob: () => 0 },

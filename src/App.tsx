@@ -76,7 +76,7 @@ export default function App() {
   const engineRef = useRef<Engine | null>(null);
   // Per-field selectors, deliberately NOT the whole store: hud updates flow at
   // gameplay cadence and must only re-render HudLayer below, never this whole
-  // component tree (that churn was a steady GC feed during play).
+  // component tree (that churn would be a steady GC feed during play).
   const screen = useGame((s) => s.screen);
   const choices = useGame((s) => s.choices);
   const newLevel = useGame((s) => s.newLevel);

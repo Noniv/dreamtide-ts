@@ -34,7 +34,6 @@ interface NoiseOpts {
   at?: number; pan?: number; verb?: number; bus?: Bus; pri?: number;
 }
 
-const TAU = Math.PI * 2;
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
@@ -85,7 +84,6 @@ class AudioEngine {
   private darkness = 0; private boss = false;
   private nextChime = 0; private nextBeat = 0; private nextPulse = 0;
   private pulseAlt = false;
-  private tickTimer: number | null = null;
 
   // ---------------------------------------------------------------- setup
   init() {
@@ -388,7 +386,7 @@ class AudioEngine {
     // 120 ms scheduler: smooths intensity, glides the chord, and schedules
     // chimes / heartbeat / boss pulse slightly ahead on the audio clock
     this.nextChime = ctx.currentTime + rand(1.5, 3);
-    this.tickTimer = window.setInterval(() => this.musicTick(), 120);
+    window.setInterval(() => this.musicTick(), 120);
   }
 
   private musicTick() {

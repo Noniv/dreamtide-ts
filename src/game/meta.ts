@@ -110,9 +110,8 @@ const nodes: TreeNode[] = [];
 const edges: TreeEdge[] = [];
 const byId: Record<string, TreeNode> = {};
 const add = (n: TreeNode) => { nodes.push(n); byId[n.id] = n; return n.id; };
-// Every connection is a straight line — curved edges pointed in inconsistent
-// directions and muddied the web's read. The optional third tuple slot in the
-// shape data (a legacy bend) is deliberately ignored.
+// Every connection is a straight line. The optional curvature argument on
+// `link` / `linkArc` is accepted but ignored so callers can keep bend hints.
 const link = (a: string, b: string, _bend?: number) => { edges.push([a, b]); };
 const linkArc = (idA: string, idB: string, _k?: number) => { link(idA, idB); };
 
@@ -120,7 +119,7 @@ interface Stat { n: string; d: string; fx: Record<string, any> }
 const S = (n: string, d: string, fx: Record<string, any>): Stat => ({ n, d, fx });
 
 // ================================================================ themes
-// Eight schools of the dream, one per 45° sector, mirroring the old arms.
+// Eight schools of the dream, one per 45° sector.
 interface ClusterDef { name: string; smalls: Stat[]; notable: Stat }
 interface Theme {
   key: string; label: string;

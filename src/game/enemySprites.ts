@@ -16,7 +16,6 @@
 export const FRAMES = 24;          // animation-loop samples per type
 const SS = 3;                      // supersample factor (bake at 3x for crisp magnification)
 const PAD = 10;                    // px padding around the art (glow spill)
-export type TintKind = 'normal' | 'flash' | 'frozen';
 export const ENEMY_KINDS = ['wisp', 'bat', 'eye', 'shade', 'golem', 'siren', 'warlock'];
 
 // Half-extent of each type's art in local (pre-scale) space, generous enough
@@ -274,7 +273,7 @@ function paintWizard(ctx: CanvasRenderingContext2D, ph: number) {
   ctx.translate(0, WIZARD_CY); // paint in original feet-anchored coords
   const hemT = ph * TAU;
 
-  // the robe silhouette (unchanged — the engine's hurtbox is tuned to it)
+  // the robe silhouette — the engine's hurtbox is tuned to it
   const robe = (w1: number, w2: number, hY: number, fill: string | CanvasGradient) => {
     ctx.fillStyle = fill;
     ctx.beginPath();
@@ -472,8 +471,7 @@ let _atlas: Atlas | null = null;
 
 // A small extra painter set for the non-enemy world sprites. Each draws
 // centred at (0,0) in a local space of half-extent `half`. Particle shape
-// sprites (p:*) are baked white so the per-instance tint colours them exactly
-// like the old flat-colour vector fills.
+// sprites (p:*) are baked white so the per-instance tint colours them exactly.
 interface ExtraSprite { id: string; half: number; paint: (ctx: CanvasRenderingContext2D) => void }
 
 function extraSprites(): ExtraSprite[] {
@@ -697,7 +695,7 @@ function extraSprites(): ExtraSprite[] {
     },
   });
   // warlock floating grimoire (live quad, tinted per-instance — bobs/tilts on
-  // the smooth clock instead of being baked into the body frames)
+  // the smooth clock)
   out.push({
     id: 'grimoire', half: 7, paint(ctx) {
       ctx.fillStyle = '#3d2159';

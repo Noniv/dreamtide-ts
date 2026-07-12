@@ -1596,7 +1596,7 @@ export class Engine {
     } else if (pat === 'ring') {
       const count = 10 + Math.min(20, Math.floor(n * 1.5));
       const gapA = nextGap();
-      const gapHalf = Math.max(0.25, 0.6 - n * 0.03); // tightens with boss count, like the old 2-slot gap did
+      const gapHalf = Math.max(0.25, 0.6 - n * 0.03); // safe gap tightens with boss count
       for (let i = 0; i < count; i++) {
         const ang = bf.spin + (i / count) * TAU;
         if (inGap(ang, gapA, gapHalf)) continue;
@@ -1623,8 +1623,8 @@ export class Engine {
         for (let i = 0; i < count; i++) {
           const ang = bf.spin + (i / count) * TAU + ring2 * (Math.PI / count);
           if (inGap(ang, gapA, gapHalf)) continue;
-          // stones leave the hand at the old lumbering pace, then gather speed
-          // as they travel — near the boss the ring is readable, far out it bites
+          // stones leave the hand slow, then gather speed as they travel —
+          // near the boss the ring is readable, far out it bites
           const spd = bf.speed * (0.55 + ring2 * 0.2);
           this.shootBossProj(e.x + Math.cos(ang) * edge, e.y + Math.sin(ang) * edge, ang, spd, 9, dmg, 16, null, 65, spd * 3);
         }
@@ -2874,7 +2874,7 @@ export class Engine {
         }
       });
       // Winterloom: the crystallized orb looses ice shards at nearby foes — a
-      // rapid stream, ~3x the old cadence, retargeting the nearest foe each shot
+      // rapid stream, retargeting the nearest foe each shot
       if (evolved) {
         o.shardCd -= dt;
         if (o.shardCd <= 0) {
@@ -4187,7 +4187,7 @@ export class Engine {
             if (Math.random() * 100 >= z.dissolve) continue;
             bp.life = 0;
             // unmaking: a bright pop, a wide dusk ring, and a slow drift of
-            // star-motes where the shot used to be
+            // star-motes where the shot was
             this.particles.spawn({ x: bp.x, y: bp.y, life: 0.22, size: bp.r * 3.4, endSize: 1, color: '#ffffff', color2: '#ffbfe4', mode: 'glow', drag: 1 });
             this.particles.spawn({ x: bp.x, y: bp.y, life: 0.5, size: bp.r * 5.5, endSize: 2, color: '#ffbfe4', mode: 'ring' });
             for (let k = 0; k < 12; k++) {

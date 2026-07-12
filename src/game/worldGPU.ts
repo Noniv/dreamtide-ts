@@ -477,14 +477,12 @@ fn composite_fs(in: FSIn) -> @location(0) vec4<f32> {
   c += bloom * 0.62;
   // Shoulder-only tonemap: IDENTITY below the knee so sprites keep their full
   // contrast against the dark sky; only the overbright range (stacked additive
-  // effects, HDR values past ~0.72 luma) is compressed toward white. A global
-  // Reinhard here once dimmed every bright pixel ~25-40% and read as a milky
-  // veil over the whole scene.
+  // effects, HDR values past ~0.72 luma) is compressed toward white.
   let luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
   let e = max(luma - 0.72, 0.0);
   let lumaC = min(luma, 0.72) + e / (1.0 + e * 3.0);
   c *= lumaC / max(luma, 1e-4);
-  // vignette (replaces the old quarter-res Canvas2D overlay layer)
+  // vignette
   let dc = (in.uv - 0.5) * vec2(u.viewport.x / u.viewport.y, 1.0) * 1.35;
   let vig = 1.0 - smoothstep(0.52, 1.15, length(dc)) * 0.52;
   c *= vig;

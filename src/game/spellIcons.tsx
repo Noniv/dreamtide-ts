@@ -6,8 +6,6 @@
 // The raw geometry lives in ICON_PARTS (a 24×24 viewBox, stroked with
 // currentColor) so both the React components here and the canvas-based
 // constellation renderer can draw the same icons.
-import React from 'react';
-
 export interface IconPart {
   d?: string;                    // SVG path, stroked
   c?: [number, number, number];  // circle [cx, cy, r]
