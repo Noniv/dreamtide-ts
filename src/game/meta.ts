@@ -929,16 +929,16 @@ DS('dark-core', 0, 0, 'core', 'The Wound', 'A tear in the dream that never close
 
 {
   const veins = [
-    { a: -90, notable: { n: 'Cruel Dawn', d: '+20% stardust earned · enemies strike 20% harder', fx: { dust: 20, baneDmg: 20 } } },
-    { a: 30, notable: { n: 'Iron Nightmares', d: '+20% stardust earned · enemies have +25% life', fx: { dust: 20, baneHp: 25 } } },
-    { a: 150, notable: { n: 'Fleet Shadows', d: '+20% stardust earned · enemies move 15% faster', fx: { dust: 20, baneSpeed: 15 } } },
+    { a: -90, notable: { n: 'Cruel Dawn', d: '+30% stardust earned · enemies strike 20% harder', fx: { dust: 30, baneDmg: 20 } } },
+    { a: 30, notable: { n: 'Iron Nightmares', d: '+30% stardust earned · enemies have +25% life', fx: { dust: 30, baneHp: 25 } } },
+    { a: 150, notable: { n: 'Fleet Shadows', d: '+30% stardust earned · enemies move 15% faster', fx: { dust: 30, baneSpeed: 15 } } },
   ];
   const depth = [20, 25, 30];
   veins.forEach((v, vi) => {
     let prev = 'dark-core';
     for (let j = 0; j < 3; j++) {
       const a = v.a + (j % 2 ? 7 : -7);
-      const id = DS(`dark-v${vi}-${j}`, 62 + j * 54, a, 'small', 'Sunken Hour', `The dream begins ${depth[j]} seconds deeper · +6% stardust earned`, { baneAhead: depth[j], dust: 6 });
+      const id = DS(`dark-v${vi}-${j}`, 62 + j * 54, a, 'small', 'Sunken Hour', `The dream begins ${depth[j]} seconds deeper · +9% stardust earned`, { baneAhead: depth[j], dust: 9 });
       link(prev, id, j % 2 ? 6 : -6);
       prev = id;
     }
@@ -948,21 +948,21 @@ DS('dark-core', 0, 0, 'core', 'The Wound', 'A tear in the dream that never close
   // inner ring joining the veins' first stars
   for (let vi = 0; vi < 3; vi++) {
     const a = veins[vi].a + 60;
-    const id = DS(`dark-i${vi}`, 78, a, 'small', 'Stolen Minute', 'The dream begins 15 seconds deeper · +5% stardust earned', { baneAhead: 15, dust: 5 });
+    const id = DS(`dark-i${vi}`, 78, a, 'small', 'Stolen Minute', 'The dream begins 15 seconds deeper · +8% stardust earned', { baneAhead: 15, dust: 8 });
     linkArc(`dark-v${vi}-0`, id, 8);
     linkArc(id, `dark-v${(vi + 1) % 3}-0`, 8);
   }
   // outer arcs joining the notables, with a bane notable at each arc's middle
   const arcNotables = [
-    { n: 'Restless Horde', d: '+18% stardust earned · the tide spawns 20% faster', fx: { dust: 18, baneRate: 20 } },
-    { n: 'Hungry Dark', d: '+18% stardust earned · elites stir 50% more often', fx: { dust: 18, baneElite: 50 } },
-    { n: 'Devourer’s Haste', d: '+18% stardust earned · the Devourer comes 40% sooner', fx: { dust: 18, baneBoss: 40 } },
+    { n: 'Restless Horde', d: '+27% stardust earned · the tide spawns 20% faster', fx: { dust: 27, baneRate: 20 } },
+    { n: 'Hungry Dark', d: '+27% stardust earned · elites stir 50% more often', fx: { dust: 27, baneElite: 50 } },
+    { n: 'Devourer’s Haste', d: '+27% stardust earned · the Devourer comes 40% sooner', fx: { dust: 27, baneBoss: 40 } },
   ];
   for (let vi = 0; vi < 3; vi++) {
     const a0 = veins[vi].a;
     const ids = [
-      DS(`dark-a${vi}-0`, 248, a0 + 38, 'small', 'Drowned Hour', 'The dream begins 30 seconds deeper · +8% stardust earned', { baneAhead: 30, dust: 8 }),
-      DS(`dark-a${vi}-1`, 248, a0 + 82, 'small', 'Drowned Hour', 'The dream begins 30 seconds deeper · +8% stardust earned', { baneAhead: 30, dust: 8 }),
+      DS(`dark-a${vi}-0`, 248, a0 + 38, 'small', 'Drowned Hour', 'The dream begins 30 seconds deeper · +12% stardust earned', { baneAhead: 30, dust: 12 }),
+      DS(`dark-a${vi}-1`, 248, a0 + 82, 'small', 'Drowned Hour', 'The dream begins 30 seconds deeper · +12% stardust earned', { baneAhead: 30, dust: 12 }),
     ];
     linkArc(`dark-n${vi}`, ids[0], 10);
     linkArc(ids[0], ids[1], 10);
@@ -973,11 +973,11 @@ DS('dark-core', 0, 0, 'core', 'The Wound', 'A tear in the dream that never close
     linkArc(ids[1], mid, 6);
   }
   // the three black keystones, one past each bane notable
-  const k0 = DS('dark-k0', 392, 90, 'keystone', 'The Black Star', '+40% stardust earned · enemies have +30% life and strike 25% harder', { dust: 40, baneHp: 30, baneDmg: 25 });
+  const k0 = DS('dark-k0', 392, 90, 'keystone', 'The Black Star', '+60% stardust earned · enemies have +30% life and strike 25% harder', { dust: 60, baneHp: 30, baneDmg: 25 });
   linkArc('dark-m1', k0, -8); // m1 sits at 90°
-  const k1 = DS('dark-k1', 392, 210, 'keystone', 'The Hungering Deep', '+30% stardust earned · the dream begins 120 seconds deeper · at least 12 more enemies swarm you at all times', { dust: 30, baneAhead: 120, baneFloor: 12 });
+  const k1 = DS('dark-k1', 392, 210, 'keystone', 'The Hungering Deep', '+45% stardust earned · the dream begins 120 seconds deeper · at least 12 more enemies swarm you at all times', { dust: 45, baneAhead: 120, baneFloor: 12 });
   linkArc('dark-m2', k1, -8); // m2 sits at 210°
-  const k2 = DS('dark-k2', 392, -30, 'keystone', 'The Red Choir', '+35% stardust earned · elites stir 60% more often · the Devourer comes 30% sooner', { dust: 35, baneElite: 60, baneBoss: 30 });
+  const k2 = DS('dark-k2', 392, -30, 'keystone', 'The Red Choir', '+53% stardust earned · elites stir 60% more often · the Devourer comes 30% sooner', { dust: 53, baneElite: 60, baneBoss: 30 });
   linkArc('dark-m0', k2, -8); // m0 sits at -30°
 }
 

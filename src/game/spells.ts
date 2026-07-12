@@ -245,7 +245,7 @@ export const SPELLS: Record<string, SpellDef> = {
       cooldown: Math.max(0.8, 1.65 - lv * 0.12), // per-wisp dart cadence
       damage: 10 + lv * 5,
       count: 3 + Math.floor(lv / 2),
-      range: 340,
+      range: 510,
     }),
     levelText: (lv) => (lv % 2 === 0 ? `+1 wisp (${3 + Math.floor(lv / 2)} total)` : 'Faster, harder darts'),
   },
