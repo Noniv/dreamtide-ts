@@ -1007,6 +1007,7 @@ export class Engine {
 
   gainXp(n: number) {
     const p = this.player;
+    if (p.dead) return;
     p.xp += n * (1 + (this.meta.xp || 0) / 100) * this.baneXpMul()
       * (1 + this.pact.xp / 100) * (this.lucidT > 0 ? 2 : 1);
     while (p.xp >= p.xpNext) {
@@ -1019,6 +1020,7 @@ export class Engine {
   }
 
   maybeOpenLevelUp() {
+    if (this.player.dead) return;
     if (this.levelUpActive || this.relicChoiceActive || this.pactActive || this.pendingLevels <= 0) return;
     this.pendingLevels--;
     // this choice is for the earliest not-yet-resolved level. player.level is
@@ -1177,7 +1179,7 @@ export class Engine {
     }
     audio.choose();
     this.levelUpActive = false;
-    this.paused = false;
+    this.paused = this.player.dead;
     const p = this.player;
     for (let i = 0; i < 60; i++) {
       const a = (i / 60) * TAU;
@@ -1234,7 +1236,7 @@ export class Engine {
       this.particles.spawn({ x: p.x, y: p.y, vx: Math.cos(a) * rand(140, 340), vy: Math.sin(a) * rand(140, 340), life: rand(0.5, 1.2), size: rand(2, 6), color: RELICS[id].color, color2: '#ffffff', mode: 'star', rotV: rand(-5, 5), drag: 0.9 });
     }
     this.relicChoiceActive = false;
-    this.paused = false;
+    this.paused = p.dead;
     this.pushHud(true);
     this.maybeOpenLevelUp(); // essence gathered during the boss fight
   }
@@ -1274,7 +1276,7 @@ export class Engine {
     }
     this.pactActive = false;
     this.pactCurrent = null;
-    this.paused = false;
+    this.paused = p.dead;
     this.pushHud(true);
     this.maybeOpenLevelUp();
   }
@@ -3223,6 +3225,9 @@ export class Engine {
       p.hp = 0;
       p.dead = true;
       this.paused = true;
+      // nothing queued from the rest of this frame may reopen a menu and unpause
+      this.pendingLevels = 0;
+      this.relicQueue = 0;
       audio.death();
       this.hooks.onGameOver({ time: this.t, kills: this.kills, level: p.level, bonusDust: this.bonusDust, shards: this.shardsEarned, relics: [...this.relics] });
     }
@@ -3684,7 +3689,7 @@ export class Engine {
         g.x += ((p.x - g.x) / D) * pullSp * dt;
         g.y += ((p.y - g.y) / D) * pullSp * dt;
       }
-      if (dd < 26 * 26) {
+      if (dd < 26 * 26 && !p.dead) {
         g.dead = true;
         if (g.shard) {
           this.shardsEarned++;
@@ -3775,7 +3780,7 @@ export class Engine {
       const s = this.pickups[i];
       s.life -= dt;
       s.ph += dt * 3;
-      if (!s.dead && dist2(s.x, s.y, p.x, p.y) < 34 * 34) {
+      if (!s.dead && !p.dead && dist2(s.x, s.y, p.x, p.y) < 34 * 34) {
         s.dead = true;
         if (s.kind === 'altar') {
           // the altar whispers its bargain — the dream holds its breath
