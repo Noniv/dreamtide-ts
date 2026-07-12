@@ -244,10 +244,10 @@ export const SPELLS: Record<string, SpellDef> = {
     stats: (lv) => ({
       cooldown: Math.max(0.8, 1.65 - lv * 0.12), // per-wisp dart cadence
       damage: 10 + lv * 5,
-      count: 2 + Math.floor(lv / 2),
+      count: 3 + Math.floor(lv / 2),
       range: 340,
     }),
-    levelText: (lv) => (lv % 2 === 0 ? `+1 wisp (${2 + Math.floor(lv / 2)} total)` : 'Faster, harder darts'),
+    levelText: (lv) => (lv % 2 === 0 ? `+1 wisp (${3 + Math.floor(lv / 2)} total)` : 'Faster, harder darts'),
   },
   serpent: {
     id: 'serpent', name: 'Dream Serpent', school: 'Thalassomancy',

@@ -1303,9 +1303,12 @@ export class Engine {
     const def = ENEMY_TYPES[typeId] || ENEMY_TYPES.wisp;
     const d = this.diff;
     const ang = Math.random() * TAU;
-    let R = boss
-      ? Math.min(this.cam.w, this.cam.h) * 0.5 + 80
-      : Math.max(this.cam.w, this.cam.h) * 0.62 + 60;
+    // spawn just outside the visible rectangle. The farthest-visible point from
+    // the player (screen centre) is the corner, at half the screen diagonal —
+    // using max(w,h) under-covered the corners on square/portrait windows and
+    // let foes appear on-screen. hypot()/2 is correct for every aspect ratio.
+    const offscreen = Math.hypot(this.cam.w, this.cam.h) * 0.5;
+    let R = boss ? offscreen + 40 : offscreen + 80;
     // deep-endgame ambush: a growing share of the tide claws its way in close
     if (!boss && d.esc > 2 && Math.random() < Math.min(0.42, (d.esc - 2) * 0.038)) {
       R = rand(90, 150);
