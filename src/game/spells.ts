@@ -273,7 +273,7 @@ export const SPELLS: Record<string, SpellDef> = {
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: Math.max(1.55, 2.1 - lv * 0.08), // the beat itself
-      damage: 7 + lv * 4,
+      damage: 10.5 + lv * 6,
       radius: 108 + lv * 12,
     }),
     levelText: (lv) => (lv === 3 ? 'Faster beat' : 'Wider sweep, harder tolls'),
@@ -284,8 +284,8 @@ export const SPELLS: Record<string, SpellDef> = {
     desc: 'An eye opens above you and sweeps a beam across the field.',
     maxLevel: 6,
     stats: (lv) => ({
-      cooldown: Math.max(5.5, 9 - lv * 0.5),
-      damage: 7.8 + lv * 3.9,       // per touch of the gaze (~30% stronger)
+      cooldown: Math.max(4.4, 7.2 - lv * 0.4),
+      damage: 15.6 + lv * 7.8,      // per touch of the gaze
       length: 290 + lv * 32,
       width: 26 + lv * 3,
       duration: 2 + lv * 0.15,      // seconds of sweep

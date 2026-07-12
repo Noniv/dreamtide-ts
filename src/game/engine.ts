@@ -210,6 +210,17 @@ const BOSS_ARCHS: BossArch[] = [
 // dart on their own clocks, rimeheart orbs drift
 const CONTINUOUS = new Set(['petals', 'wisps', 'ward', 'hush', 'frost']);
 
+// dream-tide surges: fixed key set, hoisted so the per-step decay loop never
+// calls Object.keys() (a fresh array every sim step otherwise)
+const SURGE_KEYS = ['speed', 'dmg', 'haste', 'aoe', 'magnet'] as const;
+const SURGE_LOOK: Record<string, { str: string; color: string }> = {
+  speed: { str: 'SWIFTNESS SURGES', color: '#7dffb0' },
+  dmg: { str: 'POWER SURGES', color: '#ff9ad5' },
+  haste: { str: 'HASTE SURGES', color: '#7ff5ff' },
+  aoe: { str: 'THE DREAM WIDENS', color: '#c48cff' },
+  magnet: { str: 'THE LURE DEEPENS', color: '#ffd27a' },
+};
+
 // player position history: 512 steps ≈ 8.5 s at 60 Hz. Powers the Wisp
 // Choir's trailing procession.
 const HIST_N = 512;
@@ -347,7 +358,7 @@ export class Engine {
   banished = new Set<string>();
   banishCharges = 0;
   rerollCharges = 0;
-  surges: Record<string, number> = {};
+  surges: Record<string, number> = { speed: 0, dmg: 0, haste: 0, aoe: 0, magnet: 0 };
   breather = 0;
   bonusDust = 0;
   shardsEarned = 0;
@@ -441,6 +452,14 @@ export class Engine {
   private waveTypesFor = -1;
   private diff: Difficulty = { hpMul: 1, spdMul: 1, rate: 1, dmgMul: 1, esc: 0 };
   private stormMask = new HitMask();
+  // spellStats memo (see spellStats) — cleared each reset(), when meta can change
+  private statsCache = new Map<string, SpellStats>();
+  // HUD change signature: pushHud skips the React round-trip when nothing shown
+  // on screen has actually changed (was a fresh object tree + full React render
+  // every 100ms — steady old-gen churn that fed the GC stutters)
+  private hudSig = '';
+  // reused per-frame perf counts (record() only reads it)
+  private perfCounts = { enemies: 0, projectiles: 0, particles: 0, zones: 0, gems: 0, texts: 0 };
 
   // loop timing
   private last = 0;
@@ -523,8 +542,10 @@ export class Engine {
     this.banishCharges = this.meta.banish || 0;
     this.rerollCharges = this.meta.reroll || 0;
     this.surgeT = 8;
-    this.surges = {};
+    this.surges = { speed: 0, dmg: 0, haste: 0, aoe: 0, magnet: 0 };
     this.mergeT = 0;
+    this.statsCache.clear(); // meta (spellMods/masteryPlus) may have changed
+    this.hudSig = '';
     const fm = this.meta.spellMods && this.meta.spellMods.frost;
     this.chillAmp = (fm && fm.special && fm.special.chillAmp) || 0;
     this.breather = 0;
@@ -754,14 +775,16 @@ export class Engine {
 
       // don't record paused frames (menu, level-up, death): they run 0 sim
       // steps and render React UI, which poisons the gameplay averages
-      if (!this.paused) this.perf.record(frameMs, simMs, simSteps, renderMs, particleMs, {
-        enemies: this.enemies.length,
-        projectiles: this.projectiles.length + this.bossProjectiles.length,
-        particles: this.particles.count,
-        zones: this.zones.length,
-        gems: this.gems.length,
-        texts: this.texts.length,
-      });
+      if (!this.paused) {
+        const c = this.perfCounts; // reused — record() only reads it
+        c.enemies = this.enemies.length;
+        c.projectiles = this.projectiles.length + this.bossProjectiles.length;
+        c.particles = this.particles.count;
+        c.zones = this.zones.length;
+        c.gems = this.gems.length;
+        c.texts = this.texts.length;
+        this.perf.record(frameMs, simMs, simSteps, renderMs, particleMs, c);
+      }
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
@@ -801,7 +824,10 @@ export class Engine {
     const mul = (1 + 0.45 * (this.player.boons.magnet || 0)) * this.player.metaMagnet * (this.surges.magnet > 0 ? 1.6 : 1);
     return 90 * (mul <= 2 ? mul : 2 * Math.pow(mul / 2, 0.4));
   }
-  aoeMul() { return (1 + 0.1 * this.player.genericAoe) * (1 + (this.meta.aoe || 0) / 100) * (this.surges.aoe > 0 ? 1.3 : 1) * (1 + this.pact.aoe / 100); }
+  // tree "area of effect" nodes grow the covered AREA by their %, so they enter
+  // as sqrt (a +100% area node = x1.41 radius, exactly double the footprint).
+  // The run boon, surge and pact still scale radius directly.
+  aoeMul() { return (1 + 0.1 * this.player.genericAoe) * Math.sqrt(1 + (this.meta.aoe || 0) / 100) * (this.surges.aoe > 0 ? 1.3 : 1) * (1 + this.pact.aoe / 100); }
   // resonance marks last longer under the Prism Heart
   markDur(base: number) { return base * (this.relics.has('prismheart') ? 2 : 1); }
   // bonus stardust that keeps pace with the run — a flat "+10" reads as an
@@ -818,7 +844,22 @@ export class Engine {
   spellCap() { return 5 + Math.min(4, 1 + (this.meta.spellSlots || 0)); }
   evoUnlocked(id: string) { const m = this.meta.spellMods && this.meta.spellMods[id]; return !!(m && m.evo); }
 
+  // Stats are pure in (id, level, mastery) for a whole run — meta/spellMods are
+  // fixed between reset()s — so they're cached. Continuous spells (ward, hush,
+  // wisps, petals, frost) ask every sim step and the hush veil asks every
+  // rendered frame; without the cache each ask allocated two fresh objects.
+  // NOTE: the returned object is shared. The only sanctioned mutation is
+  // castSpells' `st.evolved = ...`, which every reader sets before use.
   spellStats(id: string, lv: number, mastery = 0): SpellStats {
+    const key = id + '|' + lv + '|' + mastery;
+    const hit = this.statsCache.get(key);
+    if (hit) return hit;
+    const st = this.computeSpellStats(id, lv, mastery);
+    this.statsCache.set(key, st);
+    return st;
+  }
+
+  private computeSpellStats(id: string, lv: number, mastery: number): SpellStats {
     const st: SpellStats = { ...SPELLS[id].stats(Math.min(lv, SPELLS[id].maxLevel)) };
     if (mastery > 0) {
       const per = 0.08 + (this.meta.masteryPlus || 0) / 100;
@@ -2608,7 +2649,7 @@ export class Engine {
           bm.kind = 'gaze';
           bm.x = p.x; bm.y = p.y - 20;
           bm.a = ang; bm.pa = ang;
-          bm.len = st.length!; bm.w = st.width!;
+          bm.len = st.length! * this.aoeMul(); bm.w = st.width!; // the gaze sweeps a full circle — AoE widens its reach
           bm.life = dur; bm.maxLife = dur;
           bm.dmg = st.damage! * this.dmgMul();
           bm.sweep = (dir * turns * TAU) / dur;
@@ -3068,7 +3109,7 @@ export class Engine {
     }
     // Hourglass of the Deep: elite kills flood every surge at once
     if (e.elite && this.relics.has('hourglass')) {
-      for (const k of ['speed', 'dmg', 'haste', 'aoe', 'magnet']) this.surges[k] = 4;
+      for (const k of SURGE_KEYS) this.surges[k] = 4;
       this.spawnText(p.x, p.y - 66, 'THE HOURGLASS TURNS', '#7dffb0', 1.3, -28, 15);
       audio.bonus();
     }
@@ -3195,6 +3236,15 @@ export class Engine {
 
   pushHud(force = false) {
     const p = this.player;
+    // Signature at DISPLAY granularity (whole hp, 0.5% xp steps, whole seconds).
+    // If nothing the HUD renders has changed, skip building the object tree and
+    // the React re-render entirely — the 10Hz cadence otherwise promotes a
+    // steady stream of short-lived trees into the old generation.
+    let sig = `${Math.ceil(p.hp)}|${p.maxHp}|${Math.round(p.shield)}|${p.shieldMax}|${p.level}|${((p.xp / p.xpNext) * 200) | 0}|${Math.floor(this.t)}|${this.kills}|${this.bonusDust}|${this.shardsEarned}|${this.relics.size}|${this.paused ? 1 : 0}`;
+    for (const s of p.spells) sig += `|${s.id}${s.level}${s.evolved ? '*' : ''}${s.mastery || 0}`;
+    for (const k in p.boons) sig += `|${k}${p.boons[k]}`;
+    if (!force && sig === this.hudSig) return;
+    this.hudSig = sig;
     this.hooks.onHud({
       hp: p.hp, maxHp: p.maxHp, xp: p.xp, xpNext: p.xpNext, level: p.level,
       shield: p.shield, shieldMax: p.shieldMax,
@@ -3223,15 +3273,8 @@ export class Engine {
       if (this.surgeT <= 0) {
         this.surgeT = 8;
         const dur = 4 + (this.meta.surgeDur || 0);
-        const SURGE_LOOK: Record<string, { str: string; color: string }> = {
-          speed: { str: 'SWIFTNESS SURGES', color: '#7dffb0' },
-          dmg: { str: 'POWER SURGES', color: '#ff9ad5' },
-          haste: { str: 'HASTE SURGES', color: '#7ff5ff' },
-          aoe: { str: 'THE DREAM WIDENS', color: '#c48cff' },
-          magnet: { str: 'THE LURE DEEPENS', color: '#ffd27a' },
-        };
         let sy = 0;
-        for (const k of Object.keys(this.meta.surge)) {
+        for (const k of SURGE_KEYS) {
           if (this.meta.surge[k] > 0 && Math.random() * 100 < this.meta.surge[k]) {
             this.surges[k] = dur;
             const look = SURGE_LOOK[k];
@@ -3247,7 +3290,10 @@ export class Engine {
     }
     // surges decay outside the meta guard: the Hourglass relic grants them
     // even on builds with no surge nodes awakened
-    for (const k of Object.keys(this.surges)) this.surges[k] = Math.max(0, this.surges[k] - dt);
+    for (const k of SURGE_KEYS) {
+      const v = this.surges[k];
+      if (v > 0) this.surges[k] = Math.max(0, v - dt);
+    }
 
     // input
     p.px = p.x; p.py = p.y;

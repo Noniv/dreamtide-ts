@@ -15,13 +15,27 @@
 import type { Engine } from './engine';
 import { ENEMY_TYPES, MELEE_ANIM_DUR, BLINK_IN, PLAYER_HURT_DY, PLAYER_HURT_R, STEP, BOSS_RAGE_START, BOSS_RAGE_FULL, LUCID_DUR } from './engine';
 import { TAU, clamp, serpentPoint, type Enemy, type Zone, type Projectile, type BossProjectile, type Beam, type Bolt, type Gem, type Pickup } from './world';
-import { enemyFrameId, wizardFrameId, FRAMES, WIZARD_CY } from './enemySprites';
+import { enemyFrameId, wizardFrameId, FRAMES, WIZARD_CY, type AtlasEntry } from './enemySprites';
 import { SHAPE_RING, SHAPE_DISC, SHAPE_SPIRAL, SHAPE_CAPSULE, type QuadList, type ShapeList } from './worldGPU';
 import { drawStats } from './perf';
 import { settings } from './settings';
 
 const lerp = (a: number, b: number, f: number) => a + (b - a) * f;
 const _serp = { x: 0, y: 0 }; // scratch for serpent spine sampling
+
+// --ui-scale read for banners/veils: getComputedStyle every frame allocates and
+// forces style resolution, so the value is cached briefly (it only changes on
+// resize, and a 300ms lag on a zoom change is invisible)
+let _uiScale = 1;
+let _uiScaleAt = -1;
+function uiScale(): number {
+  const now = performance.now();
+  if (now - _uiScaleAt > 300) {
+    _uiScaleAt = now;
+    _uiScale = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')) || 1;
+  }
+  return _uiScale;
+}
 
 // generic colour parse → [r,g,b,a] 0..1 (cached). The alpha of rgba() strings
 // MUST be honoured: the Canvas2D era baked it into each glow sprite's
@@ -287,7 +301,7 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
   if (eng.banner) {
     const b = eng.banner;
     const a = Math.min(1, b.life, (b.maxLife - b.life) * 3);
-    const uiS = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')) || 1;
+    const uiS = uiScale();
     const bSize = (b.size || 24) * uiS;
     octx.save();
     octx.globalAlpha = a;
@@ -345,7 +359,7 @@ function drawLucidVeil(octx: CanvasRenderingContext2D, w: number, h: number, luc
   }
   octx.globalCompositeOperation = 'source-over';
   // name the boon, held for the whole window so its effect is unmistakable
-  const uiS = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')) || 1;
+  const uiS = uiScale();
   octx.globalAlpha = a * 0.92;
   octx.textAlign = 'center';
   octx.font = `600 ${13 * uiS}px Cinzel, 'Palatino Linotype', serif`;
@@ -411,7 +425,7 @@ function emitZone(sh: ShapeList, q: QuadList, eng: Engine, z: Zone, alpha: numbe
       const lx = x + Math.cos(aa) * zr * 0.28;
       const ly = y + Math.sin(aa) * zr * 0.28;
       const lr = zr * (0.55 + 0.08 * Math.sin(vt * 1.4 + i * 2));
-      const lc: [number, number, number] = i === 0 ? [0.77, 0.55, 1] : i === 1 ? [1, 0.60, 0.84] : [0.54, 0.48, 1];
+      const lc = NEBULA_LOBES[i];
       sh.push(SHAPE_DISC, lx, ly, 0, lr, 0.8, 0.8, 0, lc[0], lc[1], lc[2], 0.22 * fade, lc[0] * 0.5, lc[1] * 0.5, lc[2] * 0.5);
     }
   } else if (z.kind === 'sigil') {
@@ -620,6 +634,8 @@ function emitBolt(sh: ShapeList, b: Bolt, alpha: number, camX: number, camY: num
 // live in the Canvas2D era (rotation, bob, tint) are per-instance params.
 
 const FROZEN_TINT: [number, number, number] = [0.72, 0.89, 1];
+// nebula lobe hues (violet / pink / indigo) — hoisted, were per-frame literals
+const NEBULA_LOBES: [number, number, number][] = [[0.77, 0.55, 1], [1, 0.60, 0.84], [0.54, 0.48, 1]];
 
 function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha: number, camX: number, camY: number) {
   const cam = eng.cam;
@@ -1143,6 +1159,7 @@ function emitBossProjectile(q: QuadList, sh: ShapeList, eng: Engine, bp: BossPro
 // Every particle mode maps to a real atlas sprite now — the WebGL-era "all
 // particles are round glows" approximation is gone. Sparks stretch along
 // their velocity; runes/stars/shards/petals spin; rings expand.
+let _runeE: AtlasEntry[] | null = null;
 function emitParticles(q: QuadList, eng: Engine, camX: number, camY: number) {
   const pool = eng.particles.pool;
   const count = eng.particles.count;
@@ -1153,7 +1170,10 @@ function emitParticles(q: QuadList, eng: Engine, camX: number, camY: number) {
   const petalE = q.uv('p:petal')!;
   const ringE = q.uv('p:ring')!;
   const sparkE = q.uv('p:spark')!;
-  const runeE = [q.uv('p:rune0')!, q.uv('p:rune1')!, q.uv('p:rune2')!, q.uv('p:rune3')!];
+  // atlas entries are stable for the whole session — cache the rune lookups
+  // instead of building a fresh array every frame
+  if (!_runeE) _runeE = [q.uv('p:rune0')!, q.uv('p:rune1')!, q.uv('p:rune2')!, q.uv('p:rune3')!];
+  const runeE = _runeE;
   const cw = cam.w, ch = cam.h;
   for (let i = 0; i < count; i++) {
     const pt = pool[i];

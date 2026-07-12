@@ -547,6 +547,20 @@ class WorldGPUImpl implements WorldGPU {
   private cssW = 1; private cssH = 1;
   private texW = 1; private texH = 1;
 
+  // Reused render-pass descriptors (the view/loadOp fields are re-pointed each
+  // pass). beginRenderPass copies what it needs, so mutating between passes is
+  // safe — and it spares ~10 descriptor object trees per frame.
+  private sceneAttach: GPURenderPassColorAttachment = {
+    view: undefined as unknown as GPUTextureView,
+    loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 },
+  };
+  private sceneDesc: GPURenderPassDescriptor = { colorAttachments: [this.sceneAttach] };
+  private postAttach: GPURenderPassColorAttachment = {
+    view: undefined as unknown as GPUTextureView,
+    loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 },
+  };
+  private postDesc: GPURenderPassDescriptor = { colorAttachments: [this.postAttach] };
+
   constructor(canvas: HTMLCanvasElement, device: GPUDevice, atlas: Atlas, adapterLabel: string) {
     this.canvas = canvas;
     this.device = device;
@@ -749,9 +763,8 @@ class WorldGPUImpl implements WorldGPU {
 
     // ---- scene: background + shapes + sprites into the HDR target ----
     {
-      const pass = enc.beginRenderPass({
-        colorAttachments: [{ view: this.sceneView, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }],
-      });
+      this.sceneAttach.view = this.sceneView;
+      const pass = enc.beginRenderPass(this.sceneDesc);
       pass.setBindGroup(0, this.sceneBind);
       pass.setPipeline(this.pipeBG);
       pass.draw(3);
@@ -775,9 +788,9 @@ class WorldGPUImpl implements WorldGPU {
 
     // ---- bloom: prefilter → downsample chain → additive tent upsample ----
     const fullscreen = (pipe: GPURenderPipeline, bind: GPUBindGroup, view: GPUTextureView, load: GPULoadOp) => {
-      const pass = enc.beginRenderPass({
-        colorAttachments: [{ view, loadOp: load, storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } }],
-      });
+      this.postAttach.view = view;
+      this.postAttach.loadOp = load;
+      const pass = enc.beginRenderPass(this.postDesc);
       pass.setBindGroup(0, bind);
       pass.setPipeline(pipe);
       pass.draw(3);

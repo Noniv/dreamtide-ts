@@ -36,8 +36,8 @@ export type TreeEdge = [string, string]; // always drawn as a straight line
 export interface Meta {
   dust: number;
   shards: number;
-  // constellation skill points: unspent pool + lifetime total (sets the price
-  // of the next one — 20, 30, 40, … stardust, no cap)
+  // constellation skill points: unspent pool + lifetime total (pointsBought
+  // sets the price of the next one — a three-tier ramp, see nextPointCost)
   points: number;
   pointsBought: number;
   // dark bargain points: 1, 2, 3, … shards
@@ -846,10 +846,12 @@ const CLUSTER_ORDER = [
     const isDef = s.kind === 'defense';
     // defensive spells have no "damage"; the same mote slots (sdmg/scd/saoe/sdur)
     // instead read as strength / quickening / radius / hold and are folded onto
-    // the ward's shield & mending (see Engine.spellStats)
+    // the ward's shield & mending (see Engine.spellStats).
+    // saoe scales the spell's RADIUS directly (unlike the generic tree's "area
+    // of effect" nodes, which grow the area), so every cluster mote says radius.
     const dmgWord = isDef ? 'strength' : 'damage';
     const cdWord = isDef ? 'recharge' : 'cast speed';
-    const aoeWord = isDef ? 'radius' : 'area';
+    const aoeWord = 'radius';
     const durWord = isDef ? 'hold' : 'duration';
     const smallTpl = [
       { d: `+8% ${s.name} ${dmgWord}`, fx: { sdmg: 8 } },
@@ -1087,12 +1089,20 @@ export function saveMeta(meta: Meta) {
 
 // -------------------------------------------------------- skill point forge
 // The core of each web mints skill points. Constellation: the very first is a
-// gift (so the first touch of the Waking Eye always wakes a point), then a
-// flat +5 ✦ per point ever bought after. Dark Bargain: 1 ❖, then +1 ❖ per point.
+// gift (so the first touch of the Waking Eye always wakes a point), then the
+// price ramps in three tiers by how many points have ever been bought (n).
+// The tiers chain continuously — each tier's base is the previous tier's cost
+// at its boundary (150 = 3·50, 350 = 150 + 4·50) — so there are no jumps:
+//   n < 50:   3n
+//   n < 100:  150 + 4(n-50)
+//   n >= 100: 350 + 5(n-100)
+// Dark Bargain: 1 ❖, then +1 ❖ per point.
 export function nextPointCost(meta: Meta): number {
   const n = meta.pointsBought;
   if (n === 0) return 0;
-  return 5 * n;
+  if (n < 50) return 3 * n;
+  if (n < 100) return 150 + 4 * (n - 50);
+  return 350 + 5 * (n - 100);
 }
 export function nextDarkPointCost(meta: Meta): number { return 1 + meta.darkPointsBought; }
 

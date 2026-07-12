@@ -345,17 +345,23 @@ export const timerPool = new Pool<HitTimer>(() => new HitTimer(), 4);
 // every "scan enemies within radius R" query into O(enemies in nearby cells).
 const GRID_CELL = 130;
 
+interface GridBucket { stamp: number; items: Enemy[] }
+
 export class SpatialGrid {
-  cells = new Map<number, Enemy[]>();
   cell = GRID_CELL;
-  private pool: Enemy[][] = [];
-  private poolN = 0;
+  private cells = new Map<number, GridBucket>();
+  private stamp = 0;
 
   private key(cx: number, cy: number) { return cx * 100000 + cy; }
 
   rebuild(items: Enemy[]) {
-    this.cells.clear();
-    this.poolN = 0;
+    // Stamped buckets: instead of Map.clear() + fresh inserts every sim step
+    // (which reallocates the hash table 60×/s), buckets persist across steps
+    // and queries skip any whose stamp is stale. The map only grows when the
+    // player wanders onto never-visited cells; prune it on the rare occasions
+    // it gets large so a long run can't hoard buckets forever.
+    const s = ++this.stamp;
+    if (this.cells.size > 4096) this.cells.clear();
     const c = this.cell;
     for (let i = 0; i < items.length; i++) {
       const e = items[i];
@@ -363,25 +369,28 @@ export class SpatialGrid {
       const k = this.key(Math.floor(e.x / c), Math.floor(e.y / c));
       let bucket = this.cells.get(k);
       if (!bucket) {
-        bucket = this.pool[this.poolN];
-        if (bucket) bucket.length = 0; else { bucket = []; this.pool[this.poolN] = bucket; }
-        this.poolN++;
+        bucket = { stamp: s, items: [] };
         this.cells.set(k, bucket);
+      } else if (bucket.stamp !== s) {
+        bucket.stamp = s;
+        bucket.items.length = 0;
       }
-      bucket.push(e);
+      bucket.items.push(e);
     }
   }
 
   queryCircle(x: number, y: number, r: number, fn: (e: Enemy) => void) {
     const c = this.cell;
+    const s = this.stamp;
     const minX = Math.floor((x - r) / c), maxX = Math.floor((x + r) / c);
     const minY = Math.floor((y - r) / c), maxY = Math.floor((y + r) / c);
     for (let cx = minX; cx <= maxX; cx++) {
       for (let cy = minY; cy <= maxY; cy++) {
         const bucket = this.cells.get(this.key(cx, cy));
-        if (!bucket) continue;
-        for (let i = 0; i < bucket.length; i++) {
-          const e = bucket[i];
+        if (!bucket || bucket.stamp !== s) continue;
+        const items = bucket.items;
+        for (let i = 0; i < items.length; i++) {
+          const e = items[i];
           if (!e.dead) fn(e);
         }
       }

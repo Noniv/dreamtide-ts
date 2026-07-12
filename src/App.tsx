@@ -74,7 +74,20 @@ function useSkyState() { return useMemo(skyState, []); }
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
-  const { screen, hud, choices, newLevel, banishes, rerolls, relicChoices, pactOffer, result, dustEarned, meta, set } = useGame();
+  // Per-field selectors, deliberately NOT the whole store: hud updates flow at
+  // gameplay cadence and must only re-render HudLayer below, never this whole
+  // component tree (that churn was a steady GC feed during play).
+  const screen = useGame((s) => s.screen);
+  const choices = useGame((s) => s.choices);
+  const newLevel = useGame((s) => s.newLevel);
+  const banishes = useGame((s) => s.banishes);
+  const rerolls = useGame((s) => s.rerolls);
+  const relicChoices = useGame((s) => s.relicChoices);
+  const pactOffer = useGame((s) => s.pactOffer);
+  const result = useGame((s) => s.result);
+  const dustEarned = useGame((s) => s.dustEarned);
+  const meta = useGame((s) => s.meta);
+  const set = useGame((s) => s.set);
   // menu → run cross-fade: the run starts immediately, but the menu stays
   // mounted with a `closing` class so its night-sky dissolves into the live
   // world instead of hard-cutting.
@@ -227,10 +240,7 @@ export default function App() {
     <div className="stage">
       <canvas ref={canvasRef} className="game-canvas" />
 
-      {screen === 'playing' && hud && <Hud hud={hud} />}
-      {screen === 'playing' && hud && hud.paused && (
-        <PauseMenu onResume={resume} onReturnToMenu={returnToMenu} />
-      )}
+      {screen === 'playing' && <HudLayer onResume={resume} onReturnToMenu={returnToMenu} />}
 
       {screen === 'levelup' && (() => {
         const bon = computeBonuses(meta);
@@ -270,6 +280,20 @@ export default function App() {
       )}
       {renderOverlay(screen)}
     </div>
+  );
+}
+
+// The only component subscribed to `hud`: engine pushes land here and re-render
+// just this subtree. The engine also skips pushes whose displayed values are
+// unchanged (see pushHud), so during quiet play this renders ~1×/s, not 10×.
+function HudLayer({ onResume, onReturnToMenu }: { onResume: () => void; onReturnToMenu: () => void }) {
+  const hud = useGame((s) => s.hud);
+  if (!hud) return null;
+  return (
+    <>
+      <Hud hud={hud} />
+      {hud.paused && <PauseMenu onResume={onResume} onReturnToMenu={onReturnToMenu} />}
+    </>
   );
 }
 
