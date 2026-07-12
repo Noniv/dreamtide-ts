@@ -77,7 +77,7 @@ export const SPELLS: Record<string, SpellDef> = {
   frost: {
     id: 'frost', name: 'Rimeheart', school: 'Cryomancy',
     color: '#8fe8ff', color2: '#e8fbff', icon: '🜄',
-    desc: 'A slow orb of condensed cold drifts around you at medium range, chilling all it grazes.',
+    desc: 'A slow orb of condensed cold drifts around you at medium range, damaging and chilling all it grazes.',
     maxLevel: 6,
     stats: (lv) => ({
       cooldown: 0,                                  // continuous — the orb simply orbits
