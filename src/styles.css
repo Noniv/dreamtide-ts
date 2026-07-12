@@ -279,12 +279,29 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   background: linear-gradient(90deg, rgba(56, 108, 235, 0.94), rgba(110, 168, 255, 0.94));
   box-shadow: 0 0 12px rgba(90, 140, 255, 0.85), inset 0 1px 4px rgba(190, 218, 255, 0.55);
 }
-/* the ward's number on the bar, blue like the glass it counts */
+/* the ward's number on the bar: near-white for legibility over both the
+   blue glass and the red life fill, ringed in dark so it never sinks in,
+   with a cool glow keeping its icy identity */
 .bar span .shield-num {
   font-style: normal;
   margin-left: 8px;
-  color: #a9ccff;
-  text-shadow: 0 0 7px rgba(96, 150, 255, 0.95), 0 1px 3px rgba(0, 0, 0, 0.95);
+  color: #f2f7ff;
+  text-shadow:
+    0 0 2px rgba(2, 6, 20, 0.95),
+    1px 1px 1px rgba(2, 6, 20, 0.95),
+    -1px 1px 1px rgba(2, 6, 20, 0.95),
+    0 0 9px rgba(120, 172, 255, 0.7);
+}
+.bar span .shield-num .ward-glyph {
+  width: 13px;
+  height: 14px;
+  margin-right: 4px;
+  vertical-align: -2px;
+  fill: #dbe8ff;
+  stroke: rgba(2, 6, 20, 0.9);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 3px rgba(120, 172, 255, 0.7));
 }
 /* faint segment notches every fifth of the bar */
 .bar::after {

@@ -321,7 +321,14 @@ function Hud({ hud }: { hud: HudState }) {
               )}
               <span>
                 {Math.ceil(hud.hp)} / {hud.maxHp}
-                {hud.shieldMax > 0 && <em className="shield-num">⛨{Math.ceil(hud.shield)}</em>}
+                {hud.shieldMax > 0 && (
+                  <em className="shield-num">
+                    <svg className="ward-glyph" viewBox="0 0 24 26" aria-hidden="true">
+                      <path d="M12 1.5 L21.5 5.2 V13 C21.5 19.6 17 23.6 12 24.8 C7 23.6 2.5 19.6 2.5 13 V5.2 Z" />
+                    </svg>
+                    {Math.ceil(hud.shield)}
+                  </em>
+                )}
               </span>
             </div>
           </div>
