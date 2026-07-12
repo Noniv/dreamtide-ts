@@ -3408,7 +3408,20 @@ export class Engine {
       // the lucid dream slows its flight too, so it's far easier to run down
       if (e.golden) {
         e.goldT -= dt;
-        if (e.goldT <= 0) { e.dead = true; continue; }
+        if (e.goldT <= 0) {
+          // it slips back out of the dream — vanish with a wisp's dying
+          // flourish (a gold ring + scattering motes flitting upward) so it
+          // reads as fleeing, not simply blinking out of existence
+          this.particles.spawn({ x: e.x, y: e.y, life: 0.5, size: e.radius * 2.6, color: '#ffd27a', mode: 'ring' });
+          for (let i = 0; i < 16; i++) {
+            const a = rand(0, TAU);
+            const sp = rand(40, 220);
+            this.particles.spawn({ x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 40, life: rand(0.4, 0.9), size: rand(2, 5), endSize: 0.5, color: '#ffd27a', color2: '#fff2cc', mode: Math.random() < 0.6 ? 'glow' : 'star', rotV: rand(-5, 5), drag: 0.9 });
+          }
+          audio.banish(); // a soft dismissal — it slipped away, no reward chime
+          e.dead = true;
+          continue;
+        }
         const fa = Math.atan2(e.y - p.y, e.x - p.x) + Math.sin(e.animT * 4 + e.seed) * 0.6;
         e.x += (Math.cos(fa) * e.speed * lucid + e.knbx) * dt;
         e.y += (Math.sin(fa) * e.speed * lucid + e.knby) * dt;

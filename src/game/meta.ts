@@ -73,6 +73,23 @@ export function unlockedSpells(meta: Meta): string[] {
   return [...set];
 }
 
+// Great keystones awakened in one web — the school keystones / the black stars
+// of the Dark Bargain, but NOT the spell-evolution stars. Each drives one more
+// flourish on that web's sky (the tree-flair layers).
+export function keystonesOwned(ids: string[]): number {
+  let n = 0;
+  for (const id of ids) {
+    const node = NODE_MAP[id];
+    if (node && node.kind === 'keystone' && !node.fx.evo) n++;
+  }
+  return n;
+}
+
+// total across both webs (kept for the run bonus summary)
+export function keystoneCount(meta: Meta): number {
+  return keystonesOwned(meta.owned) + keystonesOwned(meta.darkOwned);
+}
+
 export function sanitizeLoadout(meta: Meta): string[] {
   const slots = loadoutSlots(meta);
   const allowed = new Set(unlockedSpells(meta));
@@ -96,6 +113,7 @@ export interface Bonuses {
   extraCount: number; echo: number; masteryPlus: number; startLv: number; fourfold: number;
   cheatDeath: number; deathBurst: number; banish: number; reroll: number;
   extraGem: number; gemMerge: number; golden: number; surgeDur: number; spellSlots: number;
+  keystones: number; // great keystones awakened — drives the dreamscape's ornateness
   baneHp?: number; baneRate?: number; baneAhead?: number; baneDmg?: number;
   baneFloor?: number; baneSpeed?: number; baneElite?: number; baneBoss?: number;
   surge: Record<string, number>;
@@ -1273,7 +1291,7 @@ export function computeBonuses(meta: Meta): Bonuses {
     dmg: 0, cast: 0, aoe: 0, speed: 0, magnet: 0, xp: 0, dust: 0, crit: 0, critDmg: 0,
     hp: 0, regen: 0, extraCount: 0, echo: 0, masteryPlus: 0, startLv: 0, fourfold: 0,
     cheatDeath: 0, deathBurst: 0, banish: 0, reroll: 0, extraGem: 0, gemMerge: 0,
-    golden: 0, surgeDur: 0, spellSlots: 0,
+    golden: 0, surgeDur: 0, spellSlots: 0, keystones: keystoneCount(meta),
     surge: { speed: 0, dmg: 0, haste: 0, aoe: 0, magnet: 0 },
     startSpells: [], loadout: sanitizeLoadout(meta), spellMods: {},
   };

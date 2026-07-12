@@ -12,7 +12,7 @@ import {
   loadMeta, saveMeta, computeBonuses, dustForRun, setLoadout, loadoutSlots, unlockedSpells,
   markTreeRevealed, markDarkRevealed,
   nextPointCost, nextDarkPointCost, canBuyPoint, buyPoint, canBuyDarkPoint, buyDarkPoint,
-  allocateNode, deallocateNode, removableSet, darkDepth,
+  allocateNode, deallocateNode, removableSet, darkDepth, keystonesOwned,
   type Meta,
 } from './game/meta';
 import { TreeCanvas, type TreePhase } from './game/treeCanvas';
@@ -288,12 +288,32 @@ export default function App() {
 // unchanged (see pushHud), so during quiet play this renders ~1×/s, not 10×.
 function HudLayer({ onResume, onReturnToMenu }: { onResume: () => void; onReturnToMenu: () => void }) {
   const hud = useGame((s) => s.hud);
+  // Settings can be opened from within the pause menu without leaving the dream.
+  // Unpausing (or abandoning) always drops it, so a later pause opens clean.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const paused = hud?.paused;
+  useEffect(() => { if (!paused) setSettingsOpen(false); }, [paused]);
   if (!hud) return null;
   return (
     <>
       <Hud hud={hud} />
-      {hud.paused && <PauseMenu onResume={onResume} onReturnToMenu={onReturnToMenu} />}
+      {hud.paused && !settingsOpen && (
+        <PauseMenu onResume={onResume} onReturnToMenu={onReturnToMenu} onSettings={() => setSettingsOpen(true)} />
+      )}
+      {hud.paused && settingsOpen && <Settings onClose={() => setSettingsOpen(false)} extraClass="pause-settings" />}
     </>
+  );
+}
+
+// A pure-CSS hover card carried inside each dock chip: its name, a small kind
+// tag, and a description. Reveals on hover (the dock rides above the pause veil,
+// so it can be read there too).
+function ChipTip({ name, kind, desc }: { name: string; kind?: string; desc?: string }) {
+  return (
+    <span className="chip-tip" aria-hidden="true">
+      <span className="chip-tip-head">{name}{kind && <em>{kind}</em>}</span>
+      {desc && <span className="chip-tip-desc">{desc}</span>}
+    </span>
   );
 }
 
@@ -346,33 +366,43 @@ function Hud({ hud }: { hud: HudState }) {
         </div>
       </div>
       <div className="hud-spells">
-        {hud.spells.map((s) => (
-          <div key={s.id} className={`spell-chip ${s.evolved ? 'evolved' : ''}`} style={{ '--c': SPELLS[s.id].color } as React.CSSProperties}>
-            <span className="glyph"><SpellIcon id={s.id} size={22} /></span>
-            <span className="lv">{s.evolved ? '★' : s.level}</span>
-          </div>
-        ))}
+        {hud.spells.map((s) => {
+          const def = SPELLS[s.id];
+          return (
+            <div key={s.id} className="chip-wrap" style={{ '--c': def.color } as React.CSSProperties}>
+              <div className={`spell-chip ${s.evolved ? 'evolved' : ''}`}>
+                <span className="glyph"><SpellIcon id={s.id} size={22} /></span>
+                <span className="lv">{s.evolved ? '★' : s.level}</span>
+              </div>
+              <ChipTip
+                name={s.evolved ? EVOLVE[s.id].name : def.name}
+                kind={s.evolved ? 'Evolved' : `Level ${s.level}`}
+                desc={s.evolved ? EVOLVE[s.id].desc : def.desc}
+              />
+            </div>
+          );
+        })}
         {Array.from({ length: Math.max(0, (hud.spellCap || 6) - hud.spells.length) }).map((_, i) => (
-          <div key={`empty-${i}`} className="spell-chip empty" title="An empty spell slot, waiting to be filled">
-            <span className="glyph">+</span>
+          <div key={`empty-${i}`} className="chip-wrap">
+            <div className="spell-chip empty"><span className="glyph">+</span></div>
+            <ChipTip name="Empty slot" desc="Waiting to be filled as new spells find you." />
           </div>
         ))}
         {boons.length > 0 && <div className="dock-divider" />}
         {boons.map(([id, lv]) => (
-          <div key={id} className="spell-chip boon" title={BOONS[id].name}>
-            <span className="glyph">{BOONS[id].icon}</span>
-            <span className="lv">{lv}</span>
+          <div key={id} className="chip-wrap">
+            <div className="spell-chip boon">
+              <span className="glyph">{BOONS[id].icon}</span>
+              <span className="lv">{lv}</span>
+            </div>
+            <ChipTip name={BOONS[id].name} kind={`Rank ${lv}`} desc={BOONS[id].desc} />
           </div>
         ))}
         {hud.relics.length > 0 && <div className="dock-divider" />}
         {hud.relics.map((id) => (
-          <div
-            key={id}
-            className="spell-chip relic"
-            title={`${RELICS[id].name} — ${RELICS[id].desc}`}
-            style={{ '--c': RELICS[id].color } as React.CSSProperties}
-          >
-            <span className="glyph">{RELICS[id].icon}</span>
+          <div key={id} className="chip-wrap" style={{ '--c': RELICS[id].color } as React.CSSProperties}>
+            <div className="spell-chip relic"><span className="glyph">{RELICS[id].icon}</span></div>
+            <ChipTip name={RELICS[id].name} kind="Relic" desc={RELICS[id].desc} />
           </div>
         ))}
       </div>
@@ -385,7 +415,7 @@ function Hud({ hud }: { hud: HudState }) {
   );
 }
 
-function PauseMenu({ onResume, onReturnToMenu }: { onResume: () => void; onReturnToMenu: () => void }) {
+function PauseMenu({ onResume, onReturnToMenu, onSettings }: { onResume: () => void; onReturnToMenu: () => void; onSettings: () => void }) {
   return (
     <div className="overlay pause-overlay">
       <div className="pause-panel panel">
@@ -394,6 +424,7 @@ function PauseMenu({ onResume, onReturnToMenu }: { onResume: () => void; onRetur
         <div className="orn" aria-hidden="true">✦</div>
         <div className="menu-buttons">
           <button className="btn-primary" onClick={onResume}>Return to the dream</button>
+          <button className="btn-secondary" onClick={onSettings}>Tune the dream</button>
           <button className="btn-secondary" onClick={onReturnToMenu}>Abandon this dream</button>
         </div>
         <div className="controls-hint">Esc resumes · an abandoned dream yields no stardust</div>
@@ -496,7 +527,7 @@ function VolumeRow({ label, value, onChange }: { label: string; value: number; o
   );
 }
 
-function Settings({ onClose }: { onClose: () => void }) {
+function Settings({ onClose, extraClass }: { onClose: () => void; extraClass?: string }) {
   const sky = useSkyState();
   // local mirror so the sliders/buttons re-render; the settings singleton is
   // the source of truth and persists each change.
@@ -534,7 +565,7 @@ function Settings({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="overlay settings-overlay">
+    <div className={`overlay settings-overlay${extraClass ? ` ${extraClass}` : ''}`}>
       <div className="menu-bg" aria-hidden="true" style={sky} />
       <div className="settings-panel panel">
         <div className="settings-head">
@@ -1042,9 +1073,15 @@ function SkillTree({ meta, reveal, onRevealed, onMeta, onLoadout, onClose }: {
     setTip(id ? { id, x, y } : null);
   };
 
+  // every school keystone awakened hangs one more distinct wonder in the
+  // Constellation's sky — a new nebula, a comet, an aurora, a ring…
+  const keys = Math.min(8, keystonesOwned(meta.owned));
   return (
     <div className={`overlay tree-overlay${phase === 'seed' ? ' reveal-seed' : ''}`}>
       <div className="tree-bg" aria-hidden="true" style={sky} />
+      {Array.from({ length: keys }, (_, i) => (
+        <div key={i} className={`tree-flair cf${i + 1}`} aria-hidden="true" style={sky} />
+      ))}
       <div className={`tree-head${phase !== 'done' ? ' veiled' : ''}`}>
         <div>
           <div className="tree-title">The Constellation</div>
@@ -1156,9 +1193,14 @@ function DarkBargain({ meta, reveal, onRevealed, onMeta, onClose }: {
     setTip(id ? { id, x, y } : null);
   };
 
+  // each of the Wound's three black stars corrupts its sky a little further
+  const darkKeys = Math.min(3, keystonesOwned(meta.darkOwned));
   return (
     <div className={`overlay tree-overlay dark-overlay${phase === 'seed' ? ' reveal-seed' : ''}`}>
       <div className="tree-bg dark" aria-hidden="true" style={sky} />
+      {Array.from({ length: darkKeys }, (_, i) => (
+        <div key={i} className={`tree-flair df${i + 1}`} aria-hidden="true" style={sky} />
+      ))}
       <div className={`tree-head${phase !== 'done' ? ' veiled' : ''}`}>
         <div>
           <div className="tree-title dark">The Dark Bargain</div>

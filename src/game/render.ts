@@ -161,7 +161,10 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
   for (const bp of eng.bossProjectiles) emitBossProjectile(q, sh, eng, bp, alpha, camX, camY);
   emitParticles(q, eng, camX, camY);
 
-  world.render(vt, camX, camY, sh, q, shOver);
+  // the dreamscape strays further into psychedelia, then horror, the deeper
+  // (longer) a dream runs — one mood stage per 5 minutes; nil on the menu sky.
+  const mood = eng.inRun ? eng.t / 300 : 0;
+  world.render(vt, camX, camY, sh, q, shOver, 0, mood);
   drawStats.worldQuads = q.n;
   drawStats.worldShapes = sh.n + shOver.n;
   drawStats.worldDrawCalls = 3 + (shOver.n > 0 ? 1 : 0);
@@ -221,7 +224,11 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
     octx.save();
     octx.translate(ax, ay);
     octx.rotate(ang);
-    const sc = 1.05 + 0.12 * pulse;
+    // size tracks the actual distance across a wide band, so the chevron is
+    // largest when the star is far off and grows steadily smaller the whole way
+    // in — not just at the very end
+    const sizeF = clamp((d - 110) / 480, 0, 1);
+    const sc = (0.92 + 0.12 * pulse) * (0.5 + 0.8 * sizeF);
     octx.scale(sc, sc);
     octx.globalAlpha = near * (0.92 + 0.08 * pulse);
     // the star, trailing behind the chevron
@@ -267,7 +274,10 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
     octx.save();
     octx.translate(ax, ay);
     octx.rotate(ang);
-    const sc = 1.1 + 0.14 * pulse;
+    // size tracks distance across a wide band — largest when the wisp is far,
+    // shrinking steadily the whole way in
+    const sizeF = clamp((d - 120) / 500, 0, 1);
+    const sc = (0.95 + 0.14 * pulse) * (0.5 + 0.8 * sizeF);
     octx.scale(sc, sc);
     octx.globalAlpha = near * (0.92 + 0.08 * pulse);
     // a golden mote trailing behind the chevron
@@ -738,8 +748,19 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
   // ---- live overlays as extra quads (smooth, on the global clock) ----
   if (e.golden) {
     const ringE = q.uv('ring')!;
-    const gr = e.radius + 8 + Math.sin(vt * 4) * 2;
+    // its dwindling time drives a quiet tell over the last few seconds: the halo
+    // breathes a touch quicker and a single faint ring drifts inward, a soft
+    // "it's slipping away" cue rather than an alarm (warn: 0 → 1)
+    const warn = e.goldT > 0 && e.goldT < 3 ? 1 - e.goldT / 3 : 0;
+    const gr = e.radius + 8 + Math.sin(vt * (4 + warn * 5)) * (2 + warn * 1.5);
     q.push(true, ringE, x, y, gr / 30 * ringE.half, 0, 0.8, 1, 0.82, 0.48, 1);
+    if (warn > 0) {
+      const phase = (vt * 0.9) % 1;
+      const cr = e.radius + 3 + (1 - phase) * 18;
+      q.push(true, ringE, x, y, cr / 30 * ringE.half, 0, warn * 0.2 * (0.4 + 0.6 * phase), 1, 0.78, 0.46, 1);
+      const breathe = 0.5 + 0.5 * Math.sin(vt * 5);
+      q.push(true, glowE, x, y, e.radius * 0.9, 0, 0.1 * warn * breathe, 1, 0.86, 0.5, 1);
+    }
     drawStats.enemyLiveOps++;
   } else if (e.elite) {
     // crimson corona ring + 4 orbiting thorn shards

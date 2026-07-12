@@ -358,8 +358,14 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 .hud-spells {
   position: absolute; left: 16px; bottom: 15px;
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; max-width: 62vw;
-  pointer-events: none; z-index: 2;
+  /* sits ABOVE the pause veil (z 10) so the dock can be read and hovered while
+     the dream is held still; the container ignores pointer events so its gaps
+     never swallow clicks, but each chip opts back in for its hover card */
+  pointer-events: none; z-index: 12;
 }
+/* wrapper is the hover target and the tooltip's anchor — it is NOT clipped, so
+   the tooltip (which sits outside the chip's octagon clip-path) stays visible */
+.chip-wrap { position: relative; pointer-events: auto; display: flex; }
 .spell-chip {
   position: relative;
   width: 50px; height: 50px;
@@ -429,6 +435,40 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 .dock-divider {
   width: 1px; height: 34px; margin: 0 3px;
   background: linear-gradient(180deg, transparent, rgba(205, 216, 255, 0.35), transparent);
+}
+
+/* dock hover card — anchored to the chip's left edge (the dock hugs the screen
+   corner) and rising above it. Pure CSS, revealed on hover. */
+.chip-tip {
+  position: absolute; left: -4px; bottom: calc(100% + 12px);
+  width: max-content; max-width: 250px;
+  padding: 11px 13px 12px;
+  text-align: left;
+  background: rgba(10, 8, 26, 0.97);
+  border: 1px solid rgba(205, 216, 255, 0.16);
+  border-radius: 11px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 18px color-mix(in srgb, var(--c, #ffd27a) 22%, transparent);
+  opacity: 0; visibility: hidden; transform: translateY(5px);
+  transition: opacity 0.14s ease, transform 0.14s ease;
+  pointer-events: none; z-index: 40;
+}
+.chip-tip::after {
+  content: ''; position: absolute; left: 18px; top: 100%;
+  border: 6px solid transparent; border-top-color: rgba(10, 8, 26, 0.97);
+}
+.chip-wrap:hover .chip-tip { opacity: 1; visibility: visible; transform: translateY(0); }
+.chip-tip-head {
+  display: flex; align-items: baseline; gap: 9px;
+  font-family: var(--display); font-weight: 700; font-size: 15px; color: #fff;
+}
+.chip-tip-head em {
+  font-family: var(--ui); font-style: normal; font-weight: 600; font-size: 10px;
+  letter-spacing: 0.16em; text-transform: uppercase; color: color-mix(in srgb, var(--c, #ffd27a) 70%, #fff);
+  opacity: 0.85; white-space: nowrap;
+}
+.chip-tip-desc {
+  display: block; margin-top: 6px;
+  font-size: 13px; line-height: 1.45; color: rgba(216, 225, 255, 0.9);
 }
 
 /* the opening whisper — fades away once the dream has taught you to move */
@@ -589,8 +629,106 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   to { transform: translate(2%, 2%) scale(1.06); }
 }
 
+/* Every great keystone awakened hangs one more distinct wonder in that web's
+   sky (see <div class="tree-flair cfN|dfN">). Deliberately edge-weighted and
+   low-alpha so the stars/lines in the middle stay readable — the flourishes
+   frame the tree, they don't flood it. Constellation layers add light (screen);
+   Dark Bargain layers bruise and corrupt (normal compositing). */
+.tree-flair { position: absolute; inset: 0; pointer-events: none; overflow: hidden; mix-blend-mode: screen; animation-delay: var(--sky-delay, 0s); }
+
+/* — the Constellation: cosmic wonders — */
+.cf1 { background: radial-gradient(38% 42% at 15% 20%, rgba(138, 92, 255, 0.26), transparent 70%); filter: blur(30px); animation: flairDriftA 38s ease-in-out infinite alternate; }
+.cf2 { background: radial-gradient(40% 44% at 85% 82%, rgba(90, 220, 255, 0.20), transparent 70%); filter: blur(34px); animation: flairDriftB 46s ease-in-out infinite alternate; }
+.cf3 {
+  background-image:
+    radial-gradient(1.3px 1.3px at 20% 30%, rgba(255, 255, 255, 0.6), transparent 100%),
+    radial-gradient(1px 1px at 70% 62%, rgba(190, 230, 255, 0.5), transparent 100%),
+    radial-gradient(1.4px 1.4px at 42% 80%, rgba(255, 230, 180, 0.5), transparent 100%),
+    radial-gradient(1px 1px at 85% 22%, rgba(255, 180, 220, 0.45), transparent 100%),
+    radial-gradient(1.2px 1.2px at 12% 66%, rgba(200, 210, 255, 0.5), transparent 100%),
+    radial-gradient(1px 1px at 60% 12%, rgba(255, 255, 255, 0.45), transparent 100%);
+  background-size: 300px 300px; opacity: 0.7;
+  animation: flairTwinkle 5.5s ease-in-out infinite alternate;
+}
+.cf4 { background: radial-gradient(40% 40% at 82% 16%, rgba(255, 120, 190, 0.18), transparent 70%); filter: blur(30px); animation: flairDriftA 52s ease-in-out infinite alternate-reverse; }
+.cf5 {
+  background:
+    linear-gradient(115deg, transparent 32%, rgba(127, 245, 255, 0.09) 46%, transparent 56%),
+    linear-gradient(66deg, transparent 42%, rgba(180, 140, 255, 0.09) 53%, transparent 63%);
+  filter: blur(16px);
+  animation: flairRibbon 22s ease-in-out infinite alternate;
+}
+.cf6 {
+  background:
+    radial-gradient(4px 4px at 50% 11%, rgba(205, 222, 255, 0.55), transparent 70%),
+    radial-gradient(3px 3px at 50% 89%, rgba(255, 214, 150, 0.5), transparent 70%),
+    radial-gradient(2.4px 2.4px at 11% 50%, rgba(190, 255, 220, 0.45), transparent 70%);
+  animation: flairSpin 64s linear infinite;
+}
+.cf7::after {
+  content: ''; position: absolute; width: 150px; height: 3px; top: -4%; left: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 240, 200, 0.9));
+  box-shadow: 0 0 9px 1px rgba(255, 220, 150, 0.6); border-radius: 3px;
+  animation: flairComet 16s linear infinite; animation-delay: var(--sky-delay, 0s);
+}
+.cf8 {
+  background:
+    radial-gradient(38% 42% at 17% 84%, rgba(120, 255, 180, 0.16), transparent 70%),
+    radial-gradient(65% 65% at 50% 50%, rgba(255, 210, 150, 0.045), transparent 72%);
+  filter: blur(28px);
+  animation: flairDriftB 58s ease-in-out infinite alternate;
+}
+
+/* — the Dark Bargain: three deepening corruptions — */
+.df1, .df2, .df3 { mix-blend-mode: normal; }
+.df1 {
+  background:
+    radial-gradient(120% 90% at 50% 120%, rgba(150, 12, 22, 0.34), transparent 60%),
+    radial-gradient(85% 65% at 2% 4%, rgba(90, 6, 14, 0.26), transparent 62%);
+  filter: blur(20px);
+  animation: flairPulseRed 7s ease-in-out infinite;
+}
+.df2 {
+  background: repeating-conic-gradient(from 0deg at 50% 50%,
+    rgba(0, 0, 0, 0) 0deg, rgba(0, 0, 0, 0) 7deg, rgba(120, 10, 18, 0.11) 9.5deg, rgba(0, 0, 0, 0) 12deg);
+  filter: blur(7px);
+  animation: flairSpin 140s linear infinite reverse;
+}
+.df3 {
+  background:
+    radial-gradient(52% 46% at 50% 55%, rgba(120, 10, 20, 0.20), transparent 70%),
+    radial-gradient(30% 30% at 88% 12%, rgba(90, 130, 24, 0.16), transparent 70%),
+    radial-gradient(30% 30% at 12% 88%, rgba(90, 130, 24, 0.14), transparent 70%);
+  filter: blur(22px);
+  animation: flairHeartbeat 3.2s ease-in-out infinite;
+}
+
+@keyframes flairDriftA { from { transform: translate(-2%, -1%) scale(1); } to { transform: translate(3%, 2%) scale(1.08); } }
+@keyframes flairDriftB { from { transform: translate(2%, 1%) scale(1.05); } to { transform: translate(-3%, -2%) scale(1); } }
+@keyframes flairTwinkle { from { opacity: 0.42; } to { opacity: 0.8; } }
+@keyframes flairRibbon { from { transform: translateX(-4%); opacity: 0.65; } to { transform: translateX(4%); opacity: 1; } }
+@keyframes flairSpin { to { transform: rotate(360deg); } }
+/* the streak and its travel share one 20° axis: translateX runs along the
+   rotated local x, so the trail always lies exactly along the path it flew */
+@keyframes flairComet {
+  0% { transform: rotate(20deg) translateX(-220px); opacity: 0; }
+  3% { opacity: 1; }
+  16% { opacity: 1; }
+  21% { transform: rotate(20deg) translateX(150vw); opacity: 0; }
+  100% { transform: rotate(20deg) translateX(150vw); opacity: 0; }
+}
+@keyframes flairPulseRed { 0%, 100% { opacity: 0.72; } 50% { opacity: 1; } }
+@keyframes flairHeartbeat {
+  0%, 42%, 100% { opacity: 0.68; transform: scale(1); }
+  12% { opacity: 1; transform: scale(1.03); }
+  26% { opacity: 0.85; transform: scale(1.012); }
+}
+
 /* ============================================================== pause */
 .pause-overlay { z-index: 10; backdrop-filter: blur(3px); }
+/* settings reached from within the pause menu ride above the dock (z 12), so
+   the floating dock never sits over the settings panel */
+.settings-overlay.pause-settings { z-index: 15; }
 .pause-panel {
   padding: 40px 60px 34px;
   display: flex; flex-direction: column; align-items: center;
@@ -1319,7 +1457,8 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   .card, .overlay, .settings-panel, .tree-head, .tree-wrap, .loadout,
   .overlay.menu .title-block { animation: none; }
   .btn-primary:hover::after { animation: none; }
-  .menu-bg, .menu-bg::after, .tree-bg::before, .tree-bg::after { animation: none; }
+  .menu-bg, .menu-bg::after, .tree-bg::before, .tree-bg::after,
+  .tree-flair, .tree-flair::after { animation: none; }
 }
 @media (max-width: 720px) {
   .cards { gap: 10px; }

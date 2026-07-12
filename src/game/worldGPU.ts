@@ -113,6 +113,9 @@ struct U {
   viewScale: f32,        // world→screen zoom (innerHeight / DESIGN_H)
   cam: vec2<f32>,        // world position of the view's top-left (world units)
   res: vec2<f32>,        // framebuffer pixel size of the scene target
+  pad0: f32,             // (hdr flag in the post-process U — unused here)
+  reserved: f32,         // reserved (formerly ornateness; keystone flair lives on the tree screen now)
+  mood: f32,             // run stages: each +1 ≈ 5 min deeper, ever more psychedelic → horror
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var samp: sampler;
@@ -149,6 +152,13 @@ fn fbm(p: vec2<f32>) -> f32 {
   }
   return v;
 }
+// rotate a colour about the grey axis — a true hue rotation (Rodrigues' formula)
+fn hueRotate(c: vec3<f32>, a: f32) -> vec3<f32> {
+  let k = vec3<f32>(0.57735027);   // normalized (1,1,1)
+  let ca = cos(a);
+  let sa = sin(a);
+  return c * ca + cross(k, c) * sa + k * dot(k, c) * (1.0 - ca);
+}
 
 // ------------------------------------------------------------- background
 struct BGOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
@@ -182,36 +192,54 @@ fn bg_fs(in: BGOut) -> @location(0) vec4<f32> {
   let px = in.uv * u.viewport / u.viewScale; // world-unit screen coords (matches u.cam)
   let t = u.time;
 
-  // deep dream sky: vertical gradient, slightly denser at the horizon line
+  // how far the dream has strayed from waking as it runs long and deep:
+  //   psy    — psychedelic swell of the deep dream (colour cycling, churning warp)
+  //   horror — dread that only creeps in once a dream runs long and deep
+  let mood = u.mood;
+  let psy = clamp(mood, 0.0, 3.0);
+  let horror = smoothstep(1.6, 4.2, mood);
+  // the slow hue-swim of everything painterly in the sky
+  let hueA = mood * 0.7 + sin(t * 0.05) * psy * 0.6;
+
+  // deep dream sky: vertical gradient, slightly denser at the horizon line.
+  // The deeper the dream runs, the more bruised the sky beneath it grows.
   let y = in.uv.y;
   var col = mix(vec3(0.030, 0.026, 0.105), vec3(0.078, 0.052, 0.180), y);
   col = mix(col, vec3(0.105, 0.060, 0.230), y * y * 0.8);
+  col = mix(col, vec3(0.045, 0.010, 0.030), horror * 0.5);
 
-  // domain-warped nebula clouds, slow parallax drift (world-locked)
+  // domain-warped nebula clouds, slow parallax drift (world-locked). The warp
+  // churns harder as the dream turns psychedelic.
+  let warpAmp = 1.7 + psy * 0.6;
   let np = (px + u.cam * 0.22) * 0.0016;
   let warp = vec2(fbm(np * 0.9 + vec2(t * 0.014, 0.0)), fbm(np * 0.9 + vec2(4.7, t * 0.011)));
-  let neb = fbm(np + warp * 1.7);
+  let neb = fbm(np + warp * warpAmp);
   let neb2 = fbm(np * 1.9 - warp * 1.2 + vec2(8.2, 1.3));
-  // two-tone dream nebula: violet body, magenta-teal highlights
+  // two-tone dream nebula: violet body, magenta-teal highlights, colour-cycling
+  // the deeper the dream goes
   let nebI = smoothstep(0.42, 0.95, neb);
   let nebJ = smoothstep(0.55, 1.0, neb2);
-  col += vec3(0.16, 0.09, 0.34) * nebI * 0.55;
-  col += vec3(0.30, 0.10, 0.28) * nebJ * nebI * 0.5;
-  col += vec3(0.05, 0.16, 0.22) * smoothstep(0.6, 1.0, fbm(np * 2.6 + warp)) * 0.35;
+  var nebCol = vec3(0.16, 0.09, 0.34) * nebI * 0.55;
+  nebCol += vec3(0.30, 0.10, 0.28) * nebJ * nebI * 0.5;
+  nebCol += vec3(0.05, 0.16, 0.22) * smoothstep(0.6, 1.0, fbm(np * 2.6 + warp)) * 0.35;
+  col += hueRotate(nebCol, hueA + neb * psy * 0.4);
+  // horror: something red bleeds up through the clouds, pulsing like a wound
+  col += vec3(0.42, 0.03, 0.08) * horror * pow(nebI, 1.5) * (0.35 + 0.4 * sin(t * 1.6 + neb * 7.0));
 
   // aurora veils: two soft diagonal light bands sweeping very slowly
   let ap = px + u.cam * 0.3;
   let a1 = 0.5 + 0.5 * sin(ap.x * 0.0021 + ap.y * 0.0009 + t * 0.10 + warp.x * 2.6);
   let a2 = 0.5 + 0.5 * sin(ap.x * -0.0014 + ap.y * 0.0016 - t * 0.07 + warp.y * 3.1);
-  col += vec3(0.10, 0.30, 0.26) * pow(a1, 4.0) * 0.10;
-  col += vec3(0.24, 0.12, 0.34) * pow(a2, 4.0) * 0.11;
+  col += hueRotate(vec3(0.10, 0.30, 0.26), hueA) * pow(a1, 4.0) * 0.10;
+  col += hueRotate(vec3(0.24, 0.12, 0.34), hueA) * pow(a2, 4.0) * 0.11;
 
   // three parallax star layers (near layer brightest, bloom catches the cores)
   col += vec3(0.36, 0.42, 0.71) * starLayer(px, 0.12, 110.0, 0.55, t);
   col += vec3(0.56, 0.63, 0.91) * starLayer(px + vec2(37.0, 71.0), 0.22, 130.0, 0.8, t);
   col += vec3(0.80, 0.85, 1.00) * starLayer(px + vec2(113.0, 29.0), 0.35, 170.0, 1.25, t);
 
-  // drifting colour motes: sparse, larger, softly pulsing dream dust
+  // drifting colour motes: sparse, larger, softly pulsing dream dust, hue-cycling
+  // with the mood
   {
     let par = 0.55;
     let cell = 210.0;
@@ -230,8 +258,12 @@ fn bg_fs(in: BGOut) -> @location(0) vec4<f32> {
     if (hs < 0.25) { hue = vec3(0.50, 0.96, 1.00); }        // cyan
     else if (hs < 0.5) { hue = vec3(1.00, 0.60, 0.84); }    // pink
     else if (hs < 0.75) { hue = vec3(0.49, 1.00, 0.69); }   // mint
+    hue = hueRotate(hue, hueA * 0.6);
     col += hue * exp(-d * d / (r * r * 9.0)) * 0.22 * pulse * step(0.45, hash21(id + 2.2));
   }
+
+  // the deep dream breathes — a slow throb of the whole field as horror sets in
+  col *= 1.0 + horror * 0.10 * sin(t * 1.7);
 
   return vec4(col, 1.0);
 }
@@ -507,7 +539,7 @@ export interface WorldGPU {
   /** Human-readable adapter identity ("nvidia · rtx 3060 …") for perf logs. */
   readonly adapterLabel: string;
   resize(cssW: number, cssH: number, dpr: number, viewScale?: number): void;
-  render(time: number, camX: number, camY: number, shapes: ShapeList, quads: QuadList, over?: ShapeList): void;
+  render(time: number, camX: number, camY: number, shapes: ShapeList, quads: QuadList, over?: ShapeList, ornate?: number, mood?: number): void;
   /** Switch HDR presentation on/off. Silently stays SDR if the display can't
    *  do HDR right now. Returns whether HDR is actually active afterwards. */
   setHDR(enabled: boolean): boolean;
@@ -801,7 +833,7 @@ class WorldGPUImpl implements WorldGPU {
     this.compositeBind = mkBind(this.sceneView, this.bloomViews[0]);
   }
 
-  render(time: number, camX: number, camY: number, shapes: ShapeList, quads: QuadList, over?: ShapeList) {
+  render(time: number, camX: number, camY: number, shapes: ShapeList, quads: QuadList, over?: ShapeList, ornate = 0, mood = 0) {
     if (!this.sceneTex) return;
     const device = this.device;
     const u = this.uniData;
@@ -809,7 +841,8 @@ class WorldGPUImpl implements WorldGPU {
     u[2] = time; u[3] = this.viewScale;
     u[4] = camX; u[5] = camY;
     u[6] = this.texW; u[7] = this.texH;
-    u[8] = this.hdrActive ? 1 : 0;
+    u[8] = this.hdrActive ? 1 : 0;   // hdr flag for the post pass; pad0 for the scene pass
+    u[9] = ornate; u[10] = mood;
     device.queue.writeBuffer(this.uniBuf, 0, u);
     if (quads.n > 0) device.queue.writeBuffer(this.quadBuf, 0, quads.data, 0, quads.n * FLOATS_PER_QUAD);
     if (shapes.n > 0) device.queue.writeBuffer(this.shapeBuf, 0, shapes.data, 0, shapes.n * FLOATS_PER_SHAPE);
