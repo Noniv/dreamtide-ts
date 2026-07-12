@@ -190,27 +190,27 @@ const THEMES: Theme[] = [
   {
     key: 'cosmos', label: 'Breadth',
     travel: [
-      S('Wider Dream', '+4% area of effect', { aoe: 4 }),
+      S('Wider Dream', '+2% area of effect', { aoe: 2 }),
       S('Starlight', '+4% spell damage', { dmg: 4 }),
-      S('Stellar Reach', '+5% area of effect', { aoe: 5 }),
-      S('Drifting Veil', '+4% area of effect', { aoe: 4 }),
+      S('Stellar Reach', '+3% area of effect', { aoe: 3 }),
+      S('Drifting Veil', '+2% area of effect', { aoe: 2 }),
     ],
     notables: [
-      S('Spreading Mist', '+15% area of effect', { aoe: 15 }),
-      S('Event Horizon', '+10% area of effect, +8% spell damage', { aoe: 10, dmg: 8 }),
+      S('Spreading Mist', '+8% area of effect', { aoe: 8 }),
+      S('Event Horizon', '+6% area of effect, +8% spell damage', { aoe: 6, dmg: 8 }),
     ],
     clusters: [
       {
-        name: 'Nebular Heart', notable: S('Nebular Heart', '+20% area of effect', { aoe: 20 }),
-        smalls: [S('Soft Nebula', '+6% area of effect', { aoe: 6 }), S('Vast Slumber', '+5% area of effect', { aoe: 5 }), S('Starlight', '+5% spell damage', { dmg: 5 })],
+        name: 'Nebular Heart', notable: S('Nebular Heart', '+11% area of effect', { aoe: 11 }),
+        smalls: [S('Soft Nebula', '+3% area of effect', { aoe: 3 }), S('Vast Slumber', '+3% area of effect', { aoe: 3 }), S('Starlight', '+5% spell damage', { dmg: 5 })],
       },
       {
-        name: 'Endless Sky', notable: S('Endless Sky', '+15% area of effect, +8% spell damage', { aoe: 15, dmg: 8 }),
-        smalls: [S('Horizon Line', '+6% area of effect', { aoe: 6 }), S('Wider Dream', '+5% area of effect', { aoe: 5 }), S('Sky Ribbon', '+4% area of effect, +3% spell damage', { aoe: 4, dmg: 3 })],
+        name: 'Endless Sky', notable: S('Endless Sky', '+8% area of effect, +8% spell damage', { aoe: 8, dmg: 8 }),
+        smalls: [S('Horizon Line', '+3% area of effect', { aoe: 3 }), S('Wider Dream', '+3% area of effect', { aoe: 3 }), S('Sky Ribbon', '+2% area of effect, +3% spell damage', { aoe: 2, dmg: 3 })],
       },
       {
-        name: 'Vault of Stars', notable: S('Vault of Stars', '+13% area of effect, +10% spell damage', { aoe: 13, dmg: 10 }),
-        smalls: [S('Star Seed', '+5% spell damage', { dmg: 5 }), S('Stellar Reach', '+5% area of effect', { aoe: 5 }), S('Vast Slumber', '+5% area of effect', { aoe: 5 })],
+        name: 'Vault of Stars', notable: S('Vault of Stars', '+7% area of effect, +10% spell damage', { aoe: 7, dmg: 10 }),
+        smalls: [S('Star Seed', '+5% spell damage', { dmg: 5 }), S('Stellar Reach', '+3% area of effect', { aoe: 3 }), S('Vast Slumber', '+3% area of effect', { aoe: 3 })],
       },
     ],
     keystone: S('Cosmic Attunement', 'Mastery ranks grant +12% damage instead of +8%', { masteryPlus: 4 }),
@@ -333,8 +333,8 @@ const THEMES: Theme[] = [
     travel: [
       S('Clear Sight', '+3% spell damage, +3% cast speed', { dmg: 3, cast: 3 }),
       S('Dream Logic', '+3% essence gained', { xp: 3 }),
-      S('Woven Fate', '+3% area of effect, +3% cast speed', { aoe: 3, cast: 3 }),
-      S('Quiet Omen', '+3% spell damage, +3% area of effect', { dmg: 3, aoe: 3 }),
+      S('Woven Fate', '+2% area of effect, +3% cast speed', { aoe: 2, cast: 3 }),
+      S('Quiet Omen', '+3% spell damage, +2% area of effect', { dmg: 3, aoe: 2 }),
     ],
     notables: [
       S('The Refused Dream', 'You may banish one level-up offer each dream', { banish: 1 }),
@@ -347,11 +347,11 @@ const THEMES: Theme[] = [
       },
       {
         name: 'The Second Refusal', notable: S('The Second Refusal', 'You may banish one more offer each dream', { banish: 1 }),
-        smalls: [S('Closed Door', '+3% essence gained', { xp: 3 }), S('Dream Logic', '+3% essence gained', { xp: 3 }), S('Quiet Omen', '+3% spell damage, +3% area of effect', { dmg: 3, aoe: 3 })],
+        smalls: [S('Closed Door', '+3% essence gained', { xp: 3 }), S('Dream Logic', '+3% essence gained', { xp: 3 }), S('Quiet Omen', '+3% spell damage, +2% area of effect', { dmg: 3, aoe: 2 })],
       },
       {
         name: 'Turning Page', notable: S('Turning Page', 'You may reroll one more set of choices each dream', { reroll: 1 }),
-        smalls: [S('Dog-ear', '+3% essence gained', { xp: 3 }), S('Margin Note', '+3% spell damage, +3% cast speed', { dmg: 3, cast: 3 }), S('Woven Fate', '+3% area of effect, +3% cast speed', { aoe: 3, cast: 3 })],
+        smalls: [S('Dog-ear', '+3% essence gained', { xp: 3 }), S('Margin Note', '+3% spell damage, +3% cast speed', { dmg: 3, cast: 3 }), S('Woven Fate', '+2% area of effect, +3% cast speed', { aoe: 2, cast: 3 })],
       },
     ],
     keystone: S('Fourfold Path', 'Level-ups offer a fourth choice', { fourfold: 1 }),
@@ -362,7 +362,7 @@ const THEMES: Theme[] = [
 const GEN: Stat[] = [
   S('Faint Ember', '+3% spell damage', { dmg: 3 }),
   S('Silver Wisp', '+3% cast speed', { cast: 3 }),
-  S('Pale Halo', '+3% area of effect', { aoe: 3 }),
+  S('Pale Halo', '+2% area of effect', { aoe: 2 }),
   S('Dewlight', '+8 max life', { hp: 8 }),
   S('Moth Dust', '+6% pickup radius', { magnet: 6 }),
   S('Dream Mote', '+2% essence gained', { xp: 2 }),
@@ -372,7 +372,7 @@ const GEN: Stat[] = [
 const POLY: Stat[] = [
   S('Wayfarer’s Ember', '+4% spell damage', { dmg: 4 }),
   S('Wayfarer’s Breath', '+4% cast speed', { cast: 4 }),
-  S('Wayfarer’s Halo', '+4% area of effect', { aoe: 4 }),
+  S('Wayfarer’s Halo', '+2% area of effect', { aoe: 2 }),
   S('Wayfarer’s Blood', '+12 max life', { hp: 12 }),
   S('Wayfarer’s Lure', '+8% pickup radius', { magnet: 8 }),
   S('Wayfarer’s Mote', '+3% essence gained', { xp: 3 }),
@@ -541,7 +541,7 @@ for (let i = 0; i < NSPOKE; i++) {
 // --- spell-slot chains in the ring-B gaps: three +1-slot notables (the build-
 // defining picks) plus one economy notable, each behind a short chain
 const GAP_CHAINS: { id: string; steps: Stat[]; end: Stat }[] = [
-  { id: 'ssA', steps: [S('Open Palm', '+4% area of effect', { aoe: 4 }), S('Open Mind', '+4% spell damage', { dmg: 4 })], end: S('Unbound Firmament', '+1 spell slot — hold one more spell at once', { spellSlots: 1 }) },
+  { id: 'ssA', steps: [S('Open Palm', '+2% area of effect', { aoe: 2 }), S('Open Mind', '+4% spell damage', { dmg: 4 })], end: S('Unbound Firmament', '+1 spell slot — hold one more spell at once', { spellSlots: 1 }) },
   { id: 'ssB', steps: [S('Open Door', '+3% essence gained', { xp: 3 }), S('Open Sky', '+8% pickup radius', { magnet: 8 })], end: S('Boundless Reverie', '+1 spell slot — hold one more spell at once', { spellSlots: 1 }) },
   { id: 'ssC', steps: [S('Open Book', '+4% cast speed', { cast: 4 }), S('Open Heart', '+10 max life', { hp: 10 })], end: S('Widening Loom', '+1 spell slot — hold one more spell at once', { spellSlots: 1 }) },
   { id: 'ssD', steps: [S('Loose Change', '+3% essence gained', { xp: 3 }), S('Silver Tongue', '+6% pickup radius', { magnet: 6 })], end: S('The Quiet Bargain', '+15% stardust earned', { dust: 15 }) },
