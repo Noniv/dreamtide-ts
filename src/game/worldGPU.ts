@@ -197,7 +197,7 @@ fn bg_fs(in: BGOut) -> @location(0) vec4<f32> {
   //   horror — dread that only creeps in once a dream runs long and deep
   let mood = u.mood;
   let psy = clamp(mood, 0.0, 3.0);
-  let horror = smoothstep(1.6, 4.2, mood);
+  let horror = smoothstep(1.2, 3.0, mood);
   // the slow hue-swim of everything painterly in the sky
   let hueA = mood * 0.7 + sin(t * 0.05) * psy * 0.6;
 

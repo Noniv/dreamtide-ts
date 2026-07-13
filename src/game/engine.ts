@@ -130,22 +130,24 @@ export const ENEMY_TYPES: Record<string, EnemyDef> = {
 // ------------------------------------------------------------- wave table
 interface WaveDef {
   t: number; floor: number; rate: number;
-  types: Record<string, number>; hp: number; dmg: number; event?: string;
+  types: Record<string, number>; hp: number; event?: string;
 }
 
+// One new nightmare enters roughly every minute, then the pace eases while the
+// swarm thickens. Damage no longer rides this table (see computeDifficulty).
 const WAVES: WaveDef[] = [
-  { t: 0, floor: 10, rate: 1.25, types: { wisp: 10 }, hp: 1.0, dmg: 1.0 },
-  { t: 30, floor: 18, rate: 0.95, types: { wisp: 10, bat: 5 }, hp: 1.35, dmg: 1.15, event: 'ring' },
-  { t: 70, floor: 28, rate: 0.8, types: { wisp: 7, bat: 9, siren: 2 }, hp: 1.75, dmg: 1.3 },
-  { t: 110, floor: 38, rate: 0.7, types: { bat: 9, wisp: 4, siren: 3, eye: 3 }, hp: 2.25, dmg: 1.5, event: 'pack' },
-  { t: 155, floor: 50, rate: 0.62, types: { bat: 6, eye: 7, siren: 3 }, hp: 2.9, dmg: 1.7, event: 'wall' },
-  { t: 205, floor: 62, rate: 0.55, types: { eye: 8, bat: 5, siren: 4, shade: 2 }, hp: 3.7, dmg: 1.9, event: 'ring' },
-  { t: 260, floor: 76, rate: 0.5, types: { eye: 6, shade: 6, siren: 3, warlock: 1 }, hp: 4.7, dmg: 2.1, event: 'pack' },
-  { t: 320, floor: 90, rate: 0.46, types: { shade: 8, eye: 5, warlock: 2 }, hp: 5.9, dmg: 2.3, event: 'wall' },
-  { t: 380, floor: 104, rate: 0.43, types: { shade: 7, golem: 4, warlock: 3 }, hp: 7.3, dmg: 2.5, event: 'ring' },
-  { t: 440, floor: 120, rate: 0.4, types: { golem: 6, shade: 6, warlock: 3, siren: 2 }, hp: 9.0, dmg: 2.7, event: 'pack' },
-  { t: 500, floor: 136, rate: 0.38, types: { golem: 7, shade: 5, warlock: 4 }, hp: 11.0, dmg: 2.9, event: 'wall' },
-  { t: 560, floor: 152, rate: 0.36, types: { golem: 8, eye: 6, shade: 6, warlock: 4 }, hp: 13.5, dmg: 3.1, event: 'ring' },
+  { t: 0, floor: 10, rate: 1.25, types: { wisp: 10 }, hp: 1.0 },
+  { t: 60, floor: 16, rate: 1.0, types: { wisp: 10, bat: 5 }, hp: 1.3, event: 'ring' },
+  { t: 120, floor: 24, rate: 0.85, types: { wisp: 7, bat: 9, siren: 2 }, hp: 1.7, event: 'pack' },
+  { t: 180, floor: 34, rate: 0.72, types: { wisp: 4, bat: 8, siren: 3, eye: 3 }, hp: 2.2, event: 'wall' },
+  { t: 240, floor: 46, rate: 0.62, types: { bat: 6, siren: 3, eye: 7, shade: 2 }, hp: 2.9, event: 'ring' },
+  { t: 300, floor: 60, rate: 0.54, types: { siren: 3, eye: 6, shade: 6, warlock: 1 }, hp: 3.8, event: 'pack' },
+  { t: 360, floor: 76, rate: 0.48, types: { eye: 5, shade: 7, warlock: 2, golem: 3 }, hp: 4.9, event: 'wall' },
+  { t: 430, floor: 92, rate: 0.44, types: { shade: 6, warlock: 3, golem: 6, siren: 2 }, hp: 6.2, event: 'ring' },
+  { t: 500, floor: 110, rate: 0.41, types: { shade: 5, warlock: 4, golem: 7, eye: 3 }, hp: 7.8, event: 'pack' },
+  { t: 580, floor: 130, rate: 0.38, types: { warlock: 4, golem: 8, shade: 5, siren: 2 }, hp: 9.6, event: 'wall' },
+  { t: 660, floor: 150, rate: 0.36, types: { warlock: 4, golem: 8, eye: 6, shade: 6 }, hp: 11.8, event: 'ring' },
+  { t: 740, floor: 170, rate: 0.34, types: { warlock: 5, golem: 9, eye: 5, shade: 6 }, hp: 14.5, event: 'pack' },
 ];
 
 // ------------------------------------------------------------- boss archetypes
@@ -603,8 +605,10 @@ export class Engine {
     this.hudTimer = 0;
     this.spawnTimer = 1.2;
     this.eliteTimer = 35 / (1 + (this.meta.baneElite || 0) / 100);
-    this.bossTimer = 130 / (1 + (this.meta.baneBoss || 0) / 100);
-    this.bossCount = 0;
+    // Bosses honour the head start too: advance the cadence as if the run had
+    // already been running `this.t` seconds (first boss at 130s, then +160s).
+    this.bossCount = Math.max(0, Math.floor((this.t - 130) / 160) + 1);
+    this.bossTimer = (130 + this.bossCount * 160 - this.t) / (1 + (this.meta.baneBoss || 0) / 100);
     this.flash = null;
     this.levelUpActive = false;
     // cam extent is world units (see resize): derive it from the same zoom so a
@@ -1372,7 +1376,7 @@ export class Engine {
     const w = WAVES[idx];
     const out = this.wave;
     out.t = w.t; out.floor = w.floor; out.rate = w.rate; out.types = w.types;
-    out.hp = w.hp; out.dmg = w.dmg; out.event = w.event; out.idx = idx;
+    out.hp = w.hp; out.event = w.event; out.idx = idx;
     if (idx === WAVES.length - 1) {
       const extra = Math.floor((T - w.t) / 60);
       if (extra > 0) {
@@ -1443,7 +1447,13 @@ export class Engine {
     d.hpMul = (w.hp + esc * 3.0 + esc * esc * 1.3) * (1 + (m.baneHp || 0) / 100) * (1 + this.pact.curseHp / 100);
     d.spdMul = (1 + Math.min(0.5, this.t * 0.0008)) * (1 + Math.min(6, esc * 0.28)) * (1 + (m.baneSpeed || 0) / 100) * (1 + this.pact.curseSpd / 100);
     d.rate = w.rate / (1 + (m.baneRate || 0) / 100) / (1 + Math.min(1.6, esc * 0.13));
-    d.dmgMul = (w.dmg + esc * 0.8 + esc * esc * 0.18 + esc * esc * esc * 0.012) * (1 + (m.baneDmg || 0) / 100) * (1 + this.pact.curseDmg / 100);
+    // Enemy strike power (melee contact and projectiles both read e.dmg): a
+    // gentle piecewise-linear climb so a stray hit stays survivable deep in.
+    const mins = this.t / 60;
+    const dmgBase = mins <= 6 ? 1.3 + 0.2 * mins
+      : mins <= 12 ? 2.5 + 0.625 * (mins - 6)
+      : 6.25 + 0.9375 * (mins - 12);
+    d.dmgMul = dmgBase * (1 + (m.baneDmg || 0) / 100) * (1 + this.pact.curseDmg / 100);
     d.esc = esc;
   }
 
