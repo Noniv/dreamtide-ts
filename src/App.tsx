@@ -14,7 +14,7 @@ import {
   setSkin, unlockedSkins,
   markTreeRevealed, markDarkRevealed,
   nextPointCost, nextDarkPointCost, canBuyPoint, buyPoint, canBuyDarkPoint, buyDarkPoint,
-  allocateNode, deallocateNode, removableSet, darkDepth,
+  allocateNode, deallocateNode, allocateAllLight, resetAllLight, removableSet, darkDepth,
   type Meta,
 } from './game/meta';
 import { WIZARD_SKINS, skinName, applySkin } from './game/wizardSkins';
@@ -171,7 +171,8 @@ export default function App() {
     audio.resume();
     audio.runStart();
     engineRef.current!.reset();
-    if (settings.devEndgame) engineRef.current!.devEndgame();
+    if (settings.devFinale) engineRef.current!.devEndgame(890, 18);
+    else if (settings.devEndgame) engineRef.current!.devEndgame();
     engineRef.current!.inRun = true;
     engineRef.current!.paused = false;
     engineRef.current!.pushHud(true);
@@ -554,6 +555,7 @@ function Settings({ onClose, extraClass }: { onClose: () => void; extraClass?: s
   const [hdr, setHdr] = useState(settings.hdr);
   const [hdrOk, setHdrOk] = useState(hdrSupported());
   const [dev, setDev] = useState(settings.devEndgame);
+  const [devFin, setDevFin] = useState(settings.devFinale);
   const [devTree, setDevTree] = useState(settings.devFreeTree);
 
   const changeMusic = (v: number) => { settings.setMusicVol(v); audio.setMusicVolume(v); setMusic(v); };
@@ -566,6 +568,7 @@ function Settings({ onClose, extraClass }: { onClose: () => void; extraClass?: s
   // the settings panel is open.
   useEffect(() => watchHdrSupport(setHdrOk), []);
   const changeDev = (v: boolean) => { settings.setDevEndgame(v); setDev(v); };
+  const changeDevFin = (v: boolean) => { settings.setDevFinale(v); setDevFin(v); };
   const changeDevTree = (v: boolean) => { settings.setDevFreeTree(v); setDevTree(v); };
   const resetDefaults = () => {
     settings.resetDefaults();
@@ -577,6 +580,7 @@ function Settings({ onClose, extraClass }: { onClose: () => void; extraClass?: s
     setRes(settings.resolution);
     setHdr(settings.hdr);
     setDev(settings.devEndgame);
+    setDevFin(settings.devFinale);
     setDevTree(settings.devFreeTree);
   };
 
@@ -646,6 +650,10 @@ function Settings({ onClose, extraClass }: { onClose: () => void; extraClass?: s
             <label className="dev-toggle">
               <input type="checkbox" checked={dev} onChange={(e) => changeDev(e.target.checked)} />
               ⚗ endgame test — start at 6:00 with a full random loadout (lv 5 / evolved)
+            </label>
+            <label className="dev-toggle">
+              <input type="checkbox" checked={devFin} onChange={(e) => changeDevFin(e.target.checked)} />
+              ⚗ finale test — start at 14:50, moments before the other dreamer arrives
             </label>
             <label className="dev-toggle">
               <input type="checkbox" checked={devTree} onChange={(e) => changeDevTree(e.target.checked)} />
@@ -1396,6 +1404,24 @@ function SkillTree({ meta, reveal, onRevealed, onMeta, onLoadout, onSkin, onClos
         >
           {nextPointCost(meta) === 0 ? 'Forge a point — free' : `Forge a point — ✦ ${nextPointCost(meta)}`}
         </button>
+        {settings.devFreeTree && (
+          <>
+            <button
+              className="btn-secondary"
+              onClick={() => { const next = allocateAllLight(useGame.getState().meta); if (next !== meta) { onMeta(next); audio.levelUp(); } }}
+              title="Dev: awaken every star at once"
+            >
+              ⚗ Allocate all
+            </button>
+            <button
+              className="btn-secondary"
+              onClick={() => { const next = resetAllLight(useGame.getState().meta); if (next !== meta) { onMeta(next); audio.banish(); } }}
+              title="Dev: release every star back to the core"
+            >
+              ⚗ Reset all
+            </button>
+          </>
+        )}
         <button className="btn-secondary" onClick={onClose}>Return</button>
       </div>
 

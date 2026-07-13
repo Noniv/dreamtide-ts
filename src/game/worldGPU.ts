@@ -114,8 +114,10 @@ struct U {
   cam: vec2<f32>,        // world position of the view's top-left (world units)
   res: vec2<f32>,        // framebuffer pixel size of the scene target
   pad0: f32,             // (hdr flag in the post-process U — unused here)
-  reserved: f32,         // reserved (formerly ornateness; keystone flair lives on the tree screen now)
+  corrupt: f32,          // 0..1 — the Other Dreamer holds the dream (finale corruption)
   mood: f32,             // run stages: each +1 ≈ 5 min deeper, ever more psychedelic → horror
+  pad1: f32,             // (alignment)
+  player: vec2<f32>,     // dreamer world position — the corruption eye tracks it
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var samp: sampler;
@@ -189,8 +191,25 @@ fn starLayer(px: vec2<f32>, par: f32, cell: f32, bright: f32, t: f32) -> f32 {
 
 @fragment
 fn bg_fs(in: BGOut) -> @location(0) vec4<f32> {
-  let px = in.uv * u.viewport / u.viewScale; // world-unit screen coords (matches u.cam)
+  var px = in.uv * u.viewport / u.viewScale; // world-unit screen coords (matches u.cam)
   let t = u.time;
+
+  // ------------- the corruption: the Other Dreamer holds the dream ---------
+  // Not a colour grade but a different sky: the field tears in horizontal
+  // shears, everything painterly swims on a breathing warp, blood-veins crack
+  // through the clouds, a vast slit-pupiled eye hangs over the dream, and the
+  // palette drains to bone and blood. All driven by u.corrupt (0 → 1).
+  let cor = clamp(u.corrupt, 0.0, 1.0);
+  if (cor > 0.001) {
+    // horizontal tearing: whole bands of the sky skip sideways for a frame
+    let band = floor(in.uv.y * 36.0);
+    let seed = vec2(band, floor(t * 9.0));
+    let tear = step(0.94, hash21(seed)) * (hash21(seed + 7.0) - 0.5);
+    px.x += tear * 260.0 * cor;
+    // the breathing warp: the sky is a membrane, and something pushes on it
+    let breathe = sin(t * 2.1 + in.uv.y * 5.0) * sin(t * 0.63);
+    px += vec2(sin(px.y * 0.006 + t * 0.9), cos(px.x * 0.005 - t * 0.7)) * 30.0 * cor * (0.5 + 0.5 * breathe);
+  }
 
   // how far the dream has strayed from waking as it runs long and deep:
   //   psy    — psychedelic swell of the deep dream (colour cycling, churning warp)
@@ -207,6 +226,8 @@ fn bg_fs(in: BGOut) -> @location(0) vec4<f32> {
   var col = mix(vec3(0.030, 0.026, 0.105), vec3(0.078, 0.052, 0.180), y);
   col = mix(col, vec3(0.105, 0.060, 0.230), y * y * 0.8);
   col = mix(col, vec3(0.045, 0.010, 0.030), horror * 0.5);
+  // corruption: the sky itself goes near-black, lit only by what bleeds through
+  col = mix(col, vec3(0.014, 0.002, 0.006), cor * 0.85);
 
   // domain-warped nebula clouds, slow parallax drift (world-locked). The warp
   // churns harder as the dream turns psychedelic.
@@ -225,6 +246,17 @@ fn bg_fs(in: BGOut) -> @location(0) vec4<f32> {
   col += hueRotate(nebCol, hueA + neb * psy * 0.4);
   // horror: something red bleeds up through the clouds, pulsing like a wound
   col += vec3(0.42, 0.03, 0.08) * horror * pow(nebI, 1.5) * (0.35 + 0.4 * sin(t * 1.6 + neb * 7.0));
+
+  // corruption: blood-veins crack through the whole field, beating in time
+  if (cor > 0.001) {
+    let vp = (px + u.cam * 0.3) * 0.004;
+    let vn = fbm(vp + vec2(t * 0.03, -t * 0.02));
+    let vein = pow(1.0 - abs(vn * 2.0 - 1.0), 9.0);
+    let veinPulse = 0.55 + 0.45 * sin(t * 2.3 + vn * 12.0);
+    col += vec3(0.55, 0.02, 0.07) * vein * veinPulse * cor;
+    let vn2 = fbm(vp * 2.7 + vec2(3.1, t * 0.05));
+    col += vec3(0.30, 0.01, 0.05) * pow(1.0 - abs(vn2 * 2.0 - 1.0), 12.0) * cor * 0.7;
+  }
 
   // aurora veils: two soft diagonal light bands sweeping very slowly
   let ap = px + u.cam * 0.3;
@@ -264,6 +296,67 @@ fn bg_fs(in: BGOut) -> @location(0) vec4<f32> {
 
   // the deep dream breathes — a slow throb of the whole field as horror sets in
   col *= 1.0 + horror * 0.10 * sin(t * 1.7);
+
+  // ------------- corruption, the heavy hand ---------------------------------
+  if (cor > 0.001) {
+    // the eye of the Other Dreamer: a vast blood eye that hangs over the
+    // dream, WATCHING — its pupil tracks the dreamer, it darts to new corners
+    // of the sky every few seconds, and it blinks. Everything about it is live.
+    let sp = in.uv * u.viewport / u.viewScale;
+    let vps = u.viewport / u.viewScale;
+    // relocation: hold at a hashed corner, then dart to the next each period
+    let period = 7.0;
+    let seg = floor(t / period);
+    let fseg = fract(t / period);
+    let hA = hash22(vec2(seg, 7.3));
+    let hB = hash22(vec2(seg + 1.0, 7.3));
+    let dart = smoothstep(0.74, 0.9, fseg);          // quick snap late in each hold
+    let anchor = mix(hA, hB, dart);
+    // keep it in the upper two-thirds, using the whole width
+    let mc = (vec2(0.1, 0.08) + anchor * vec2(0.8, 0.5)) * vps
+             + vec2(sin(t * 0.7) * 6.0, cos(t * 0.9) * 5.0); // live micro-tremor
+    let mR = min(vps.x, vps.y) * 0.17;
+    // blink: the lid sweeps closed briefly (~every 9s), squashing the eye flat
+    let bt = fract(t * 0.11);
+    let open = 1.0 - smoothstep(0.0, 0.045, bt) * smoothstep(0.11, 0.045, bt) * 0.94;
+    let ed = sp - mc;
+    let md = length(vec2(ed.x, ed.y / max(0.08, open))); // vertical squash for the blink
+    let disc = smoothstep(mR, mR * 0.9, md);
+    let mot = fbm((sp - mc) * 0.012 + vec2(t * 0.02, 0.0));
+    var eye = vec3(0.30, 0.012, 0.045) * (0.55 + 0.45 * mot);
+    // iris veins converging on the pupil
+    let ea = atan2(ed.y, ed.x);
+    eye += vec3(0.34, 0.02, 0.05) * pow(0.5 + 0.5 * sin(ea * 22.0 + mot * 8.0), 6.0) * smoothstep(mR * 0.15, mR * 0.7, md);
+    // the pupil LOOKS at the dreamer: a slit that slides toward the player and
+    // orients to face them (long axis perpendicular to the look direction)
+    let pEye = u.player - u.cam;                       // dreamer in screen-world coords
+    let look = normalize(pEye - mc + vec2(0.0001, 0.0001));
+    let perp = vec2(-look.y, look.x);
+    let pc = mc + look * mR * 0.44;                    // pupil offset toward the player
+    let rel = sp - pc;
+    let along = dot(rel, look);                        // across the thin slit
+    let across = dot(rel, perp);                       // along the tall slit
+    let focus = 0.75 + 0.25 * sin(t * 0.5);            // the slit dilates and narrows
+    let slitW = mR * 0.15 * focus;
+    let pupil = smoothstep(slitW, slitW * 0.35, abs(along))
+              * smoothstep(mR * 0.9, mR * 0.62, abs(across)) * disc;
+    // a hot catch-light at the pupil's leading edge, toward the player
+    let glint = exp(-length(sp - (pc - look * mR * 0.1)) / (mR * 0.06)) * disc;
+    eye = mix(eye, vec3(0.004, 0.0, 0.002), pupil);
+    eye += vec3(0.6, 0.3, 0.34) * glint * 0.5;
+    col = mix(col, eye, disc * cor * 0.92);
+    col += vec3(0.40, 0.02, 0.06) * exp(-max(md - mR, 0.0) * 0.008) * (1.0 - disc) * 0.4 * cor * (0.7 + 0.3 * sin(t * 1.3));
+
+    // drain every other colour: bone and blood only
+    let lum = dot(col, vec3(0.299, 0.587, 0.114));
+    col = mix(col, vec3(lum) * vec3(1.55, 0.22, 0.30), cor * 0.55);
+    // strobing unease: an irregular double-pulse breathing of the whole field
+    let beat = sin(t * 2.4) * 0.5 + sin(t * 4.8 + 1.2) * 0.28;
+    col *= 1.0 - cor * (0.14 + 0.14 * beat);
+    // the dark clawing inward from the edges
+    let vuv = in.uv - 0.5;
+    col *= 1.0 - cor * smoothstep(0.16, 0.6, dot(vuv, vuv)) * 0.55;
+  }
 
   return vec4(col, 1.0);
 }
@@ -539,7 +632,7 @@ export interface WorldGPU {
   /** Human-readable adapter identity ("nvidia · rtx 3060 …") for perf logs. */
   readonly adapterLabel: string;
   resize(cssW: number, cssH: number, dpr: number, viewScale?: number): void;
-  render(time: number, camX: number, camY: number, shapes: ShapeList, quads: QuadList, over?: ShapeList, ornate?: number, mood?: number): void;
+  render(time: number, camX: number, camY: number, shapes: ShapeList, quads: QuadList, over?: ShapeList, corrupt?: number, mood?: number, playerX?: number, playerY?: number): void;
   /** Switch HDR presentation on/off. Silently stays SDR if the display can't
    *  do HDR right now. Returns whether HDR is actually active afterwards. */
   setHDR(enabled: boolean): boolean;
@@ -570,7 +663,7 @@ class WorldGPUImpl implements WorldGPU {
   private sceneLayout!: GPUBindGroupLayout;
   private postLayout!: GPUBindGroupLayout;
   private uniBuf: GPUBuffer;
-  private uniData = new Float32Array(12);
+  private uniData = new Float32Array(16);
   private sampler: GPUSampler;
   private atlas: Atlas;
   private atlasTex: GPUTexture;
@@ -629,7 +722,7 @@ class WorldGPUImpl implements WorldGPU {
     });
     this.uploadAtlas();
     this.sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
-    this.uniBuf = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.uniBuf = device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.quadBuf = device.createBuffer({ size: MAX_QUADS * FLOATS_PER_QUAD * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     this.shapeBuf = device.createBuffer({ size: MAX_SHAPES * FLOATS_PER_SHAPE * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     this.shapeOverBuf = device.createBuffer({ size: MAX_SHAPES * FLOATS_PER_SHAPE * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
@@ -845,7 +938,7 @@ class WorldGPUImpl implements WorldGPU {
     this.compositeBind = mkBind(this.sceneView, this.bloomViews[0]);
   }
 
-  render(time: number, camX: number, camY: number, shapes: ShapeList, quads: QuadList, over?: ShapeList, ornate = 0, mood = 0) {
+  render(time: number, camX: number, camY: number, shapes: ShapeList, quads: QuadList, over?: ShapeList, corrupt = 0, mood = 0, playerX = 0, playerY = 0) {
     if (!this.sceneTex) return;
     if (this.atlas.version !== this.atlasVersion) this.uploadAtlas();
     const device = this.device;
@@ -855,7 +948,8 @@ class WorldGPUImpl implements WorldGPU {
     u[4] = camX; u[5] = camY;
     u[6] = this.texW; u[7] = this.texH;
     u[8] = this.hdrActive ? 1 : 0;   // hdr flag for the post pass; pad0 for the scene pass
-    u[9] = ornate; u[10] = mood;
+    u[9] = corrupt; u[10] = mood;
+    u[12] = playerX; u[13] = playerY; // player world pos (struct offset 48)
     device.queue.writeBuffer(this.uniBuf, 0, u);
     if (quads.n > 0) device.queue.writeBuffer(this.quadBuf, 0, quads.data, 0, quads.n * FLOATS_PER_QUAD);
     if (shapes.n > 0) device.queue.writeBuffer(this.shapeBuf, 0, shapes.data, 0, shapes.n * FLOATS_PER_SHAPE);

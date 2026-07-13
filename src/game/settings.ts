@@ -50,6 +50,7 @@ export interface StoredSettings {
   resolution: ResolutionScale;
   hdr: boolean;       // present the scene in HDR when the display supports it
   devEndgame: boolean; // dev-only: start runs in the endgame test scenario
+  devFinale: boolean;  // dev-only: start runs at 14:50, just before the finale
   devFreeTree: boolean; // dev-only: constellation nodes cost nothing
 }
 
@@ -60,6 +61,7 @@ const DEFAULTS: StoredSettings = {
   resolution: 1,
   hdr: false,
   devEndgame: false,
+  devFinale: false,
   devFreeTree: false,
 };
 
@@ -101,6 +103,7 @@ class Settings {
   resolution: ResolutionScale = DEFAULTS.resolution; // render scale, 0.5/0.75/1
   hdr = DEFAULTS.hdr;
   devEndgame = DEFAULTS.devEndgame;
+  devFinale = DEFAULTS.devFinale;
   devFreeTree = DEFAULTS.devFreeTree;
 
   // resolved numeric knobs (recomputed whenever a preset changes)
@@ -133,6 +136,7 @@ class Settings {
         if (d.resolution === 0.5 || d.resolution === 0.75 || d.resolution === 1) this.resolution = d.resolution;
         if (typeof d.hdr === 'boolean') this.hdr = d.hdr;
         if (typeof d.devEndgame === 'boolean') this.devEndgame = d.devEndgame;
+        if (typeof d.devFinale === 'boolean') this.devFinale = d.devFinale;
         if (typeof d.devFreeTree === 'boolean') this.devFreeTree = d.devFreeTree;
       } else {
         const migrated = migrateRenderScale();
@@ -143,7 +147,7 @@ class Settings {
 
   private save() {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({ musicVol: this.musicVol, sfxVol: this.sfxVol, perf: this.perf, resolution: this.resolution, hdr: this.hdr, devEndgame: this.devEndgame, devFreeTree: this.devFreeTree } satisfies StoredSettings));
+      localStorage.setItem(STORE_KEY, JSON.stringify({ musicVol: this.musicVol, sfxVol: this.sfxVol, perf: this.perf, resolution: this.resolution, hdr: this.hdr, devEndgame: this.devEndgame, devFinale: this.devFinale, devFreeTree: this.devFreeTree } satisfies StoredSettings));
     } catch { /* private mode */ }
   }
 
@@ -167,6 +171,7 @@ class Settings {
     if (this.onHdrChange) this.onHdrChange(on);
   }
   setDevEndgame(v: boolean) { this.devEndgame = v; this.save(); }
+  setDevFinale(v: boolean) { this.devFinale = v; this.save(); }
   setDevFreeTree(v: boolean) { this.devFreeTree = v; this.save(); }
 
   // The engine registers this so a resolution change triggers a resize.
@@ -193,6 +198,7 @@ class Settings {
     this.resolution = DEFAULTS.resolution;
     this.hdr = DEFAULTS.hdr;
     this.devEndgame = DEFAULTS.devEndgame;
+    this.devFinale = DEFAULTS.devFinale;
     this.devFreeTree = DEFAULTS.devFreeTree;
     this.recompute();
     this.save();

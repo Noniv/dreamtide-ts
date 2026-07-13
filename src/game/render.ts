@@ -13,9 +13,9 @@
 //                     hidden behind the body that swings it
 
 import type { Engine } from './engine';
-import { ENEMY_TYPES, MELEE_ANIM_DUR, BLINK_IN, PLAYER_HURT_DY, PLAYER_HURT_R, STEP, BOSS_RAGE_START, BOSS_RAGE_FULL, LUCID_DUR } from './engine';
+import { ENEMY_TYPES, MELEE_ANIM_DUR, BLINK_IN, PLAYER_HURT_DY, PLAYER_HURT_R, STEP, BOSS_RAGE_START, BOSS_RAGE_FULL, LUCID_DUR, FINALE_ERUPT_DUR } from './engine';
 import { TAU, clamp, serpentPoint, type Enemy, type Zone, type Projectile, type BossProjectile, type Beam, type Bolt, type Gem, type Pickup } from './world';
-import { ENEMY_SPRITES, enemyFrameId, wizardFrameId, WIZARD_FRAMES, WIZARD_CY, getWizardSkin, type AtlasEntry } from './enemySprites';
+import { ENEMY_SPRITES, enemyFrameId, wizardFrameId, darkWizardFrameId, WIZARD_FRAMES, WIZARD_CY, getWizardSkin, type AtlasEntry } from './enemySprites';
 import { SHAPE_RING, SHAPE_DISC, SHAPE_SPIRAL, SHAPE_CAPSULE, type QuadList, type ShapeList } from './worldGPU';
 import { drawStats } from './perf';
 import { settings } from './settings';
@@ -151,6 +151,7 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
   for (const s of eng.pickups) emitPickup(q, eng, s, camX, camY);
   for (const g of eng.gems) emitGem(q, cam, g, alpha, camX, camY);
   emitDefenseUnder(sh, eng, ipx - camX, ipy - camY);
+  emitFinale(q, sh, shOver, eng, alpha, camX, camY);
   emitPlayer(q, eng, ipx - camX, ipy - camY);
   for (const e of eng.enemies) emitEnemy(q, shOver, eng, e, alpha, camX, camY);
   emitOrbitals(q, eng, alpha, camX, camY);
@@ -164,7 +165,7 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
   // the dreamscape strays further into psychedelia, then horror, the deeper
   // (longer) a dream runs — one mood stage per 5 minutes; nil on the menu sky.
   const mood = eng.inRun ? eng.t / 300 : 0;
-  world.render(vt, camX, camY, sh, q, shOver, 0, mood);
+  world.render(vt, camX, camY, sh, q, shOver, eng.corruption, mood, ipx, ipy);
   drawStats.worldQuads = q.n;
   drawStats.worldShapes = sh.n + shOver.n;
   drawStats.worldDrawCalls = 3 + (shOver.n > 0 ? 1 : 0);
@@ -304,6 +305,50 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
     octx.restore();
   }
 
+  // guide arrows toward the dream-motes while the Other Dreamer is veiled —
+  // the same chevron language as the golden wisp, in the motes' warm gold
+  if (eng.finale.veiled) {
+    for (const m of eng.finale.motes) {
+      if (m.got) continue;
+      const dx = m.x - ipx, dy = m.y - ipy;
+      const d = Math.hypot(dx, dy);
+      const near = clamp((d - 90) / 120, 0, 1);
+      if (near <= 0) continue;
+      const ang = Math.atan2(dy, dx);
+      const pulse = 0.5 + 0.5 * Math.sin(vt * 7 + m.ph);
+      const orbitR = 84 + 12 * pulse;
+      const ax = ipx - camX + Math.cos(ang) * orbitR;
+      const ay = ipy - camY + Math.sin(ang) * orbitR;
+      octx.save();
+      octx.translate(ax, ay);
+      octx.rotate(ang);
+      const sizeF = clamp((d - 90) / 480, 0, 1);
+      const sc = (0.9 + 0.14 * pulse) * (0.5 + 0.8 * sizeF);
+      octx.scale(sc, sc);
+      octx.globalAlpha = near * (0.9 + 0.1 * pulse);
+      octx.fillStyle = '#ffd27a';
+      octx.shadowColor = '#ffd27a';
+      octx.shadowBlur = 18;
+      octx.beginPath();
+      octx.arc(-13, 0, 3.6, 0, Math.PI * 2);
+      octx.fill();
+      octx.beginPath();
+      octx.moveTo(16, 0);
+      octx.lineTo(-8, -9);
+      octx.lineTo(-3.5, 0);
+      octx.lineTo(-8, 9);
+      octx.closePath();
+      octx.shadowBlur = 0;
+      octx.lineJoin = 'round';
+      octx.lineWidth = 4;
+      octx.strokeStyle = 'rgba(6,4,16,0.85)';
+      octx.stroke();
+      octx.shadowBlur = 18;
+      octx.fill();
+      octx.restore();
+    }
+  }
+
   // event banner — sits BELOW the HUD's clock/kill-counter block, and follows
   // the DOM UI's --ui-scale so it stays clear of the (zoomed) HUD and keeps
   // its proportions on high-res displays (the canvas itself is never zoomed)
@@ -331,6 +376,9 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
   // the dream turns lucid: a breathing cyan veil + drifting motes for the whole
   // window, so the slowed horde and doubled essence are *felt*, not just captioned
   if (eng.lucidT > 0) drawLucidVeil(octx, w, h, eng.lucidT, vt);
+
+  // the fifteenth minute: letterbox, creeping vignette, the two spoken lines
+  drawFinaleOverlay(eng, octx, w, h, vt, camX, camY);
 
   if (eng.flash) {
     octx.fillStyle = `rgba(${eng.flash.color},${Math.max(0, eng.flash.a)})`;
@@ -383,6 +431,345 @@ function drawLucidVeil(octx: CanvasRenderingContext2D, w: number, h: number, luc
   octx.shadowBlur = 12 * uiS;
   octx.fillText('THE HORDE CRAWLS · ESSENCE FLOWS TWOFOLD', w / 2, 206 * uiS);
   octx.restore();
+}
+
+// ================================================== the fifteenth minute
+// World-space pieces of the finale: the dark wizard cutscene actor, the
+// nightmare's rift telegraphs, his veil, the dream-motes and the lunge line.
+function emitFinale(q: QuadList, sh: ShapeList, shOver: ShapeList, eng: Engine, alpha: number, camX: number, camY: number) {
+  const F = eng.finale;
+  if (F.phase === 'none' || F.phase === 'done') return;
+  const vt = eng.vt;
+  const glowE = q.uv('glow')!;
+
+  // ---- the dark wizard, before he turns ----
+  if (F.phase === 'approach' || F.phase === 'line1' || F.phase === 'line2' || F.phase === 'dread' || F.phase === 'anger') {
+    const wx = lerp(F.wpx, F.wx, alpha) - camX;
+    const wy = lerp(F.wpy, F.wy, alpha) - camY;
+    // mostly solid, with sudden drops — a presence the dream can't quite hold
+    const fl = Math.sin(vt * 31.7) * Math.sin(vt * 17.3);
+    let a = 0.94 + 0.06 * Math.sin(vt * 9);
+    if (fl > 0.93) a *= 0.35;
+    const angerF = F.phase === 'anger' ? Math.min(1, F.t / 2.4) : 0;
+    const grow = 1 + angerF * 0.55;
+    const jit = angerF * 5;
+    const jx = wx + (Math.random() * 2 - 1) * jit;
+    const jy = wy + (Math.random() * 2 - 1) * jit * 0.6;
+    // ground shadow + an anti-light pooled around him
+    q.push(false, glowE, jx, jy + 8, 24 * grow, 0, 0.5, 0.01, 0, 0.02, 1, 0.3);
+    q.push(false, glowE, jx, jy - 24 * grow, 52 * grow, 0, 0.45 * a, 0.05, 0.01, 0.05, 1);
+    let fi = ((F.animT * 6) / TAU * WIZARD_FRAMES) | 0;
+    fi = ((fi % WIZARD_FRAMES) + WIZARD_FRAMES) % WIZARD_FRAMES;
+    const wizE = q.uv(darkWizardFrameId(fi));
+    if (wizE) {
+      const mirrored = F.facing < 0;
+      q.push(false, wizE, jx, jy - WIZARD_CY * grow, wizE.half * grow, 0, a, 1, 1, 1, 0, 1, mirrored);
+    }
+    // eyes that answer in red
+    const ex = jx + 3.4 * F.facing * grow;
+    const ey = jy - 33 * grow;
+    q.push(true, glowE, ex, ey, 6.5 * grow, 0, 0.8 * a, 1, 0.13, 0.25, 1);
+    q.push(true, glowE, ex, ey, 2.4 * grow, 0, a, 1, 0.55, 0.6, 1);
+    // his staff orb, burning the wrong colour
+    const ox = jx + 14 * F.facing * grow;
+    const oy = jy - 48 * grow;
+    q.push(true, glowE, ox, oy, (10 + Math.sin(vt * 3.2) * 2 + angerF * 8) * grow, 0, 0.75 * a, 1, 0.13, 0.25, 1);
+    q.push(true, glowE, ox, oy, 4 * grow, 0, a, 1, 0.84, 0.87, 1);
+  }
+
+  // ---- rift telegraphs: red wounds tearing open, tightening to the eruption ----
+  for (const hz of F.hazards) {
+    const x = hz.x - camX, y = hz.y - camY;
+    const f = 1 - Math.max(0, hz.t) / hz.max; // 0 → 1 toward eruption
+    const pulse = 0.5 + 0.5 * Math.sin(vt * (6 + f * 18));
+    sh.push(SHAPE_DISC, x, y, 0, hz.r, 0.6, 1.2, 0, 0.10, 0.01, 0.04, (0.25 + 0.45 * f) * (0.7 + 0.3 * pulse), 0.30 * f, 0.02, 0.07, false);
+    sh.push(SHAPE_RING, x, y, vt * 1.4, hz.r, 1.8, 7, 0.35, 1, 0.13, 0.25, 0.35 + 0.6 * f, 0.4 * f, 0.03, 0.08);
+    sh.push(SHAPE_RING, x, y, 0, hz.r * (1 - f * 0.85), 1.4, 5, 0, 1, 0.35, 0.4, 0.5 + 0.5 * f, 0.3, 0.05, 0.1);
+  }
+
+  const boss = F.boss;
+  if (boss && !boss.dead) {
+    const bx = lerp(boss.px, boss.x, alpha) - camX;
+    const by = lerp(boss.py, boss.y, alpha) - camY;
+    // the lunge line, sharpening as the wind-up locks
+    if (F.dash === 1) {
+      const f2 = 1 - Math.max(0, F.dashT) / F.dashMax;
+      shOver.push(SHAPE_CAPSULE, bx, by, F.dashA, 900, 6 + f2 * 8, 10, 0, 1, 0.13, 0.25, 0.12 + 0.3 * f2, 0.25 * f2, 0.02, 0.06);
+      shOver.push(SHAPE_CAPSULE, bx, by, F.dashA, 900, 1.5, 4, 0, 1, 0.5, 0.55, 0.3 + 0.5 * f2, 0.3 * f2, 0.05, 0.1);
+    }
+    // the veil: a bruise-dark shell laced with red
+    if (F.veiled) {
+      const breath = 0.5 + 0.5 * Math.sin(vt * 2.2);
+      const R = boss.radius + 26 + breath * 6;
+      sh.push(SHAPE_DISC, bx, by, 0, R, 0.7, 1.4, 0, 0.06, 0.01, 0.05, 0.55, 0.10, 0.01, 0.06, false);
+      sh.push(SHAPE_RING, bx, by, vt * 0.9, R, 2.2, 9, 0.25, 1, 0.13, 0.25, 0.6 + 0.3 * breath, 0.35, 0.04, 0.10);
+      sh.push(SHAPE_RING, bx, by, -vt * 1.6, R * 0.82, 1.4, 6, 0.6, 0.55, 0.06, 0.16, 0.5, 0.2, 0.02, 0.06);
+    }
+    // stunned: golden light pouring through the cracks — strike NOW
+    if (F.stunT > 0) {
+      const flick = 0.5 + 0.5 * Math.sin(vt * 14);
+      sh.push(SHAPE_RING, bx, by, vt * 0.5, boss.radius + 12, 2, 8, 0, 1, 0.82, 0.48, 0.5 + 0.4 * flick, 0.4, 0.3, 0.12);
+      q.push(true, glowE, bx, by - boss.radius * 0.3, boss.radius * 0.9, 0, 0.18 + 0.15 * flick, 1, 0.82, 0.48, 1);
+    }
+  }
+
+  // ---- the stolen light: dream-motes to gather while he is veiled ----
+  if (F.veiled) {
+    const starE = q.uv('pickup:star')!;
+    const beaconE = q.uv('pickup:beacon')!;
+    const ringE = q.uv('ring')!;
+    const urgent = F.moteT < 4 ? 0.5 + 0.5 * Math.sin(vt * 10) : 1;
+    for (const m of F.motes) {
+      if (m.got) continue;
+      const x = m.x - camX, y = m.y - camY + Math.sin(m.ph) * 4;
+      q.push(true, beaconE, x, y, beaconE.half, 0, 0.9 * urgent, 1, 0.82, 0.48, 1);
+      q.push(true, ringE, x, y + 6, (12 + Math.sin(vt * 4) * 2) / 30 * ringE.half, 0, 0.6 * urgent, 1, 0.82, 0.48, 1);
+      q.push(true, glowE, x, y - 8, 30, 0, urgent, 1, 0.82, 0.48, 1);
+      q.push(true, starE, x, y - 8, starE.half, m.ph * 0.7, urgent, 1, 0.9, 0.6, 1);
+    }
+  }
+
+  // ---- the collapse: golden calm marked in the world; the red doom itself
+  // is shaded on the overlay (drawFinaleOverlay), where it can cut holes ----
+  const col = F.collapse;
+  if (col) {
+    const f = 1 - Math.max(0, col.t) / col.max;
+    const pulse = 0.5 + 0.5 * Math.sin(vt * (5 + f * 14));
+    const eruptF = col.erupt > 0 ? col.erupt / FINALE_ERUPT_DUR : 0;
+    // the gold calm flares bright the instant the doom fires — being safe is a
+    // reward you SEE, the opposite pole from the red glare over the doomed ground
+    const gA = (0.55 + 0.45 * pulse) * (1 + eruptF * 1.4);
+    if (col.kind === 'islands') {
+      for (const isl of col.islands) {
+        const x = isl.x - camX, y = isl.y - camY;
+        sh.push(SHAPE_RING, x, y, vt * 0.8, isl.r, 2.2, 9, 0, 1, 0.82, 0.48, gA, 0.4, 0.3, 0.12);
+        sh.push(SHAPE_DISC, x, y, 0, isl.r * 0.94, 0.7, 1.4, 0, 1, 0.82, 0.48, 0.08 + 0.08 * pulse, 0.22, 0.16, 0.06);
+        const beaconE = q.uv('pickup:beacon')!;
+        q.push(true, beaconE, x, y, beaconE.half, 0, 0.5 * gA, 1, 0.82, 0.48, 1);
+      }
+    } else if (col.kind === 'band') {
+      const x = col.cx - camX, y = col.cy - camY;
+      sh.push(SHAPE_RING, x, y, vt * 0.5, col.r0, 2.2, 9, 0, 1, 0.82, 0.48, gA, 0.4, 0.3, 0.12);
+      sh.push(SHAPE_RING, x, y, -vt * 0.5, col.r1, 2.2, 9, 0, 1, 0.82, 0.48, gA, 0.4, 0.3, 0.12);
+      sh.push(SHAPE_RING, x, y, 0, (col.r0 + col.r1) / 2, (col.r1 - col.r0) * 0.42, 4, 0, 1, 0.82, 0.48, 0.06 + 0.06 * pulse, 0.14, 0.10, 0.04);
+    } else {
+      // halves: the boundary seam, with a breath of gold on the safe side
+      const ca2 = Math.cos(col.halfA), sa2 = Math.sin(col.halfA);
+      const nx = -sa2, ny = ca2; // the safe normal
+      const x0 = col.cx - ca2 * 1600 - camX, y0 = col.cy - sa2 * 1600 - camY;
+      shOver.push(SHAPE_CAPSULE, x0, y0, col.halfA, 3200, 2.4, 10, 0, 1, 0.82, 0.48, gA, 0.45, 0.34, 0.14);
+      for (let i = -4; i <= 4; i++) {
+        const bx2 = col.cx + ca2 * i * 190 + nx * 130 - camX;
+        const by2 = col.cy + sa2 * i * 190 + ny * 130 - camY;
+        q.push(true, glowE, bx2, by2, 26 + pulse * 8, 0, 0.16 + 0.12 * pulse, 1, 0.82, 0.48, 1);
+      }
+    }
+  }
+}
+
+// Screen-space finale layer: letterbox bars during the scene, a creeping
+// vignette that never fully lifts while the Other Dreamer lives, the two
+// spoken lines, and the mote-timer while he is veiled.
+function drawFinaleOverlay(eng: Engine, octx: CanvasRenderingContext2D, w: number, h: number, vt: number, camX: number, camY: number) {
+  const F = eng.finale;
+  const ph = F.phase;
+  if (ph === 'none' || ph === 'done') return;
+  const uiS = uiScale();
+
+  // creeping vignette — the dream going wrong at its edges
+  let dark = 0;
+  if (ph === 'sweep') dark = Math.min(1, F.t / 1.6) * 0.35;
+  else if (ph === 'approach' || ph === 'line1') dark = 0.35;
+  else if (ph === 'line2') dark = 0.45;
+  else if (ph === 'dread' || ph === 'anger') dark = 0.6;
+  else if (ph === 'boss') dark = 0.3;
+  if (dark > 0) {
+    const g = octx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.32, w / 2, h / 2, Math.max(w, h) * 0.75);
+    g.addColorStop(0, 'rgba(10,0,8,0)');
+    g.addColorStop(1, `rgba(10,0,8,${0.75 * dark})`);
+    octx.fillStyle = g;
+    octx.fillRect(0, 0, w, h);
+  }
+
+  if (ph === 'boss') {
+    drawCollapseDanger(eng, octx, w, h, vt, camX, camY);
+    if (F.veiled) {
+      octx.save();
+      octx.globalAlpha = 0.92;
+      octx.textAlign = 'center';
+      octx.font = `600 ${13 * uiS}px Cinzel, 'Palatino Linotype', serif`;
+      try { (octx as unknown as { letterSpacing: string }).letterSpacing = '0.16em'; } catch { /* older engines */ }
+      octx.fillStyle = '#ffd27a';
+      octx.shadowColor = '#ffd27a';
+      octx.shadowBlur = 12 * uiS;
+      octx.fillText(`GATHER THE LIGHT — ${Math.max(0, F.moteT).toFixed(1)}`, w / 2, 206 * uiS);
+      octx.restore();
+    }
+    return;
+  }
+
+  // cinematic letterbox
+  const barIn = ph === 'sweep' ? Math.min(1, F.t / 1.2) : 1;
+  const barH = h * 0.11 * barIn;
+  octx.fillStyle = 'rgba(4,2,8,0.92)';
+  octx.fillRect(0, 0, w, barH);
+  octx.fillRect(0, h - barH, w, barH);
+
+  // the spoken lines, floating over their speakers
+  let str = '', lx = 0, ly = 0, col = '#e6ecff', tt = 0, dur = 1, size = 19, shadow = '#8fb8ff';
+  if (ph === 'line1') {
+    str = '“What are you doing in my dream?”';
+    lx = eng.player.x; ly = eng.player.y - 96; tt = F.t; dur = 3.0;
+  } else if (ph === 'line2') {
+    str = '“Your dream?”';
+    lx = F.wx; ly = F.wy - 96; col = '#ff9aae'; tt = F.t; dur = 2.6; size = 22; shadow = '#ff2040';
+  }
+  if (str) {
+    const a = Math.max(0, Math.min(1, tt * 4, (dur - tt) * 3));
+    octx.save();
+    octx.globalAlpha = a;
+    octx.textAlign = 'center';
+    octx.font = `600 ${size}px Cinzel, 'Palatino Linotype', serif`;
+    octx.fillStyle = col;
+    octx.shadowColor = shadow;
+    octx.shadowBlur = 14;
+    const jx = ph === 'line2' ? Math.sin(vt * 47) * 1.2 : 0; // his words don't sit still
+    octx.fillText(str, lx - camX + jx, ly - camY);
+    octx.restore();
+  }
+
+  // anger: red light strobing up through the floor of the dream
+  if (ph === 'anger') {
+    const f = Math.min(1, F.t / 2.4);
+    octx.fillStyle = `rgba(255,20,50,${0.08 + 0.12 * f * (0.5 + 0.5 * Math.sin(vt * 20))})`;
+    octx.fillRect(0, 0, w, h);
+  }
+}
+
+// The collapse's doom shading: everything unsafe reddens toward the eruption,
+// with the golden calm cut out of the wash. Composited on a cached quarter-res
+// canvas (the shapes are soft — upscaling is invisible) so destination-out
+// hole-cutting never erases the overlay's own text/bars, then a single guide
+// chevron points the shortest way into the calm while the dreamer is exposed.
+let _dangerC: HTMLCanvasElement | null = null;
+function drawCollapseDanger(eng: Engine, octx: CanvasRenderingContext2D, w: number, h: number, vt: number, camX: number, camY: number) {
+  const c = eng.finale.collapse;
+  if (!c) return;
+  // Two states, both masked to the DOOMED ground only (the calm is cut out), so
+  // the red never washes the whole screen and can't be misread as taking a hit:
+  //   telegraph — a restrained warning wash that builds and flickers as the
+  //               eruption nears
+  //   eruption  — a brief bright glare over exactly the ground that just fired
+  const erupting = c.erupt > 0;
+  let alpha: number;
+  let base: string;
+  if (erupting) {
+    const ef = c.erupt / FINALE_ERUPT_DUR; // 1 → 0
+    alpha = 0.72 * ef;
+    base = 'rgb(210,20,44)';
+  } else {
+    const f = 1 - Math.max(0, c.t) / c.max;
+    const flick = c.t < 0.6 ? 0.7 + 0.3 * Math.sin(vt * 26) : 1;
+    alpha = (0.1 + 0.26 * f) * flick; // a warning, deliberately below "hit" strength
+    base = 'rgb(122,4,26)';
+  }
+  const S = 4;
+  const dw = Math.ceil(w / S), dh = Math.ceil(h / S);
+  if (!_dangerC) _dangerC = document.createElement('canvas');
+  if (_dangerC.width !== dw || _dangerC.height !== dh) { _dangerC.width = dw; _dangerC.height = dh; }
+  const g = _dangerC.getContext('2d')!;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalCompositeOperation = 'source-over';
+  g.clearRect(0, 0, dw, dh);
+  g.fillStyle = base;
+  g.fillRect(0, 0, dw, dh);
+  const toX = (x: number) => (x - camX) / S;
+  const toY = (y: number) => (y - camY) / S;
+  g.globalCompositeOperation = 'destination-out';
+  if (c.kind === 'islands') {
+    for (const isl of c.islands) {
+      const r = isl.r / S;
+      const gr = g.createRadialGradient(toX(isl.x), toY(isl.y), r * 0.55, toX(isl.x), toY(isl.y), r);
+      gr.addColorStop(0, 'rgba(0,0,0,1)');
+      gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr;
+      g.beginPath(); g.arc(toX(isl.x), toY(isl.y), r, 0, Math.PI * 2); g.fill();
+    }
+  } else if (c.kind === 'band') {
+    g.fillStyle = 'rgba(0,0,0,1)';
+    g.beginPath();
+    g.arc(toX(c.cx), toY(c.cy), c.r1 / S, 0, Math.PI * 2);
+    g.arc(toX(c.cx), toY(c.cy), c.r0 / S, 0, Math.PI * 2, true);
+    g.fill();
+  } else {
+    // halves: erase the safe side (local +y after rotating by halfA)
+    g.save();
+    g.translate(toX(c.cx), toY(c.cy));
+    g.rotate(c.halfA);
+    const edge = 90 / S;
+    const gr = g.createLinearGradient(0, 0, 0, edge);
+    gr.addColorStop(0, 'rgba(0,0,0,0)');
+    gr.addColorStop(1, 'rgba(0,0,0,1)');
+    g.fillStyle = gr;
+    g.fillRect(-3000, 0, 6000, edge);
+    g.fillStyle = 'rgba(0,0,0,1)';
+    g.fillRect(-3000, edge, 6000, 3000);
+    g.restore();
+  }
+  octx.save();
+  octx.globalAlpha = alpha;
+  octx.drawImage(_dangerC, 0, 0, w, h);
+  octx.restore();
+
+  // one gold chevron from the dreamer toward the nearest calm, while unsafe
+  // (never during the eruption itself — the moment to move has already passed)
+  const p = eng.player;
+  if (!erupting && !eng.finaleCollapseSafe(p.x, p.y + PLAYER_HURT_DY)) {
+    let tx = p.x, ty = p.y;
+    if (c.kind === 'islands') {
+      let bd = Infinity;
+      for (const isl of c.islands) {
+        const d2 = (isl.x - p.x) ** 2 + (isl.y - p.y) ** 2;
+        if (d2 < bd) { bd = d2; tx = isl.x; ty = isl.y; }
+      }
+    } else if (c.kind === 'band') {
+      const a = Math.atan2(p.y - c.cy, p.x - c.cx);
+      const mid = (c.r0 + c.r1) / 2;
+      tx = c.cx + Math.cos(a) * mid;
+      ty = c.cy + Math.sin(a) * mid;
+    } else {
+      const nx = -Math.sin(c.halfA), ny = Math.cos(c.halfA);
+      const s = (p.x - c.cx) * nx + (p.y - c.cy) * ny;
+      tx = p.x + nx * (150 - s);
+      ty = p.y + ny * (150 - s);
+    }
+    const ang = Math.atan2(ty - p.y, tx - p.x);
+    const pulse = 0.5 + 0.5 * Math.sin(vt * 9);
+    const ax = p.x - camX + Math.cos(ang) * (74 + 14 * pulse);
+    const ay = p.y - camY + Math.sin(ang) * (74 + 14 * pulse);
+    octx.save();
+    octx.translate(ax, ay);
+    octx.rotate(ang);
+    octx.scale(1 + 0.15 * pulse, 1 + 0.15 * pulse);
+    octx.globalAlpha = 0.9;
+    octx.fillStyle = '#ffd27a';
+    octx.shadowColor = '#ffd27a';
+    octx.shadowBlur = 18;
+    octx.beginPath();
+    octx.moveTo(18, 0);
+    octx.lineTo(-9, -10);
+    octx.lineTo(-4, 0);
+    octx.lineTo(-9, 10);
+    octx.closePath();
+    octx.shadowBlur = 0;
+    octx.lineJoin = 'round';
+    octx.lineWidth = 4;
+    octx.strokeStyle = 'rgba(6,4,16,0.85)';
+    octx.stroke();
+    octx.shadowBlur = 18;
+    octx.fill();
+    octx.restore();
+  }
 }
 
 // ==================================================== zone / beam / bolt SDFs
@@ -904,6 +1291,20 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
       }
       drawStats.enemyLiveOps++;
     }
+  }
+
+  // the Other Dreamer: shards of his broken staff wheel around him, and the
+  // wound in his chest breathes red on the smooth clock
+  if (e.type === 'nightmare') {
+    const shE = q.uv('shard')!;
+    for (let i = 0; i < 5; i++) {
+      const sa2 = vt * 1.4 + (i / 5) * TAU;
+      const R2 = (34 + Math.sin(vt * 2.3 + i * 1.7) * 4) * sc;
+      q.push(false, shE, x + Math.cos(sa2) * R2, y + bob * sc + Math.sin(sa2) * R2 * 0.55 - 10 * sc, shE.half * sc * 0.9, sa2, 0.9, 1, 0.13, 0.25, 0.9);
+    }
+    const beat = 0.5 + 0.5 * Math.sin(vt * 3.1);
+    q.push(true, glowE, x, y + bob * sc - 4 * sc, (10 + beat * 5) * sc, 0, 0.5 + 0.3 * beat, 1, 0.13, 0.25, 1);
+    drawStats.enemyLiveOps++;
   }
 
   // melee slash: bright white-cored crescent sweeping toward the player.

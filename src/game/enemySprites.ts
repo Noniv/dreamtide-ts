@@ -249,6 +249,108 @@ export const ENEMY_SPRITES: Record<string, EnemySpriteDef> = {
     ctx.beginPath(); ctx.ellipse(0, -22, 6, 2.1, 0, 0, TAU); ctx.stroke();
   } },
 
+  // the Other Dreamer's true form: a towering anti-magus — near-black tattered
+  // robe over a cracked porcelain mask with three burning eyes, the dreamer's
+  // own bent hat torn open, a thorn-crown clawing up behind. Only worn by the
+  // fifteenth-minute boss; weight 0 keeps it out of the wave tables.
+  nightmare: { half: 44, frames: 24, rate: 4, bob: (t) => Math.sin(t * 2.2) * 3, paint(ctx, ph) {
+    const a = ph * TAU;
+    const writhe = Math.sin(a);
+    // thorn-crown clawing up from behind the shoulders
+    ctx.strokeStyle = '#2a0f1c';
+    ctx.lineWidth = 2.6;
+    ctx.lineCap = 'round';
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(s * 6, -20);
+      ctx.quadraticCurveTo(s * 16, -30 + writhe * s, s * 18, -38);
+      ctx.moveTo(s * 13, -31); ctx.lineTo(s * 19, -33);
+      ctx.moveTo(s * 16, -35); ctx.lineTo(s * 21, -40);
+      ctx.stroke();
+    }
+    // darkness pooled where it stands
+    ctx.fillStyle = 'rgba(20,8,20,0.5)';
+    ctx.beginPath(); ctx.ellipse(writhe * 2, 26, 20, 6, 0, 0, TAU); ctx.fill();
+    // the robe: a bell of starless night, hem torn and writhing
+    ctx.fillStyle = linGrad(ctx, 0, -26, 0, 28, '#241028', '#07030c');
+    ctx.beginPath();
+    ctx.moveTo(0, -30);
+    ctx.quadraticCurveTo(19, -18, 17, 4);
+    for (let i = 0; i <= 8; i++) {
+      const fr = i / 8;
+      ctx.lineTo(17 - fr * 34, 22 + Math.sin(a + fr * 11) * 4 - fr * 3 + (i % 2) * 4);
+    }
+    ctx.quadraticCurveTo(-19, -18, 0, -30);
+    ctx.fill();
+    // glimpses of the crimson lining
+    ctx.fillStyle = 'rgba(120,10,35,0.5)';
+    ctx.beginPath();
+    ctx.moveTo(0, -26);
+    ctx.quadraticCurveTo(12, -14, 10, 6);
+    ctx.quadraticCurveTo(2, 12, -3, 8);
+    ctx.quadraticCurveTo(-8, -8, 0, -26);
+    ctx.fill();
+    // the wound in the chest, cracked open on red light
+    softGlow(ctx, 0, -4, 10, 'rgba(255,45,80,0.75)');
+    ctx.strokeStyle = '#ff3d5e';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(-4, -8); ctx.lineTo(0, -3); ctx.lineTo(-2, 2);
+    ctx.moveTo(0, -3); ctx.lineTo(4, -1);
+    ctx.stroke();
+    // the dreamer's own hat, wrong: bent cone torn open at the tip
+    const bend = Math.sin(a * 0.5) * 2;
+    ctx.fillStyle = '#0d0714';
+    ctx.beginPath(); ctx.ellipse(0.5, -34, 15, 4, -0.08, 0, TAU); ctx.fill();
+    ctx.fillStyle = linGrad(ctx, 0, -36, 0, -60, '#140a1d', '#2a1031');
+    ctx.beginPath();
+    ctx.moveTo(-8, -36);
+    ctx.quadraticCurveTo(-4, -50, 3 + bend, -54);
+    ctx.lineTo(6 + bend, -50);
+    ctx.lineTo(10 + bend, -58);
+    ctx.quadraticCurveTo(9, -46, 9, -36.5);
+    ctx.closePath();
+    ctx.fill();
+    // cracked porcelain mask
+    ctx.fillStyle = '#ded6e8';
+    ctx.beginPath();
+    ctx.moveTo(-7, -31);
+    ctx.quadraticCurveTo(-9, -22, -4, -16);
+    ctx.quadraticCurveTo(0, -13.5, 4, -16);
+    ctx.quadraticCurveTo(9, -22, 7, -31);
+    ctx.quadraticCurveTo(0, -34, -7, -31);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(30,15,35,0.8)';
+    ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(-3, -31); ctx.lineTo(-4.5, -25); ctx.lineTo(-2.5, -21);
+    ctx.moveTo(5, -28); ctx.lineTo(3, -23);
+    ctx.stroke();
+    // three red eyes — no mouth
+    const sq = 1 + Math.sin(a * 1.3) * 0.25;
+    softGlow(ctx, -3, -25, 5.5, 'rgba(255,32,64,0.85)');
+    softGlow(ctx, 3, -25, 5.5, 'rgba(255,32,64,0.85)');
+    softGlow(ctx, 0, -29.5, 4, 'rgba(255,32,64,0.7)');
+    ctx.fillStyle = '#ff2040';
+    ctx.beginPath();
+    ctx.ellipse(-3, -25, 1.7, 2.4 * sq, 0.15, 0, TAU);
+    ctx.ellipse(3, -25, 1.7, 2.4 * sq, -0.15, 0, TAU);
+    ctx.fill();
+    ctx.beginPath(); ctx.ellipse(0, -29.5, 1.1, 1.7 * sq, 0, 0, TAU); ctx.fill();
+    // ashen claws parting the sleeves
+    ctx.strokeStyle = '#8f93a8';
+    ctx.lineWidth = 1.6;
+    for (const s of [-1, 1]) {
+      const rx = s * 15, ry = -6 + writhe * s * 1.5;
+      ctx.beginPath();
+      for (let f = -1; f <= 1; f++) {
+        ctx.moveTo(rx, ry);
+        ctx.quadraticCurveTo(rx + s * 4, ry + 3 + f * 2.4, rx + s * 7, ry + 5 + f * 3.4);
+      }
+      ctx.stroke();
+    }
+  } },
+
   warlock: { half: 26, frames: 1, rate: 3, bob: (t) => Math.sin(t * 3) * 2, paint(ctx, _ph) {
     ctx.fillStyle = linGrad(ctx, 0, -20, 0, 16, '#7a3aa8', '#2a1040');
     ctx.beginPath();
@@ -341,6 +443,35 @@ export const DEFAULT_WIZARD_SKIN: WizardSkin = {
   orbGlow: '#80f5ff',
   orbCore: '#f0ffff',
 };
+
+// The Other Dreamer as he first appears: the wizard's own silhouette drained
+// of every warm colour — grave-dark cloth, ashen skin, embers where stars
+// should be, and eyes that answer in red. Baked once as its own frame set
+// (dwiz:*), independent of the player's chosen skin.
+export const DARK_WIZARD_SKIN: WizardSkin = {
+  robeOuter: ['#1c0d22', '#070310'],
+  robeInner: ['#331124', '#160812'],
+  specks: ['#ff3d5e', '#8a1030', '#c22246', '#ff7a8e'],
+  rim: '#ff2e4d',
+  trim: '#7a1226',
+  buckle: '#ff3d5e',
+  sigil: '#ff3d5e',
+  sigilGlow: '#ff2040',
+  skinTone: '#9a93ad',
+  eyeDot: '#ff2040',
+  beard: '#3a3247',
+  beardShade: '#17101f',
+  hatBrim: '#0d0714',
+  hatBrimTop: '#1c1026',
+  hatCone: ['#150a1e', '#2a1031'],
+  staffWood: '#2a1018',
+  staffSheen: '#ff3d5e',
+  orb: '#ff2040',
+  orbGlow: '#ff2040',
+  orbCore: '#ffd7dd',
+};
+
+export function darkWizardFrameId(frame: number): string { return `dwiz:${frame}`; }
 
 let _skin: WizardSkin = DEFAULT_WIZARD_SKIN;
 
@@ -979,6 +1110,10 @@ export function buildAtlas(): Atlas {
   // wizard frames (active skin only)
   for (let f = 0; f < WIZARD_FRAMES; f++) {
     bake(wizardFrameId(f), WIZARD_HALF, (c: CanvasRenderingContext2D, ph: number) => paintWizard(c, ph, _skin), f / WIZARD_FRAMES);
+  }
+  // the dark wizard (finale cutscene actor) — same painter, drained palette
+  for (let f = 0; f < WIZARD_FRAMES; f++) {
+    bake(darkWizardFrameId(f), WIZARD_HALF, (c: CanvasRenderingContext2D, ph: number) => paintWizard(c, ph, DARK_WIZARD_SKIN), f / WIZARD_FRAMES);
   }
   // extra sprites
   for (const es of extraSprites()) bake(es.id, es.half, es.paint);

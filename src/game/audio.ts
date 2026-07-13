@@ -84,6 +84,18 @@ class AudioEngine {
   private darkness = 0; private boss = false;
   private nextChime = 0; private nextBeat = 0; private nextPulse = 0;
   private pulseAlt = false;
+  // the fifteenth minute: while true the whole score curdles — full darkness
+  // regardless of boss presence, chimes silenced, slow wrong-breath swells
+  private nightmareMode = false;
+  private nextDread = 0;
+  // the nightmare score: a persistent horror layer while the Other Dreamer
+  // lives — a detuned minor-second/tritone drone cluster, a wandering wail,
+  // and scheduled wrong-bells / broken-music-box runs (see musicTick)
+  private nmGain: GainNode | null = null;
+  private nmOsc: OscillatorNode[] = [];
+  private nmWail: OscillatorNode | null = null;
+  private nmSrc: AudioBufferSourceNode | null = null;
+  private nextNmWander = 0;
 
   // ---------------------------------------------------------------- setup
   init() {
@@ -395,20 +407,22 @@ class AudioEngine {
     this.mIntensity += (this.tIntensity - this.mIntensity) * 0.07;
     this.mDanger += (this.tDanger - this.mDanger) * 0.14;
 
-    const darkTarget = this.boss ? 1 : 0;
+    const darkTarget = (this.boss || this.nightmareMode) ? 1 : 0;
     if (Math.abs(darkTarget - this.darkness) > 0.002) {
       this.darkness += (darkTarget - this.darkness) * 0.06;
       // major third ↔ minor third; add9 ↔ m7 color — threat without volume
       this.oscThird!.frequency.setTargetAtTime(nt(19) * Math.pow(2, -this.darkness / 12), now, 0.5);
       this.oscColor!.frequency.setTargetAtTime(nt(14) * Math.pow(2, -this.darkness * 4 / 12), now, 0.5);
     }
-    this.padFilter!.frequency.setTargetAtTime(500 + 1250 * this.mIntensity + 260 * this.darkness, now, 0.6);
-    this.padLevel!.gain.setTargetAtTime(0.55 + 0.3 * this.mIntensity, now, 0.9);
+    // nightmare mode drags the pad's filter low and pulls the pad itself back,
+    // so the horror cluster owns the room instead of sitting under the old drone
+    this.padFilter!.frequency.setTargetAtTime(500 + 1250 * this.mIntensity + 260 * this.darkness - (this.nightmareMode ? 190 : 0), now, 0.6);
+    this.padLevel!.gain.setTargetAtTime((0.55 + 0.3 * this.mIntensity) * (this.nightmareMode ? 0.55 : 1), now, 0.9);
 
     // dream chimes: frequent and bright when calm, rare in chaos, gone in dread
     if (now >= this.nextChime) {
       const calm = 1 - this.mIntensity;
-      if (this.darkness < 0.6 && this.enabled) {
+      if (this.darkness < 0.6 && !this.nightmareMode && this.enabled) {
         this.tone({
           freq: vary(pent(12 + ((Math.random() * 8) | 0)), 0.004), type: 'triangle',
           a: 0.01, d: rand(1.1, 1.7), peak: 0.016 + 0.02 * calm,
@@ -429,8 +443,55 @@ class AudioEngine {
       }
     } else this.nextBeat = 0;
 
-    // boss pulse: a slow dark ostinato on A1/E1 while the Devourer lives
-    if (this.boss && this.darkness > 0.25) {
+    // nightmare dread: while the Other Dreamer holds the dream the score is a
+    // horror piece, not a mood — the drone cluster wanders queasily out of
+    // tune, a far wail slides between wrong notes, and every few seconds one
+    // of three terrors plays: a tritone bell, a broken music box, or the old
+    // wrong breath.
+    if (this.nightmareMode && this.enabled) {
+      if (now >= this.nextNmWander) {
+        this.nextNmWander = now + rand(2.5, 4.5);
+        // the cluster swims microtonally out of tune — queasy, never a clean
+        // glide (a clean pitch sweep reads as a siren, not horror)
+        for (const o of this.nmOsc) o.detune.setTargetAtTime(rand(-28, 28), now, 2.4);
+      }
+      if (now >= this.nextDread) {
+        this.nextDread = now + rand(3.0, 6.0);
+        const kind = (Math.random() * 4) | 0;
+        if (kind === 0) {
+          // a bell from the wrong dream: the tritone, with a sour high partial
+          // that beats against a near-unison twin (inharmonic shimmer)
+          const f = nt(6) * (Math.random() < 0.5 ? 1 : 2);
+          const pan = rand(-0.6, 0.6);
+          this.tone({ freq: f, type: 'sine', d: 2.6, peak: 0.085, pan, bus: 'music', verb: 0.9, pri: 2 });
+          this.tone({ freq: f * 1.007, type: 'sine', d: 2.2, peak: 0.052, pan: pan * 0.6, bus: 'music', verb: 0.9, pri: 1 });
+          this.tone({ freq: f * 2.76, type: 'sine', d: 1.4, peak: 0.03, pan: -pan, bus: 'music', verb: 0.85, pri: 1 });
+        } else if (kind === 1) {
+          // a broken music box: a chromatic run stumbling out of tune,
+          // notes thrown to opposite ears, decaying into the reverb
+          const base = 12 + ((Math.random() * 8) | 0);
+          const steps = [0, 1, 3, 1, 6, 1];
+          for (let i = 0; i < steps.length; i++) {
+            this.tone({ freq: nt(base + steps[i]) * rand(0.975, 1.02), type: 'triangle', d: 0.55, peak: 0.05 - i * 0.004, at: i * rand(0.09, 0.17), pan: (i % 2 ? 0.7 : -0.7) * rand(0.4, 1), bus: 'music', verb: 0.85, pri: 1 });
+          }
+        } else if (kind === 2) {
+          // a rising dread: a reverse-swell of noise climbing to a cut, under a
+          // low tone bending UP a tritone — the floor tilting out from under you
+          this.noise({ dur: 1.6, a: 1.5, peak: 0.1, freq: 240, to: 2600, q: 0.7, type: 'bandpass', pan: rand(-0.4, 0.4), bus: 'music', verb: 0.6, pri: 2 });
+          this.tone({ freq: nt(-12), to: nt(-6), glide: 1.6, type: 'sawtooth', a: 1.4, d: 0.4, peak: 0.08, filter: 'lowpass', ff: 320, bus: 'music', verb: 0.4, pri: 2 });
+        } else {
+          // the wrong breath: a low detuned swell under a minor-second rub
+          this.tone({ freq: nt(-12) * (Math.random() < 0.5 ? 1 : Math.pow(2, -1 / 12)), type: 'sawtooth', a: 1.4, d: 2.2, peak: 0.08, filter: 'lowpass', ff: 260, q: 1.1, bus: 'music', verb: 0.4, pri: 2 });
+          this.tone({ freq: nt(3), type: 'sine', a: 1.2, d: 2.0, peak: 0.028, at: 0.3, bus: 'music', verb: 0.6, pri: 1 });
+          this.tone({ freq: nt(4), type: 'sine', a: 1.2, d: 2.0, peak: 0.024, at: 0.34, bus: 'music', verb: 0.6, pri: 1 });
+        }
+      }
+    } else this.nextDread = 0;
+
+    // boss pulse: a slow dark ostinato on A1/E1 while the Devourer lives — but
+    // NOT during the nightmare, where its two-tone alternation read as a siren
+    // and the living horror cluster (startNightmareScore) owns the low end
+    if (this.boss && this.darkness > 0.25 && !this.nightmareMode) {
       if (this.nextPulse < now) this.nextPulse = now + 0.03;
       while (this.nextPulse < now + 0.4) {
         this.pulseAlt = !this.pulseAlt;
@@ -459,6 +520,7 @@ class AudioEngine {
   // mood presets for the non-run screens
   menuMood() {
     this.tIntensity = 0.15; this.tDanger = 0; this.boss = false;
+    this.setNightmare(false);
     if (this.dimMusic && this.ctx) this.dimMusic.gain.setTargetAtTime(1, this.ctx.currentTime, 0.8);
   }
 
@@ -466,6 +528,7 @@ class AudioEngine {
   runStart() {
     this.gemDeg = 0; this.lastGem = 0;
     this.tIntensity = 0.3; this.tDanger = 0; this.boss = false;
+    this.setNightmare(false);
     if (this.dimMusic && this.ctx) this.dimMusic.gain.setTargetAtTime(1, this.ctx.currentTime, 0.5);
     if (!this.ready()) return;
     this.noise({ dur: 1.1, a: 0.55, peak: 0.045, freq: 380, to: 1400, q: 0.6, type: 'lowpass', verb: 0.5, pri: 3 });
@@ -792,6 +855,257 @@ class AudioEngine {
     this.duck(this.duckSfx, 0.5, 0.03, 0.5, 0.6);
   }
 
+  // ===================================================== the fifteenth minute
+  // While on, the score is a different piece: full darkness, the ordinary pad
+  // pulled back behind a live horror cluster (startNightmareScore), chimes
+  // silenced, and musicTick scheduling bells/music-box/breath terrors. Flipped
+  // on when the other dreamer claims the dream, off when his form falls.
+  setNightmare(on: boolean) {
+    if (this.nightmareMode === on) return;
+    this.nightmareMode = on;
+    if (on) this.startNightmareScore();
+    else this.stopNightmareScore();
+  }
+
+  // The living half of the nightmare score — persistent nodes, not one-shots,
+  // built for psychedelic HORROR rather than a mood:
+  //   · a sub A0 under two sawtooths a minor second apart (a slow, sick beating)
+  //     and a tritone, all behind one strangled, breathing lowpass
+  //   · a queasy vibrato warble on the tritone so nothing holds its pitch
+  //   · a whisper-wind: looped noise through a bandpass that sweeps AND
+  //     auto-pans across the stereo field — the wrong dream's moving air
+  //   · slow auto-pan on the beating pair so the whole cluster swims
+  //   · a far, faint voice that micro-detunes but never cleanly glides (a clean
+  //     glide reads as a siren; this stays a ringing dread)
+  private startNightmareScore() {
+    if (!this.ctx || !this.musicBus || this.nmGain || !this.noiseBuf) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    // the horror bed sits well forward — as present as the original score, not
+    // a background wash (the master limiter keeps stacked terrors from clipping)
+    g.gain.setTargetAtTime(2.1, t, 2.4);
+    g.connect(this.musicBus);
+    if (this.revIn) {
+      const s = ctx.createGain();
+      s.gain.value = 0.62 * this.musicVol;
+      g.connect(s);
+      s.connect(this.revIn);
+    }
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.value = 240;
+    filt.Q.value = 1.3;
+    filt.connect(g);
+    // a slow LFO shared for the cluster's strangled breathing
+    const addLFO = (freq: number, depth: number, target: AudioParam) => {
+      const l = ctx.createOscillator();
+      l.frequency.value = freq;
+      const lg = ctx.createGain();
+      lg.gain.value = depth;
+      l.connect(lg); lg.connect(target); l.start();
+      this.nmOsc.push(l);
+    };
+    addLFO(0.085, 130, filt.frequency);
+    const mk = (freq: number, type: OscillatorType, gain: number, pan: number, dest: AudioNode, panLfo = 0) => {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.value = freq;
+      const og = ctx.createGain();
+      og.gain.value = gain;
+      o.connect(og);
+      if (ctx.createStereoPanner) {
+        const p = ctx.createStereoPanner();
+        p.pan.value = pan;
+        og.connect(p);
+        p.connect(dest);
+        if (panLfo > 0) addLFO(panLfo, 0.85, p.pan); // slow drift across the field
+      } else og.connect(dest);
+      o.start();
+      this.nmOsc.push(o);
+      return o;
+    };
+    mk(nt(-24), 'sine', 0.09, 0, filt);                                     // the sub
+    mk(nt(-12), 'sawtooth', 0.05, -0.2, filt, 0.043);                       // A1, drifting left↔
+    mk(nt(-12) * Math.pow(2, 1 / 12), 'sawtooth', 0.045, 0.2, filt, 0.037); // B♭1, drifting right↔ (beats against A1)
+    const trit = mk(nt(-6), 'sawtooth', 0.03, -0.35, filt, 0.05);           // the tritone…
+    addLFO(0.13, 22, trit.detune);                                          // …warbling ±22¢, seasick
+    this.nmWail = mk(nt(24), 'sine', 0.012, 0.3, g, 0.06);                  // the far voice
+
+    // the whisper-wind: looped noise, bandpass sweeping on its own LFO, panning
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    src.loop = true;
+    const nf = ctx.createBiquadFilter();
+    nf.type = 'bandpass';
+    nf.frequency.value = 760;
+    nf.Q.value = 1.6;
+    addLFO(0.055, 520, nf.frequency); // the wind's pitch wanders
+    const ng = ctx.createGain();
+    ng.gain.value = 0.06;
+    src.connect(nf); nf.connect(ng);
+    if (ctx.createStereoPanner) {
+      const np = ctx.createStereoPanner();
+      addLFO(0.041, 0.95, np.pan); // sweeps ear to ear
+      ng.connect(np); np.connect(g);
+    } else ng.connect(g);
+    src.start(t, Math.random() * 1.6);
+    this.nmSrc = src;
+
+    this.nmGain = g;
+    this.nextNmWander = 0;
+  }
+
+  private stopNightmareScore() {
+    const g = this.nmGain;
+    const oscs = this.nmOsc.slice();
+    const src = this.nmSrc;
+    this.nmOsc.length = 0;
+    this.nmWail = null;
+    this.nmGain = null;
+    this.nmSrc = null;
+    if (src && this.ctx) { try { src.stop(this.ctx.currentTime + 1.0); } catch { /* already stopped */ } }
+    if (!this.ctx || !g) return;
+    const t = this.ctx.currentTime;
+    g.gain.cancelScheduledValues(t);
+    g.gain.setValueAtTime(g.gain.value, t);
+    g.gain.setTargetAtTime(0.0001, t, 0.9);
+    window.setTimeout(() => {
+      for (const o of oscs) { try { o.stop(); } catch { /* already stopped */ } }
+      g.disconnect();
+    }, 4000);
+  }
+
+  finaleSweep() {
+    // every nightmare on the field unmade in one breath: a rising inhale that
+    // snaps into ringing silence
+    this.duck(this.duckMusic, 0.3, 0.1, 1.4, 2);
+    this.duck(this.duckSfx, 0.4, 0.05, 1.0, 1.0);
+    this.noise({ dur: 1.4, a: 1.1, peak: 0.09, freq: 300, to: 3800, q: 0.7, type: 'bandpass', verb: 0.6, pri: 3 });
+    this.tone({ freq: nt(-12), to: nt(12), glide: 1.3, type: 'sine', a: 0.9, d: 0.6, peak: 0.08, verb: 0.5, pri: 3 });
+    this.tone({ freq: nt(24), type: 'sine', a: 0.01, d: 2.4, peak: 0.045, at: 1.35, verb: 0.85, pri: 3 });
+    this.tone({ freq: nt(36), type: 'sine', a: 0.01, d: 2.0, peak: 0.02, at: 1.4, verb: 0.85, pri: 3 });
+  }
+
+  finaleWhisper(pan = 0) {
+    if (this.throttled('whisper', 700)) return;
+    // breath through teeth, too close to the ear
+    this.noise({ dur: rand(0.5, 0.9), a: 0.2, peak: 0.022, freq: rand(1800, 3400), to: rand(700, 1300), q: 2.6, type: 'bandpass', pan, verb: 0.7, pri: 1 });
+    this.tone({ freq: nt(16) * rand(0.99, 1.01), type: 'sine', a: 0.3, d: 0.6, peak: 0.008, pan: -pan * 0.5, verb: 0.8, pri: 0 });
+  }
+
+  speakPlayer() {
+    // the dreamer's voice: soft, human, in the home key
+    [10, 12, 11, 13, 12, 14].forEach((deg, i) =>
+      this.tone({ freq: vary(pent(deg), 0.01), type: 'triangle', a: 0.015, d: 0.14, peak: 0.035, at: i * 0.13, filter: 'lowpass', ff: 1600, verb: 0.35, pri: 3 }));
+  }
+
+  speakDark() {
+    // the other voice: the same cadence dragged far down and detuned — a croak
+    for (let i = 0; i < 2; i++) {
+      const at = i * 0.34;
+      const f = nt(-17 + i * 3);
+      this.tone({ freq: f, to: f * 0.9, glide: 0.3, type: 'sawtooth', a: 0.03, d: 0.32, peak: 0.06, filter: 'lowpass', ff: 420, q: 1.4, at, verb: 0.5, pri: 3 });
+      this.tone({ freq: f * 1.02, to: f * 0.91, glide: 0.3, type: 'sawtooth', a: 0.03, d: 0.32, peak: 0.045, filter: 'lowpass', ff: 380, at: at + 0.015, verb: 0.5, pri: 3 });
+    }
+    this.noise({ dur: 0.8, a: 0.25, peak: 0.02, freq: 900, to: 400, q: 1.2, type: 'bandpass', verb: 0.6, pri: 2 });
+  }
+
+  finaleDread() {
+    // the music curdles: a deep toll, a minor-second cluster, the floor giving way
+    this.duck(this.duckMusic, 0.25, 0.3, 2.0, 3.0);
+    this.tone({ freq: nt(-24), type: 'sine', a: 0.05, d: 3.2, peak: 0.13, verb: 0.7, pri: 3 });
+    this.tone({ freq: nt(-24) * 1.5, type: 'sine', a: 0.05, d: 2.4, peak: 0.05, verb: 0.7, pri: 3 });
+    this.tone({ freq: nt(3), type: 'sine', a: 0.6, d: 2.6, peak: 0.045, at: 0.4, verb: 0.7, pri: 3 });
+    this.tone({ freq: nt(4), type: 'sine', a: 0.6, d: 2.6, peak: 0.04, at: 0.45, verb: 0.7, pri: 3 });
+    this.noise({ dur: 2.8, a: 1.4, peak: 0.045, freq: 160, to: 90, q: 0.6, type: 'lowpass', at: 0.2, verb: 0.5, pri: 3 });
+  }
+
+  bossTransform() {
+    // the polite figure tears open: a rising shriek over a snarl, ending in a drop
+    this.noise({ dur: 2.4, a: 1.8, peak: 0.1, freq: 320, to: 3200, q: 1.1, type: 'bandpass', verb: 0.5, pri: 3 });
+    this.tone({ freq: 60, to: 250, glide: 2.2, type: 'sawtooth', a: 1.6, d: 0.7, peak: 0.11, filter: 'lowpass', ff: 500, fto: 2200, pri: 3 });
+    this.tone({ freq: nt(1), to: nt(13), glide: 2.2, type: 'square', a: 1.6, d: 0.6, peak: 0.04, filter: 'lowpass', ff: 1200, pri: 3 });
+    this.tone({ freq: 130, to: 30, glide: 0.5, type: 'sine', a: 0.01, d: 0.9, peak: 0.22, at: 2.3, pri: 3 });
+    this.noise({ dur: 0.8, peak: 0.12, freq: 400, to: 60, type: 'lowpass', at: 2.3, verb: 0.5, pri: 3 });
+    this.duck(this.duckMusic, 0.3, 1.8, 1.2, 2);
+  }
+
+  nightmareVeil() {
+    if (this.throttled('nveil', 500)) return;
+    // he pulls the dream over himself: a descending smear + hollow shimmer
+    this.tone({ freq: nt(12), to: nt(-10), glide: 0.9, type: 'triangle', a: 0.05, d: 1.1, peak: 0.07, filter: 'lowpass', ff: 900, verb: 0.5, pri: 3 });
+    this.noise({ dur: 1.2, a: 0.5, peak: 0.04, freq: 2400, to: 500, q: 1.4, type: 'bandpass', verb: 0.6, pri: 2 });
+    this.tone({ freq: nt(3), type: 'sine', a: 0.4, d: 1.2, peak: 0.03, verb: 0.7, pri: 2 });
+  }
+
+  moteChime(nth: number) {
+    // gathering the stolen light: each mote a step higher
+    const deg = 12 + nth * 2;
+    this.tone({ freq: vary(pent(deg), 0.005), type: 'triangle', d: 0.5, peak: 0.06, verb: 0.55, pri: 3 });
+    this.tone({ freq: vary(pent(deg + 2), 0.005), type: 'sine', d: 0.4, peak: 0.03, at: 0.06, verb: 0.6, pri: 3 });
+  }
+
+  veilShatter() {
+    // the veil breaks like glass and the light floods back in
+    [nt(36), nt(43), nt(48), nt(55)].forEach((f, i) =>
+      this.tone({ freq: vary(f, 0.02), type: 'sine', d: 0.5 - i * 0.06, peak: 0.05 - i * 0.007, at: i * 0.015, verb: 0.6, pri: 3 }));
+    this.noise({ dur: 0.5, peak: 0.07, freq: 5600, to: 1400, q: 0.8, type: 'highpass', verb: 0.5, pri: 3 });
+    this.tone({ freq: nt(12), type: 'triangle', a: 0.02, d: 0.9, peak: 0.06, at: 0.1, verb: 0.6, pri: 3 });
+    this.duck(this.duckSfx, 0.6, 0.02, 0.3, 0.5);
+  }
+
+  nightmareBloom() {
+    // the stolen dream detonates
+    this.tone({ freq: 110, to: 34, glide: 0.4, type: 'sine', d: 0.7, peak: 0.2, pri: 3 });
+    this.noise({ dur: 0.9, peak: 0.12, freq: 500, to: 70, type: 'lowpass', verb: 0.4, pri: 3 });
+    this.tone({ freq: nt(3), type: 'sawtooth', a: 0.05, d: 0.8, peak: 0.045, filter: 'lowpass', ff: 900, verb: 0.5, pri: 3 });
+    this.tone({ freq: nt(4), type: 'sawtooth', a: 0.05, d: 0.8, peak: 0.04, filter: 'lowpass', ff: 900, verb: 0.5, pri: 3 });
+  }
+
+  nightmareAim(pan = 0) {
+    if (this.throttled('naim', 500)) return;
+    // a breath drawn in before the lunge
+    this.noise({ dur: 0.7, a: 0.55, peak: 0.045, freq: 400, to: 2400, q: 1.1, type: 'bandpass', pan, verb: 0.4, pri: 2 });
+    this.tone({ freq: nt(-5), to: nt(4), glide: 0.65, type: 'sawtooth', a: 0.5, d: 0.25, peak: 0.04, filter: 'lowpass', ff: 700, pan, pri: 2 });
+  }
+
+  nightmareDash(pan = 0) {
+    if (this.throttled('ndash', 300)) return;
+    this.noise({ dur: 0.3, peak: 0.1, freq: 2200, to: 300, q: 0.8, pan, pri: 3 });
+    this.tone({ freq: nt(4), to: nt(-8), glide: 0.22, type: 'sawtooth', d: 0.26, peak: 0.06, filter: 'lowpass', ff: 1400, pan, pri: 3 });
+  }
+
+  collapseWarn() {
+    // the dream itself groans: pressure gathering under every unsafe inch
+    this.tone({ freq: nt(-17), to: nt(-5), glide: 1.6, type: 'sawtooth', a: 0.8, d: 1.2, peak: 0.07, filter: 'lowpass', ff: 320, fto: 900, verb: 0.5, pri: 3 });
+    this.tone({ freq: nt(3), type: 'sine', a: 0.5, d: 1.6, peak: 0.03, verb: 0.7, pri: 2 });
+    this.tone({ freq: nt(4), type: 'sine', a: 0.5, d: 1.6, peak: 0.026, at: 0.04, verb: 0.7, pri: 2 });
+    this.noise({ dur: 1.8, a: 1.2, peak: 0.05, freq: 200, to: 1600, q: 0.8, type: 'bandpass', verb: 0.5, pri: 3 });
+  }
+
+  collapseErupt() {
+    // everything outside the calm goes up at once
+    this.tone({ freq: 120, to: 30, glide: 0.5, type: 'sine', d: 0.8, peak: 0.24, pri: 3 });
+    this.noise({ dur: 1.0, peak: 0.15, freq: 600, to: 60, type: 'lowpass', verb: 0.4, pri: 3 });
+    this.noise({ dur: 0.25, peak: 0.06, freq: 3400, q: 0.8, type: 'highpass', pri: 3 });
+    this.duck(this.duckMusic, 0.45, 0.02, 0.4, 0.8);
+  }
+
+  riftOpen() {
+    if (this.throttled('rift', 900)) return;
+    // the ground under the dream splits
+    this.tone({ freq: nt(-19), to: nt(-24), glide: 0.8, type: 'sawtooth', a: 0.3, d: 0.9, peak: 0.055, filter: 'lowpass', ff: 300, verb: 0.5, pri: 2 });
+    this.noise({ dur: 1.0, a: 0.4, peak: 0.035, freq: 180, to: 700, q: 0.8, type: 'bandpass', verb: 0.5, pri: 2 });
+  }
+
+  riftErupt(pan = 0) {
+    if (this.throttled('erupt', 120)) return;
+    this.tone({ freq: vary(95, 0.1), to: 36, glide: 0.25, type: 'sine', d: 0.32, peak: 0.14, pan: pan * 0.6, pri: 2 });
+    this.noise({ dur: 0.35, peak: 0.1, freq: 520, to: 90, q: 0.8, type: 'lowpass', pan, verb: 0.3, pri: 2 });
+  }
+
   // ================================================================= pickups
   // XP gems climb a pentatonic ladder while the streak lasts — collecting is
   // literally a rising melody, and a pause lets it fall back down.
@@ -902,6 +1216,7 @@ class AudioEngine {
     // the music dims for the waking screen
     if (this.dimMusic && this.ctx) this.dimMusic.gain.setTargetAtTime(0.3, this.ctx.currentTime, 1.4);
     this.tIntensity = 0.1; this.tDanger = 0; this.boss = false;
+    this.setNightmare(false);
     const motif = [nt(24), nt(21), nt(19), nt(15), nt(12)]; // A4 F#4 E4 C4 A3 — minor shadowed
     motif.forEach((f, i) => {
       this.tone({ freq: f, to: f * 0.985, glide: 0.9, type: 'triangle', d: 1.1, peak: 0.09, at: i * 0.32, verb: 0.7, pri: 3 });

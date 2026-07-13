@@ -1272,6 +1272,36 @@ export function deallocateNode(meta: Meta, id: string): Meta {
   return next;
 }
 
+// Dev helpers (endless-stardust only): light every constellation star at once,
+// or release them all back to the core. Both walk the frontier repeatedly since
+// each allocation/deallocation depends on the connected owned subgraph. Light
+// (non-dark) tree only — the Dark Bargain keeps its own economy.
+export function allocateAllLight(meta: Meta): Meta {
+  let m = meta;
+  for (let guard = 0; guard < 4000; guard++) {
+    let changed = false;
+    for (const n of CONST_NODES) {
+      if (n.dark || m.owned.includes(n.id)) continue;
+      if (canAllocate(m, n.id)) { m = allocateNode(m, n.id); changed = true; }
+    }
+    if (!changed) break;
+  }
+  return m;
+}
+
+export function resetAllLight(meta: Meta): Meta {
+  let m = meta;
+  for (let guard = 0; guard < 4000; guard++) {
+    let changed = false;
+    for (const n of CONST_NODES) {
+      if (n.dark || n.kind === 'core' || !m.owned.includes(n.id)) continue;
+      if (canDeallocate(m, n.id)) { m = deallocateNode(m, n.id); changed = true; }
+    }
+    if (!changed) break;
+  }
+  return m;
+}
+
 export function markTreeRevealed(meta: Meta): Meta {
   if (meta.treeRevealed) return meta;
   const next = { ...meta, treeRevealed: true };
