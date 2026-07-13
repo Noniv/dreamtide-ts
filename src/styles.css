@@ -1471,6 +1471,178 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 .dev-toggle:hover { color: rgba(205, 216, 255, 0.9); }
 .dev-toggle input { accent-color: #7ff5ff; cursor: var(--cursor-point); }
 
+/* ============================================================== dream book */
+/* the menu button's "new discoveries" pip */
+.book-badge {
+  min-width: 20px; height: 20px; padding: 0 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--display); font-size: 12px; font-weight: 700; line-height: 1;
+  color: #0a0820; border-radius: 999px;
+  background: linear-gradient(120deg, var(--gold), var(--rose));
+  box-shadow: 0 0 12px rgba(255, 210, 122, 0.6);
+  border-left: none;
+}
+
+/* the book reuses the settings panel shell but runs far wider for its grid */
+.book-panel { width: min(1180px, 96vw); }
+
+.book-tabs {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 14px 34px 4px;
+  border-bottom: 1px solid var(--hairline-dim);
+}
+.book-tab {
+  position: relative; isolation: isolate;
+  display: inline-flex; align-items: baseline; gap: 8px;
+  font-family: var(--display); font-size: 12px; font-weight: 600;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: rgba(205, 216, 255, 0.82);
+  background: rgba(205, 216, 255, 0.16);
+  border: none; cursor: var(--cursor-point);
+  clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px);
+  padding: 10px 16px 9px;
+  transition: color 0.15s, background 0.15s;
+}
+.book-tab::before {
+  content: ''; position: absolute; inset: 1px; z-index: -1;
+  clip-path: inherit; background: rgba(13, 11, 34, 0.92);
+}
+.book-tab:hover { color: #fff; background: rgba(205, 216, 255, 0.4); }
+.book-tab.active {
+  color: #0a0820; font-weight: 700;
+  background: linear-gradient(115deg, var(--aurora), var(--arcane));
+  filter: drop-shadow(0 0 8px rgba(127, 245, 255, 0.4));
+}
+.book-tab.active::before { background: linear-gradient(115deg, var(--aurora), var(--arcane)); }
+.bt-count {
+  font-size: 10.5px; letter-spacing: 0.06em; opacity: 0.72;
+  font-variant-numeric: tabular-nums;
+}
+.book-tab.active .bt-count { opacity: 0.85; }
+
+.book-scroll { gap: 18px; padding-top: 22px; text-align: left; }
+
+/* --- basics: flowing lore, one rule of the craft per row */
+.book-lore-list { display: flex; flex-direction: column; gap: 8px; }
+.book-lore {
+  display: flex; gap: 18px; align-items: flex-start;
+  padding: 16px 18px;
+  background: linear-gradient(172deg, rgba(24, 18, 56, 0.55), rgba(9, 6, 26, 0.5));
+  border: 1px solid var(--hairline-dim);
+  border-left: 2px solid rgba(180, 140, 255, 0.5);
+  border-radius: 3px;
+}
+.bl-glyph {
+  flex-shrink: 0; width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; color: var(--gold);
+  text-shadow: 0 0 14px rgba(255, 210, 122, 0.4);
+}
+.bl-title {
+  font-family: var(--display); font-weight: 600; font-size: 15px;
+  letter-spacing: 0.14em; text-transform: uppercase; color: #eaf0ff;
+  margin-bottom: 5px;
+}
+.bl-text {
+  font-family: var(--flavor); font-size: 16.5px; line-height: 1.5;
+  color: rgba(205, 216, 255, 0.82);
+}
+
+/* --- entry grid: spells, boons, relics, pacts, interactions */
+.book-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px; align-items: start;
+}
+.book-entry {
+  --c: var(--arcane);
+  position: relative;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 15px 16px 16px;
+  background: linear-gradient(168deg, rgba(26, 20, 58, 0.72), rgba(10, 7, 28, 0.82));
+  border: 1px solid var(--hairline-dim);
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+.book-entry::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: linear-gradient(180deg, var(--c), transparent);
+  opacity: 0.9;
+}
+.be-head { display: flex; align-items: center; gap: 12px; }
+.be-glyph {
+  flex-shrink: 0; width: 44px; height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px; line-height: 1; color: var(--c);
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--c) 55%, transparent));
+}
+.be-title { min-width: 0; }
+.be-name {
+  font-family: var(--display); font-weight: 600; font-size: 16px;
+  letter-spacing: 0.06em; color: #f2f5ff;
+}
+.be-tag {
+  font-family: var(--flavor); font-style: italic; font-size: 13.5px;
+  color: rgba(205, 216, 255, 0.6);
+}
+.be-tag em { font-style: italic; color: rgba(205, 216, 255, 0.45); }
+.be-desc {
+  font-family: var(--flavor); font-size: 15.5px; line-height: 1.42;
+  color: rgba(214, 223, 255, 0.86);
+}
+.be-levels {
+  display: flex; flex-direction: column; gap: 5px;
+  margin-top: 2px; padding-top: 10px;
+  border-top: 1px solid var(--hairline-dim);
+}
+.be-level { display: flex; align-items: flex-start; gap: 10px; }
+.be-lv {
+  flex-shrink: 0; width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--display); font-size: 12px; font-weight: 700;
+  color: var(--c);
+  border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
+  border-radius: 3px; background: rgba(0, 0, 0, 0.25);
+}
+.be-lv-text {
+  font-size: 13.5px; line-height: 1.5; color: rgba(205, 216, 255, 0.78);
+  padding-top: 2px;
+}
+.be-evo {
+  display: flex; flex-direction: column; gap: 3px;
+  margin-top: 2px; padding: 10px 12px;
+  background: linear-gradient(120deg, rgba(255, 210, 122, 0.12), rgba(180, 140, 255, 0.1));
+  border: 1px solid rgba(255, 210, 122, 0.28);
+  border-radius: 3px;
+}
+.be-evo-name {
+  font-family: var(--display); font-weight: 600; font-size: 13.5px;
+  letter-spacing: 0.06em; color: var(--gold);
+}
+.be-evo-text { font-family: var(--flavor); font-size: 14.5px; line-height: 1.4; color: rgba(214, 223, 255, 0.82); }
+
+.pact-gift { color: #9fffce; }
+.pact-cost { color: var(--blood); font-style: italic; }
+
+/* sealed entries: present but unread */
+.book-entry.locked {
+  --c: rgba(150, 160, 200, 0.5);
+  border-style: dashed;
+  border-color: rgba(180, 140, 255, 0.18);
+  opacity: 0.62;
+}
+.book-entry.locked .be-glyph {
+  font-family: var(--display); font-weight: 700; color: rgba(180, 140, 255, 0.55);
+  filter: none;
+}
+.book-entry.locked .be-name { color: rgba(205, 216, 255, 0.6); letter-spacing: 0.2em; }
+.book-entry.locked .be-desc { font-style: italic; color: rgba(205, 216, 255, 0.5); }
+
+@media (max-width: 720px) {
+  .book-grid { grid-template-columns: 1fr; }
+  .book-tabs { padding: 12px 18px 4px; }
+}
+
 /* ============================================================== a11y & small screens */
 @media (prefers-reduced-motion: reduce) {
   .card, .overlay, .settings-panel, .tree-head, .tree-wrap, .loadout,

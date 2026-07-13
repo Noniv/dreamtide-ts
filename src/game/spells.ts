@@ -381,19 +381,21 @@ export const EVOLVE: Record<string, { name: string; desc: string }> = {
   hush: { name: 'Deep Hush', desc: 'The slow deepens almost to a full stop, and you heal while standing in your aura.' },
 };
 
-export interface BoonDef { id: string; name: string; icon: string; desc: string; max: number }
+// `per` is the percentage each rank grants — the level-up card uses it to show
+// the running "(X% total)". Boons without it (swift, regen) don't display one.
+export interface BoonDef { id: string; name: string; icon: string; desc: string; max: number; per?: number }
 
 export const BOONS: Record<string, BoonDef> = {
-  power: { id: 'power', name: 'Lucid Focus', icon: '✦', desc: 'Spells deal 12% more damage.', max: 5 },
-  haste: { id: 'haste', name: 'Quickened Reverie', icon: '≋', desc: 'Spells cast 10% faster (each stack adds less).', max: 5 },
-  vitality: { id: 'vitality', name: 'Heartbloom', icon: '❤', desc: '+25 max life, and restore 25 now.', max: 5 },
-  swift: { id: 'swift', name: 'Zephyr Step', icon: '➳', desc: 'Move 10% faster.', max: 4 },
-  magnet: { id: 'magnet', name: 'Dream Lure', icon: '◉', desc: 'Pull in essence from 45% farther away.', max: 4 },
+  power: { id: 'power', name: 'Lucid Focus', icon: '✦', desc: '12% more spell damage.', max: 5, per: 12 },
+  haste: { id: 'haste', name: 'Quickened Reverie', icon: '≋', desc: '10% more spell haste.', max: 5, per: 10 },
+  vitality: { id: 'vitality', name: 'Heartbloom', icon: '❤', desc: '10% more maximum life.', max: 5, per: 10 },
+  swift: { id: 'swift', name: 'Zephyr Step', icon: '➳', desc: 'Move 8% faster.', max: 4 },
+  magnet: { id: 'magnet', name: 'Dream Lure', icon: '◉', desc: '40% more pickup area.', max: 4, per: 40 },
   regen: { id: 'regen', name: 'Moonmilk', icon: '☽', desc: 'Regenerate 1 life every 2 seconds.', max: 3 },
+  aoe: { id: 'aoe', name: 'Expanding Reverie', icon: '◎', desc: '10% more area of effect.', per: 10, max: 3 },
 };
 
 export const GENERIC: Record<string, BoonDef> = {
-  power: { id: 'power', name: 'Arcane Amplification', icon: '✴', desc: 'Every spell deals 10% more damage.', max: Infinity },
-  aoe: { id: 'aoe', name: 'Expanding Reverie', icon: '◎', desc: 'Every area of effect grows 10% larger.', max: Infinity },
-  vital: { id: 'vital', name: 'Dream Fortitude', icon: '⬡', desc: '+15 max life, and restore 15 now.', max: Infinity },
+  power: { id: 'power', name: 'Arcane Amplification', icon: '✴', desc: '12% more spell damage.', max: Infinity },
+  vital: { id: 'vital', name: 'Dream Fortitude', icon: '⬡', desc: '10% more maximum life.', max: Infinity },
 };

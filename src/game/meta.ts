@@ -194,27 +194,27 @@ const THEMES: Theme[] = [
   {
     key: 'tempo', label: 'Haste',
     travel: [
-      S('Quick Breath', '+4% cast speed', { cast: 4 }),
+      S('Quick Breath', '+4% spell haste', { cast: 4 }),
       S('Feather Step', '+2% move speed', { speed: 2 }),
-      S('Restless Sleep', '+4% cast speed', { cast: 4 }),
+      S('Restless Sleep', '+4% spell haste', { cast: 4 }),
       S('Light Feet', '+3% move speed', { speed: 3 }),
     ],
     notables: [
-      S('Racing Pulse', '+13% cast speed', { cast: 13 }),
-      S('Slipstream', '+6% move speed, +6% cast speed', { speed: 6, cast: 6 }),
+      S('Racing Pulse', '+13% spell haste', { cast: 13 }),
+      S('Slipstream', '+6% move speed, +6% spell haste', { speed: 6, cast: 6 }),
     ],
     clusters: [
       {
-        name: 'Timeweaver', notable: S('Timeweaver', '+19% cast speed', { cast: 19 }),
-        smalls: [S('Loose Thread', '+5% cast speed', { cast: 5 }), S('Quick Stitch', '+5% cast speed', { cast: 5 }), S('Feather Step', '+3% move speed', { speed: 3 })],
+        name: 'Timeweaver', notable: S('Timeweaver', '+19% spell haste', { cast: 19 }),
+        smalls: [S('Loose Thread', '+5% spell haste', { cast: 5 }), S('Quick Stitch', '+5% spell haste', { cast: 5 }), S('Feather Step', '+3% move speed', { speed: 3 })],
       },
       {
         name: 'Gale Stride', notable: S('Gale Stride', '+10% move speed', { speed: 10 }),
-        smalls: [S('Wind at Heel', '+4% move speed', { speed: 4 }), S('Light Feet', '+3% move speed', { speed: 3 }), S('Quick Breath', '+5% cast speed', { cast: 5 })],
+        smalls: [S('Wind at Heel', '+4% move speed', { speed: 4 }), S('Light Feet', '+3% move speed', { speed: 3 }), S('Quick Breath', '+5% spell haste', { cast: 5 })],
       },
       {
-        name: 'Heartbeat of the Deep', notable: S('Heartbeat of the Deep', '+15% cast speed, +4% move speed', { cast: 15, speed: 4 }),
-        smalls: [S('Tidal Rhythm', '+5% cast speed', { cast: 5 }), S('Racing Thought', '+5% cast speed', { cast: 5 }), S('Restless Sleep', '+4% cast speed', { cast: 4 })],
+        name: 'Heartbeat of the Deep', notable: S('Heartbeat of the Deep', '+15% spell haste, +4% move speed', { cast: 15, speed: 4 }),
+        smalls: [S('Tidal Rhythm', '+5% spell haste', { cast: 5 }), S('Racing Thought', '+5% spell haste', { cast: 5 }), S('Restless Sleep', '+4% spell haste', { cast: 4 })],
       },
     ],
     keystone: S('Echoing Thought', '10% chance to cast every spell twice', { echo: 10 }),
@@ -222,27 +222,27 @@ const THEMES: Theme[] = [
   {
     key: 'cosmos', label: 'Breadth',
     travel: [
-      S('Wider Dream', '+2% area of effect', { aoe: 2 }),
+      S('Wider Dream', '+3% area of effect', { aoe: 3 }),
       S('Starlight', '+4% spell damage', { dmg: 4 }),
-      S('Stellar Reach', '+3% area of effect', { aoe: 3 }),
-      S('Drifting Veil', '+2% area of effect', { aoe: 2 }),
+      S('Stellar Reach', '+5% area of effect', { aoe: 5 }),
+      S('Drifting Veil', '+3% area of effect', { aoe: 3 }),
     ],
     notables: [
-      S('Spreading Mist', '+8% area of effect', { aoe: 8 }),
-      S('Event Horizon', '+6% area of effect, +8% spell damage', { aoe: 6, dmg: 8 }),
+      S('Spreading Mist', '+13% area of effect', { aoe: 13 }),
+      S('Event Horizon', '+9% area of effect, +8% spell damage', { aoe: 9, dmg: 8 }),
     ],
     clusters: [
       {
-        name: 'Nebular Heart', notable: S('Nebular Heart', '+11% area of effect', { aoe: 11 }),
-        smalls: [S('Soft Nebula', '+3% area of effect', { aoe: 3 }), S('Vast Slumber', '+3% area of effect', { aoe: 3 }), S('Starlight', '+5% spell damage', { dmg: 5 })],
+        name: 'Nebular Heart', notable: S('Nebular Heart', '+17% area of effect', { aoe: 17 }),
+        smalls: [S('Soft Nebula', '+5% area of effect', { aoe: 5 }), S('Vast Slumber', '+5% area of effect', { aoe: 5 }), S('Starlight', '+5% spell damage', { dmg: 5 })],
       },
       {
-        name: 'Endless Sky', notable: S('Endless Sky', '+8% area of effect, +8% spell damage', { aoe: 8, dmg: 8 }),
-        smalls: [S('Horizon Line', '+3% area of effect', { aoe: 3 }), S('Wider Dream', '+3% area of effect', { aoe: 3 }), S('Sky Ribbon', '+2% area of effect, +3% spell damage', { aoe: 2, dmg: 3 })],
+        name: 'Endless Sky', notable: S('Endless Sky', '+13% area of effect, +8% spell damage', { aoe: 13, dmg: 8 }),
+        smalls: [S('Horizon Line', '+5% area of effect', { aoe: 5 }), S('Wider Dream', '+5% area of effect', { aoe: 5 }), S('Sky Ribbon', '+3% area of effect, +3% spell damage', { aoe: 3, dmg: 3 })],
       },
       {
-        name: 'Vault of Stars', notable: S('Vault of Stars', '+7% area of effect, +10% spell damage', { aoe: 7, dmg: 10 }),
-        smalls: [S('Star Seed', '+5% spell damage', { dmg: 5 }), S('Stellar Reach', '+3% area of effect', { aoe: 3 }), S('Vast Slumber', '+3% area of effect', { aoe: 3 })],
+        name: 'Vault of Stars', notable: S('Vault of Stars', '+11% area of effect, +10% spell damage', { aoe: 11, dmg: 10 }),
+        smalls: [S('Star Seed', '+5% spell damage', { dmg: 5 }), S('Stellar Reach', '+5% area of effect', { aoe: 5 }), S('Vast Slumber', '+5% area of effect', { aoe: 5 })],
       },
     ],
     keystone: S('Cosmic Attunement', 'Mastery ranks grant +12% damage instead of +8%', { masteryPlus: 4 }),
@@ -307,27 +307,27 @@ const THEMES: Theme[] = [
   {
     key: 'fortune', label: 'Fortune',
     travel: [
-      S('Dream Lure', '+8% pickup radius', { magnet: 8 }),
+      S('Dream Lure', '+8% pickup area', { magnet: 8 }),
       S('Falling Star', '+3% essence gained', { xp: 3 }),
-      S('Soft Pull', '+8% pickup radius', { magnet: 8 }),
-      S('Lodestone Heart', '+10% pickup radius', { magnet: 10 }),
+      S('Soft Pull', '+8% pickup area', { magnet: 8 }),
+      S('Lodestone Heart', '+10% pickup area', { magnet: 10 }),
     ],
     notables: [
-      S('Wide Lure', '+25% pickup radius', { magnet: 25 }),
-      S('Lucky Star', '+10% essence gained, +12% pickup radius', { xp: 10, magnet: 12 }),
+      S('Wide Lure', '+25% pickup area', { magnet: 25 }),
+      S('Lucky Star', '+10% essence gained, +12% pickup area', { xp: 10, magnet: 12 }),
     ],
     clusters: [
       {
-        name: 'Comet’s Purse', notable: S('Comet’s Purse', '+30% pickup radius, +8% essence gained', { magnet: 30, xp: 8 }),
-        smalls: [S('Stardust Trail', '+10% pickup radius', { magnet: 10 }), S('Dream Lure', '+8% pickup radius', { magnet: 8 }), S('Falling Star', '+4% essence gained', { xp: 4 })],
+        name: 'Comet’s Purse', notable: S('Comet’s Purse', '+30% pickup area, +8% essence gained', { magnet: 30, xp: 8 }),
+        smalls: [S('Stardust Trail', '+10% pickup area', { magnet: 10 }), S('Dream Lure', '+8% pickup area', { magnet: 8 }), S('Falling Star', '+4% essence gained', { xp: 4 })],
       },
       {
-        name: 'Sea of Offerings', notable: S('Sea of Offerings', '+25% pickup radius, +6% essence gained', { magnet: 25, xp: 6 }),
-        smalls: [S('Silver Net', '+10% pickup radius', { magnet: 10 }), S('Soft Pull', '+8% pickup radius', { magnet: 8 }), S('Keen Eye', '+4% essence gained', { xp: 4 })],
+        name: 'Sea of Offerings', notable: S('Sea of Offerings', '+25% pickup area, +6% essence gained', { magnet: 25, xp: 6 }),
+        smalls: [S('Silver Net', '+10% pickup area', { magnet: 10 }), S('Soft Pull', '+8% pickup area', { magnet: 8 }), S('Keen Eye', '+4% essence gained', { xp: 4 })],
       },
       {
-        name: 'Beggar’s Firmament', notable: S('Beggar’s Firmament', '+10% essence gained, +10% pickup radius', { xp: 10, magnet: 10 }),
-        smalls: [S('Kind Orbit', '+8% pickup radius', { magnet: 8 }), S('Falling Star', '+4% essence gained', { xp: 4 }), S('Dream Lure', '+8% pickup radius', { magnet: 8 })],
+        name: 'Beggar’s Firmament', notable: S('Beggar’s Firmament', '+10% essence gained, +10% pickup area', { xp: 10, magnet: 10 }),
+        smalls: [S('Kind Orbit', '+8% pickup area', { magnet: 8 }), S('Falling Star', '+4% essence gained', { xp: 4 }), S('Dream Lure', '+8% pickup area', { magnet: 8 })],
       },
     ],
     keystone: S('Waking Start', 'Begin every dream with your spells one level stronger', { startLv: 1 }),
@@ -363,27 +363,27 @@ const THEMES: Theme[] = [
   {
     key: 'fate', label: 'Fate',
     travel: [
-      S('Clear Sight', '+3% spell damage, +3% cast speed', { dmg: 3, cast: 3 }),
+      S('Clear Sight', '+3% spell damage, +3% spell haste', { dmg: 3, cast: 3 }),
       S('Dream Logic', '+3% essence gained', { xp: 3 }),
-      S('Woven Fate', '+2% area of effect, +3% cast speed', { aoe: 2, cast: 3 }),
-      S('Quiet Omen', '+3% spell damage, +2% area of effect', { dmg: 3, aoe: 2 }),
+      S('Woven Fate', '+3% area of effect, +3% spell haste', { aoe: 3, cast: 3 }),
+      S('Quiet Omen', '+3% spell damage, +3% area of effect', { dmg: 3, aoe: 3 }),
     ],
     notables: [
       S('The Refused Dream', 'You may banish one level-up offer each dream', { banish: 1 }),
-      S('Woven Fate', '+8% spell damage, +8% cast speed', { dmg: 8, cast: 8 }),
+      S('Woven Fate', '+8% spell damage, +8% spell haste', { dmg: 8, cast: 8 }),
     ],
     clusters: [
       {
         name: 'Loom of Nights', notable: S('Loom of Nights', 'You may reroll one set of level-up choices each dream', { reroll: 1 }),
-        smalls: [S('Spindle', '+4% cast speed', { cast: 4 }), S('Thread of Dawn', '+3% essence gained', { xp: 3 }), S('Clear Sight', '+3% spell damage, +3% cast speed', { dmg: 3, cast: 3 })],
+        smalls: [S('Spindle', '+4% spell haste', { cast: 4 }), S('Thread of Dawn', '+3% essence gained', { xp: 3 }), S('Clear Sight', '+3% spell damage, +3% spell haste', { dmg: 3, cast: 3 })],
       },
       {
         name: 'The Second Refusal', notable: S('The Second Refusal', 'You may banish one more offer each dream', { banish: 1 }),
-        smalls: [S('Closed Door', '+3% essence gained', { xp: 3 }), S('Dream Logic', '+3% essence gained', { xp: 3 }), S('Quiet Omen', '+3% spell damage, +2% area of effect', { dmg: 3, aoe: 2 })],
+        smalls: [S('Closed Door', '+3% essence gained', { xp: 3 }), S('Dream Logic', '+3% essence gained', { xp: 3 }), S('Quiet Omen', '+3% spell damage, +3% area of effect', { dmg: 3, aoe: 3 })],
       },
       {
         name: 'Turning Page', notable: S('Turning Page', 'You may reroll one more set of choices each dream', { reroll: 1 }),
-        smalls: [S('Dog-ear', '+3% essence gained', { xp: 3 }), S('Margin Note', '+3% spell damage, +3% cast speed', { dmg: 3, cast: 3 }), S('Woven Fate', '+2% area of effect, +3% cast speed', { aoe: 2, cast: 3 })],
+        smalls: [S('Dog-ear', '+3% essence gained', { xp: 3 }), S('Margin Note', '+3% spell damage, +3% spell haste', { dmg: 3, cast: 3 }), S('Woven Fate', '+3% area of effect, +3% spell haste', { aoe: 3, cast: 3 })],
       },
     ],
     keystone: S('Fourfold Path', 'Level-ups offer a fourth choice', { fourfold: 1 }),
@@ -393,20 +393,20 @@ const THEMES: Theme[] = [
 // tiny mixed travel stats for rings & the outer polygon (PoE's "attributes")
 const GEN: Stat[] = [
   S('Faint Ember', '+3% spell damage', { dmg: 3 }),
-  S('Silver Wisp', '+3% cast speed', { cast: 3 }),
-  S('Pale Halo', '+2% area of effect', { aoe: 2 }),
+  S('Silver Wisp', '+3% spell haste', { cast: 3 }),
+  S('Pale Halo', '+3% area of effect', { aoe: 3 }),
   S('Dewlight', '+8 max life', { hp: 8 }),
-  S('Moth Dust', '+6% pickup radius', { magnet: 6 }),
+  S('Moth Dust', '+6% pickup area', { magnet: 6 }),
   S('Dream Mote', '+2% essence gained', { xp: 2 }),
   S('Night Breeze', '+2% move speed', { speed: 2 }),
   S('Sharp Glimmer', '+1% critical chance', { crit: 1 }),
 ];
 const POLY: Stat[] = [
   S('Wayfarer’s Ember', '+4% spell damage', { dmg: 4 }),
-  S('Wayfarer’s Breath', '+4% cast speed', { cast: 4 }),
-  S('Wayfarer’s Halo', '+2% area of effect', { aoe: 2 }),
+  S('Wayfarer’s Breath', '+4% spell haste', { cast: 4 }),
+  S('Wayfarer’s Halo', '+3% area of effect', { aoe: 3 }),
   S('Wayfarer’s Blood', '+12 max life', { hp: 12 }),
-  S('Wayfarer’s Lure', '+8% pickup radius', { magnet: 8 }),
+  S('Wayfarer’s Lure', '+8% pickup area', { magnet: 8 }),
   S('Wayfarer’s Mote', '+3% essence gained', { xp: 3 }),
   S('Wayfarer’s Stride', '+3% move speed', { speed: 3 }),
   S('Wayfarer’s Glint', '+2% critical chance', { crit: 2 }),
@@ -573,10 +573,10 @@ for (let i = 0; i < NSPOKE; i++) {
 // --- spell-slot chains in the ring-B gaps: three +1-slot notables (the build-
 // defining picks) plus one economy notable, each behind a short chain
 const GAP_CHAINS: { id: string; steps: Stat[]; end: Stat }[] = [
-  { id: 'ssA', steps: [S('Open Palm', '+2% area of effect', { aoe: 2 }), S('Open Mind', '+4% spell damage', { dmg: 4 })], end: S('Unbound Firmament', '+1 spell slot — hold one more spell at once', { spellSlots: 1 }) },
-  { id: 'ssB', steps: [S('Open Door', '+3% essence gained', { xp: 3 }), S('Open Sky', '+8% pickup radius', { magnet: 8 })], end: S('Boundless Reverie', '+1 spell slot — hold one more spell at once', { spellSlots: 1 }) },
-  { id: 'ssC', steps: [S('Open Book', '+4% cast speed', { cast: 4 }), S('Open Heart', '+10 max life', { hp: 10 })], end: S('Widening Loom', '+1 spell slot — hold one more spell at once', { spellSlots: 1 }) },
-  { id: 'ssD', steps: [S('Loose Change', '+3% essence gained', { xp: 3 }), S('Silver Tongue', '+6% pickup radius', { magnet: 6 })], end: S('The Quiet Bargain', '+15% stardust earned', { dust: 15 }) },
+  { id: 'ssA', steps: [S('Open Palm', '+3% area of effect', { aoe: 3 }), S('Open Mind', '+4% spell damage', { dmg: 4 })], end: S('Unbound Firmament', '+1 spell slot — hold one more spell at once', { spellSlots: 1 }) },
+  { id: 'ssB', steps: [S('Open Door', '+3% essence gained', { xp: 3 }), S('Open Sky', '+8% pickup area', { magnet: 8 })], end: S('Boundless Reverie', '+1 spell slot — hold one more spell at once', { spellSlots: 1 }) },
+  { id: 'ssC', steps: [S('Open Book', '+4% spell haste', { cast: 4 }), S('Open Heart', '+10 max life', { hp: 10 })], end: S('Widening Loom', '+1 spell slot — hold one more spell at once', { spellSlots: 1 }) },
+  { id: 'ssD', steps: [S('Loose Change', '+3% essence gained', { xp: 3 }), S('Silver Tongue', '+6% pickup area', { magnet: 6 })], end: S('The Quiet Bargain', '+15% stardust earned', { dust: 15 }) },
 ];
 {
   const gaps = [3, 7, 11, 15]; // ring-B gap arcs
@@ -881,7 +881,7 @@ const CLUSTER_ORDER = [
     // the ward's shield & mending (see Engine.spellStats).
     // saoe scales the spell's radius directly, so every cluster mote says radius.
     const dmgWord = isDef ? 'strength' : 'damage';
-    const cdWord = isDef ? 'recharge' : 'cast speed';
+    const cdWord = isDef ? 'recharge' : 'spell haste';
     const aoeWord = 'radius';
     const durWord = isDef ? 'hold' : 'duration';
     const smallTpl = [

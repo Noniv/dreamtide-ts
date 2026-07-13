@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { Engine, type HudState, type Choice } from './game/engine';
 import { SPELLS, BOONS, GENERIC, EVOLVE } from './game/spells';
-import { RELICS, type PactDef } from './game/relics';
+import { RELICS, PACTS, type PactDef } from './game/relics';
 import { SpellIcon, HAS_ICON } from './game/spellIcons';
+import { codex, REACTIONS } from './game/codex';
 import { audio } from './game/audio';
 import { settings, RESOLUTION_OPTIONS, hdrSupported, watchHdrSupport, type Preset, type PerfPresets, type ResolutionScale } from './game/settings';
 import { isNative, exitApp } from './game/nativeWindow';
@@ -13,14 +14,14 @@ import {
   setSkin, unlockedSkins,
   markTreeRevealed, markDarkRevealed,
   nextPointCost, nextDarkPointCost, canBuyPoint, buyPoint, canBuyDarkPoint, buyDarkPoint,
-  allocateNode, deallocateNode, removableSet, darkDepth, keystonesOwned,
+  allocateNode, deallocateNode, removableSet, darkDepth,
   type Meta,
 } from './game/meta';
 import { WIZARD_SKINS, skinName, applySkin } from './game/wizardSkins';
 import { paintWizardPreview, type WizardSkin } from './game/enemySprites';
 import { TreeCanvas, type TreePhase } from './game/treeCanvas';
 
-type Screen = 'menu' | 'playing' | 'levelup' | 'relic' | 'pact' | 'dead' | 'tree' | 'dark' | 'settings';
+type Screen = 'menu' | 'playing' | 'levelup' | 'relic' | 'pact' | 'dead' | 'tree' | 'dark' | 'settings' | 'book';
 
 interface RunResult { time: number; kills: number; level: number; bonusDust: number; shards: number; relics: string[]; record?: boolean }
 
@@ -218,7 +219,8 @@ export default function App() {
 
   const renderOverlay = (s: Screen) => {
     if (s === 'settings') return <Settings key="settings" onClose={() => set({ screen: 'menu' })} />;
-    if (s === 'dead' && result) return <GameOver key="dead" result={result} dustEarned={dustEarned} meta={meta} onRetry={begin} onTree={() => set({ screen: 'tree' })} onDark={() => set({ screen: 'dark' })} onMenu={() => { audio.menuMood(); set({ screen: 'menu', result: null }); }} />;
+    if (s === 'book') return <DreamBook key="book" onClose={() => set({ screen: useGame.getState().result ? 'dead' : 'menu' })} />;
+    if (s === 'dead' && result) return <GameOver key="dead" result={result} dustEarned={dustEarned} meta={meta} onRetry={begin} onTree={() => set({ screen: 'tree' })} onDark={() => set({ screen: 'dark' })} onBook={() => set({ screen: 'book' })} onMenu={() => { audio.menuMood(); set({ screen: 'menu', result: null }); }} />;
     if (s === 'tree') return (
       <SkillTree
         key="tree"
@@ -283,6 +285,7 @@ export default function App() {
           meta={meta}
           onTree={() => set({ screen: 'tree' })}
           onDark={() => set({ screen: 'dark' })}
+          onBook={() => set({ screen: 'book' })}
           onSettings={() => set({ screen: 'settings' })}
         />
       )}
@@ -441,11 +444,12 @@ function PauseMenu({ onResume, onReturnToMenu, onSettings }: { onResume: () => v
   );
 }
 
-function Menu({ onStart, onTree, onDark, onSettings, meta, closing }: {
-  onStart: () => void; onTree: () => void; onDark: () => void; onSettings: () => void; meta: Meta;
+function Menu({ onStart, onTree, onDark, onBook, onSettings, meta, closing }: {
+  onStart: () => void; onTree: () => void; onDark: () => void; onBook: () => void; onSettings: () => void; meta: Meta;
   closing?: boolean;
 }) {
   const sky = useSkyState();
+  const unseen = codex.unseen();
   return (
     <div className={`overlay menu${closing ? ' closing' : ''}`}>
       <div className="menu-bg" aria-hidden="true" style={sky} />
@@ -474,6 +478,10 @@ function Menu({ onStart, onTree, onDark, onSettings, meta, closing }: {
           ) : (meta.shards || 0) > 0 ? (
             <button className="btn-secondary glimmer-dark" onClick={onDark}>❖ Something festers beneath the stars</button>
           ) : null}
+          <button className="btn-secondary book-btn" onClick={onBook}>
+            The Dream Book
+            {unseen > 0 && <span className="book-badge" title={`${unseen} new discovery${unseen === 1 ? '' : 'ies'}`}>{unseen}</span>}
+          </button>
           <button className="btn-secondary" onClick={onSettings}>Tune the dream</button>
           {isNative && (
             <button className="btn-secondary" onClick={exitApp}>Leave the dream</button>
@@ -650,6 +658,256 @@ function Settings({ onClose, extraClass }: { onClose: () => void; extraClass?: s
   );
 }
 
+// ---------------------------------------------------------------- dream book
+// The dreamer's journal. Fundamentals are always legible; everything else stays
+// sealed until the player meets it in a dream (see codex.ts). Every section
+// enumerates the live content tables, so new spells / relics / pacts appear as
+// locked entries the moment they exist — nothing here is a hand-kept list.
+
+type BookTab = 'basics' | 'spells' | 'boons' | 'relics' | 'pacts' | 'reactions';
+
+// The craft of dreaming — the rules beneath every run. Always unsealed.
+const FUNDAMENTALS: { icon: string; title: string; body: string }[] = [
+  { icon: '➳', title: 'Drifting', body: 'Move with WASD or the arrow keys. Your spells aim and cast themselves — your only job is where you stand.' },
+  { icon: '≋', title: 'Casting', body: 'Each spell fires on its own cooldown, usually at the nearest foe. Some instead circle you as wards, orbits or auras.' },
+  { icon: '✦', title: 'Spell damage', body: 'Leveling a spell raises its damage. All your damage bonuses — boons, stars, surges, pacts — multiply together.' },
+  { icon: '✷', title: 'Critical strikes', body: 'Some stars give a chance to strike for 150% damage. Crit-damage bonuses raise that even higher.' },
+  { icon: '↻', title: 'Spell Haste', body: 'Haste shortens every cooldown, so you cast more often. Boons, stars and surges all add to it.' },
+  { icon: '◎', title: 'Area of effect', body: 'Area bonuses grow the area a spell covers — +300% area is double the radius. A spell’s own stars grow its radius directly, a bigger jump.' },
+  { icon: '❈', title: 'Essence & Reverie', body: 'Foes drop essence. Gather it to level up and choose a new spell, an upgrade, or a boon. Dream Lure widens your pickup area.' },
+  { icon: '★', title: 'Mastery', body: 'Past its max level, a spell keeps gaining +8% damage per pick — forever. A maxed spell is never a wasted choice.' },
+  { icon: '❂', title: 'Evolution', body: 'Max a spell whose evolution you’ve unlocked in the Constellation, and its final form is offered — a whole new behaviour.' },
+  { icon: '≈', title: 'Surges', body: 'Short bursts of power — swiftness, damage, haste, area or pickup — that trigger every few seconds.' },
+  { icon: '❆', title: 'Resonance', body: 'Elements leave marks: cold chills, storm charges, light brands. Hit a marked foe with the right element to set off a reaction.' },
+];
+
+function BookGlyph({ icon, id, size = 30 }: { icon: string; id?: string; size?: number }) {
+  return <span className="be-glyph">{id && HAS_ICON(id) ? <SpellIcon id={id} size={size} /> : icon}</span>;
+}
+
+// A sealed entry — shape and count preserved so the player feels the shape of
+// what they have yet to find, without spoiling it.
+function LockedEntry({ hint }: { hint: string }) {
+  return (
+    <div className="book-entry locked" aria-label="undiscovered">
+      <div className="be-head">
+        <span className="be-glyph">?</span>
+        <div className="be-title"><div className="be-name">Undreamed</div><div className="be-tag">sealed</div></div>
+      </div>
+      <div className="be-desc">{hint}</div>
+    </div>
+  );
+}
+
+function SpellEntry({ id }: { id: string }) {
+  const def = SPELLS[id];
+  const lvl = codex.spellLevel(id);
+  const evolved = codex.knowsEvolution(id);
+  // levelText(l) describes the step taken TO level l; level 1 is the base desc
+  const steps: number[] = [];
+  for (let l = 2; l <= Math.min(lvl, def.maxLevel); l++) steps.push(l);
+  return (
+    <div className="book-entry spell" style={{ '--c': def.color } as React.CSSProperties}>
+      <div className="be-head">
+        <BookGlyph icon={def.icon} id={id} />
+        <div className="be-title">
+          <div className="be-name">{def.name}</div>
+          <div className="be-tag">{def.school}<em> · seen to lv {Math.min(lvl, def.maxLevel)}</em></div>
+        </div>
+      </div>
+      <div className="be-desc">{def.desc}</div>
+      {steps.length > 0 && (
+        <div className="be-levels">
+          {steps.map((l) => (
+            <div className="be-level" key={l}>
+              <span className="be-lv">{l}</span>
+              <span className="be-lv-text">{def.levelText(l)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {evolved && (
+        <div className="be-evo">
+          <span className="be-evo-name">❂ {EVOLVE[id].name}</span>
+          <span className="be-evo-text">{EVOLVE[id].desc}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DreamBook({ onClose }: { onClose: () => void }) {
+  const sky = useSkyState();
+  const [tab, setTab] = useState<BookTab>('basics');
+  // opening the book clears the "new" glow on the menu button
+  useEffect(() => { codex.markSeen(); }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const spellIds = Object.keys(SPELLS);
+  const boonIds = Object.keys(BOONS);
+  const genericIds = Object.keys(GENERIC);
+  const relicIds = Object.keys(RELICS);
+  const reactionIds = Object.keys(REACTIONS);
+
+  const count = (ids: string[], known: (id: string) => boolean) => ids.filter(known).length;
+  const tabs: { id: BookTab; label: string; found: number; total: number }[] = [
+    { id: 'basics', label: 'The Craft', found: FUNDAMENTALS.length, total: FUNDAMENTALS.length },
+    { id: 'spells', label: 'Spells', found: count(spellIds, codex.knowsSpell.bind(codex)), total: spellIds.length },
+    { id: 'boons', label: 'Boons', found: count(boonIds, codex.knowsBoon.bind(codex)) + count(genericIds, codex.knowsGeneric.bind(codex)), total: boonIds.length + genericIds.length },
+    { id: 'relics', label: 'Relics', found: count(relicIds, codex.knowsRelic.bind(codex)), total: relicIds.length },
+    { id: 'pacts', label: 'Pacts', found: count(PACTS.map((p) => p.id), codex.knowsPact.bind(codex)), total: PACTS.length },
+    { id: 'reactions', label: 'Interactions', found: count(reactionIds, codex.knowsReaction.bind(codex)), total: reactionIds.length },
+  ];
+
+  return (
+    <div className="overlay settings-overlay book-overlay">
+      <div className="menu-bg" aria-hidden="true" style={sky} />
+      <div className="settings-panel book-panel panel">
+        <div className="settings-head">
+          <div>
+            <div className="eyebrow">the dreamer’s journal</div>
+            <h2 className="settings-title">The Dream Book</h2>
+          </div>
+          <div className="settings-head-actions">
+            <button className="btn-secondary" onClick={onClose}>Return</button>
+          </div>
+        </div>
+
+        <div className="book-tabs">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              className={`book-tab ${tab === t.id ? 'active' : ''}`}
+              onClick={() => setTab(t.id)}
+            >
+              <span className="bt-label">{t.label}</span>
+              {t.id !== 'basics' && <span className="bt-count">{t.found}/{t.total}</span>}
+            </button>
+          ))}
+        </div>
+
+        <div className="settings-scroll book-scroll">
+          {tab === 'basics' && (
+            <div className="book-lore-list">
+              {FUNDAMENTALS.map((f) => (
+                <div className="book-lore" key={f.title}>
+                  <span className="bl-glyph">{f.icon}</span>
+                  <div className="bl-body">
+                    <div className="bl-title">{f.title}</div>
+                    <div className="bl-text">{f.body}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {tab === 'spells' && (
+            <div className="book-grid">
+              {spellIds.map((id) => codex.knowsSpell(id)
+                ? <SpellEntry key={id} id={id} />
+                : <LockedEntry key={id} hint="A spell you have yet to weave into a dream." />)}
+            </div>
+          )}
+
+          {tab === 'boons' && (
+            <>
+              <h3 className="set-heading">Boons</h3>
+              <div className="book-grid">
+                {boonIds.map((id) => {
+                  const b = BOONS[id];
+                  if (!codex.knowsBoon(id)) return <LockedEntry key={id} hint="A blessing you have yet to accept." />;
+                  return (
+                    <div className="book-entry boon" key={id}>
+                      <div className="be-head">
+                        <BookGlyph icon={b.icon} />
+                        <div className="be-title"><div className="be-name">{b.name}</div><div className="be-tag">up to rank {b.max}</div></div>
+                      </div>
+                      <div className="be-desc">{b.desc}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              <h3 className="set-heading">Amplifications</h3>
+              <div className="book-grid">
+                {genericIds.map((id) => {
+                  const g = GENERIC[id];
+                  if (!codex.knowsGeneric(id)) return <LockedEntry key={id} hint="An amplification you have yet to take." />;
+                  return (
+                    <div className="book-entry boon" key={id}>
+                      <div className="be-head">
+                        <BookGlyph icon={g.icon} />
+                        <div className="be-title"><div className="be-name">{g.name}</div><div className="be-tag">endless</div></div>
+                      </div>
+                      <div className="be-desc">{g.desc}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {tab === 'relics' && (
+            <div className="book-grid">
+              {relicIds.map((id) => {
+                const r = RELICS[id];
+                if (!codex.knowsRelic(id)) return <LockedEntry key={id} hint="A relic no fallen nightmare has yet offered you." />;
+                return (
+                  <div className="book-entry relic" key={id} style={{ '--c': r.color } as React.CSSProperties}>
+                    <div className="be-head">
+                      <BookGlyph icon={r.icon} />
+                      <div className="be-title"><div className="be-name">{r.name}</div><div className="be-tag">relic</div></div>
+                    </div>
+                    <div className="be-desc">{r.desc}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {tab === 'pacts' && (
+            <div className="book-grid">
+              {PACTS.map((p) => {
+                if (!codex.knowsPact(p.id)) return <LockedEntry key={p.id} hint="A bargain no altar has yet whispered to you." />;
+                return (
+                  <div className="book-entry pact" key={p.id}>
+                    <div className="be-head">
+                      <BookGlyph icon={p.icon} />
+                      <div className="be-title"><div className="be-name">{p.name}</div><div className="be-tag">altar pact</div></div>
+                    </div>
+                    <div className="be-desc"><span className="pact-gift">{p.boon}</span> <span className="pact-cost">…but {p.curse}.</span></div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {tab === 'reactions' && (
+            <div className="book-grid">
+              {reactionIds.map((id) => {
+                const rx = REACTIONS[id];
+                if (!codex.knowsReaction(id)) return <LockedEntry key={id} hint="A resonance you have yet to spark between two elements." />;
+                return (
+                  <div className="book-entry reaction" key={id} style={{ '--c': rx.color } as React.CSSProperties}>
+                    <div className="be-head">
+                      <BookGlyph icon={rx.icon} />
+                      <div className="be-title"><div className="be-name">{rx.name}</div><div className="be-tag">{rx.recipe}</div></div>
+                    </div>
+                    <div className="be-desc">{rx.desc}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LevelUp({ choices, level, banishes, rerolls, showBanish, showReroll, masteryPer, onPick, onBanish, onReroll }: {
   choices: Choice[]; level: number; banishes: number; rerolls: number;
   showBanish: boolean; showReroll: boolean; masteryPer: number;
@@ -718,7 +976,19 @@ function LevelUp({ choices, level, banishes, rerolls, showBanish, showReroll, ma
                 <div className="card-school">{school}</div>
                 <div className="card-line" aria-hidden="true" />
                 <div className="card-desc">
-                  {isEvolve ? EVOLVE[c.id].desc : c.kind === 'generic' ? def.desc : (isSpell ? (c.isNew ? spellDef!.desc : c.mastery ? `Past max level — this rank adds +${(masteryPer * (Math.sqrt(c.level!) - Math.sqrt(c.level! - 1))).toFixed(1)}% ${spellDef!.kind === 'defense' ? 'strength' : 'damage'} (each rank adds less).` : spellDef!.levelText(c.level!)) : def.desc)}
+                  {isEvolve
+                    ? EVOLVE[c.id].desc
+                    : c.kind === 'generic'
+                      ? def.desc
+                      : isSpell
+                        ? (c.isNew
+                            ? spellDef!.desc
+                            : c.mastery
+                              ? `Past max level — this rank adds +${masteryPer}% ${spellDef!.kind === 'defense' ? 'strength' : 'damage'} (${masteryPer * c.level!}% total).`
+                              : spellDef!.levelText(c.level!))
+                        : BOONS[c.id].per
+                          ? `${BOONS[c.id].desc.replace(/\.$/, '')} (${BOONS[c.id].per! * c.level!}% total)`
+                          : def.desc}
                 </div>
               </button>
               {showBanish && (
@@ -870,10 +1140,12 @@ function PactChoice({ pact, onAnswer }: { pact: PactDef; onAnswer: (accept: bool
   );
 }
 
-function GameOver({ result, dustEarned, meta, onRetry, onTree, onDark, onMenu }: {
+function GameOver({ result, dustEarned, meta, onRetry, onTree, onDark, onBook, onMenu }: {
   result: RunResult; dustEarned: number; meta: Meta;
-  onRetry: () => void; onTree: () => void; onDark: () => void; onMenu: () => void;
+  onRetry: () => void; onTree: () => void; onDark: () => void; onBook: () => void; onMenu: () => void;
 }) {
+  // discoveries made this dream light up the Dream Book button
+  const unseen = codex.unseen();
   return (
     <div className="overlay dead">
       <div className="eyebrow">the dream closes over you</div>
@@ -908,6 +1180,10 @@ function GameOver({ result, dustEarned, meta, onRetry, onTree, onDark, onMenu }:
         ) : (meta.shards || 0) > 0 ? (
           <button className="btn-secondary glimmer-dark" onClick={onDark}>❖ Something festers beneath the stars</button>
         ) : null}
+        <button className="btn-secondary book-btn" onClick={onBook}>
+          The Dream Book
+          {unseen > 0 && <span className="book-badge" title={`${unseen} new discovery${unseen === 1 ? '' : 'ies'}`}>{unseen}</span>}
+        </button>
         <button className="btn-secondary" onClick={onMenu}>Return to the menu</button>
       </div>
     </div>
@@ -947,8 +1223,8 @@ interface TipState { id: string; x: number; y: number }
 function noteFor(fx: Record<string, any> | undefined): { label: string; text: string } | null {
   if (!fx) return null;
   if (fx.evo) return { label: 'Evolution', text: 'Offered as a level-up once this spell reaches its max level in a dream.' };
-  if (fx.masteryPlus) return { label: 'Mastery', text: 'The bonus level-ups a spell earns past its max level; each rank adds a smaller damage boost than the last.' };
-  if (Object.keys(fx).some((k) => k.startsWith('surge'))) return { label: 'Surge', text: 'Every 8s, each surge you own rolls its chance to fire for 4s — swiftness +35% move speed, power +30% damage, haste +30% cast speed, area +30% area, pickup +60% pickup range.' };
+  if (fx.masteryPlus) return { label: 'Mastery', text: 'The bonus level-ups a spell earns past its max level; each rank adds another slice of its base damage.' };
+  if (Object.keys(fx).some((k) => k.startsWith('surge'))) return { label: 'Surge', text: 'Every 8s, each surge you own rolls its chance to fire for 4s — swiftness +35% move speed, power +30% damage, haste +30% spell haste, area +30% area, pickup +60% pickup area.' };
   if (fx.spellSlots) return { label: 'Spell slots', text: 'How many spells you carry into each dream. Choose them in the loadout bar below the tree.' };
   if (fx.banish) return { label: 'Banish', text: 'At a level-up, remove one offered card; that upgrade will not be offered again for the rest of the dream.' };
   if (fx.reroll) return { label: 'Reroll', text: 'At a level-up, replace all the offered cards with a fresh set.' };
@@ -1081,9 +1357,11 @@ function SkillTree({ meta, reveal, onRevealed, onMeta, onLoadout, onSkin, onClos
     setTip(id ? { id, x, y } : null);
   };
 
-  // every school keystone awakened hangs one more distinct wonder in the
-  // Constellation's sky — a new nebula, a comet, an aurora, a ring…
-  const keys = Math.min(8, keystonesOwned(meta.owned));
+  // the Constellation's sky gains one more wonder — a nebula, a comet, an
+  // aurora, a ring… — for each equal slice of skill points forged. The full
+  // tree's points split into 8 breakpoints, one per flair.
+  const CONST_FLAIRS = 8;
+  const keys = Math.min(CONST_FLAIRS, Math.floor(meta.pointsBought / ((CONST_NODES.length - 1) / CONST_FLAIRS)));
   return (
     <div className={`overlay tree-overlay${phase === 'seed' ? ' reveal-seed' : ''}`}>
       <div className="tree-bg" aria-hidden="true" style={sky} />
@@ -1201,8 +1479,10 @@ function DarkBargain({ meta, reveal, onRevealed, onMeta, onClose }: {
     setTip(id ? { id, x, y } : null);
   };
 
-  // each of the Wound's three black stars corrupts its sky a little further
-  const darkKeys = Math.min(3, keystonesOwned(meta.darkOwned));
+  // the Wound's sky corrupts a little further for each equal slice of bargain
+  // points forged — the full web's points split into 3 breakpoints.
+  const DARK_FLAIRS = 3;
+  const darkKeys = Math.min(DARK_FLAIRS, Math.floor(meta.darkPointsBought / ((DARK_NODES.length - 1) / DARK_FLAIRS)));
   return (
     <div className={`overlay tree-overlay dark-overlay${phase === 'seed' ? ' reveal-seed' : ''}`}>
       <div className="tree-bg dark" aria-hidden="true" style={sky} />

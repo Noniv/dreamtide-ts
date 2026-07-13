@@ -9,6 +9,7 @@ import { createWorldGPU, QuadList, ShapeList, type WorldGPU } from './worldGPU';
 import { PerfMonitor } from './perf';
 import { SPELLS, BOONS, EVOLVE, GENERIC, type SpellStats } from './spells';
 import { audio } from './audio';
+import { codex } from './codex';
 import { dustForRun, type Bonuses } from './meta';
 import { settings } from './settings';
 import {
@@ -259,14 +260,16 @@ export interface Wisp {
 
 export interface Player {
   x: number; y: number; px: number; py: number;
-  hp: number; maxHp: number; speed: number;
+  // maxHp is baseMaxHp (flat life: base + tree + amplifications + pacts) times
+  // the Heartbloom multiplier (10% MORE life per rank) and the Sovereign penalty.
+  hp: number; maxHp: number; baseMaxHp: number; speed: number;
   level: number; xp: number; xpNext: number;
   facing: number; animT: number; moving: boolean;
   iframes: number; invuln: number; regenT: number; dead: boolean;
   spells: PlayerSpell[];
   boons: Record<string, number>;
   castPulse: number;
-  genericPower: number; genericAoe: number; genericVital: number;
+  genericPower: number; genericVital: number;
   metaMagnet: number;
   // Somnal Ward: an absorb pool that drinks harm before life, with a break
   // delay before it mends. Hush: the sigh clock. shieldPh drives the panes' spin.
@@ -612,22 +615,22 @@ export class Engine {
     // (stars and dream-motes are procedural in the background shader now)
     this.player = {
       x: 0, y: 0, px: 0, py: 0,
-      hp: 100, maxHp: 100, speed: 190,
+      hp: 100, maxHp: 100, baseMaxHp: 100, speed: 190,
       level: 1, xp: 0, xpNext: 6,
       facing: 1, animT: 0, moving: false,
       iframes: 0, invuln: 0, regenT: 0, dead: false,
       spells: [], // filled from the meta loadout below (defaults to Arcane)
       boons: {},
       castPulse: 0,
-      genericPower: 0, genericAoe: 0, genericVital: 0,
+      genericPower: 0, genericVital: 0,
       metaMagnet: 1,
       shield: 0, shieldMax: 0, shieldT: 0, shieldDelay: 0, shieldPh: 0,
       hushT: 0,
     };
     // constellation (meta tree) bonuses
     const m = this.meta;
-    if (m.hp) { this.player.maxHp += m.hp; this.player.hp = this.player.maxHp; }
-    if (m.speed) this.player.speed *= 1 + m.speed / 100;
+    if (m.hp) { this.player.baseMaxHp += m.hp; this.player.maxHp = this.player.baseMaxHp; this.player.hp = this.player.maxHp; }
+    this.recomputeSpeed();
     if (m.magnet) this.player.metaMagnet = 1 + m.magnet / 100;
     // start with the meta loadout (always at least Arcane; sanitized upstream)
     const loadout = (m.loadout && m.loadout.length) ? m.loadout : ['arcane'];
@@ -830,30 +833,63 @@ export class Engine {
     this.octx = null;
   }
 
+  // Rebuild maxHp from the flat base times the multipliers (Heartbloom and
+  // Dream Fortitude each +10% MORE per rank, Sovereign's −20%), then reconcile
+  // current life:
+  //   'delta' — add any newly-gained life to hp (a flat top-up feels like a heal)
+  //   'scale' — keep the same fraction of life (Heartbloom: 50% stays 50%)
+  //   'clamp' — just clamp hp to the new ceiling (a penalty)
+  recomputeMaxHp(mode: 'delta' | 'scale' | 'clamp') {
+    const p = this.player;
+    const mul = (1 + 0.1 * (p.boons.vitality || 0)) * (1 + 0.1 * p.genericVital) * (this.relics.has('sovereign') ? 0.8 : 1);
+    const old = p.maxHp;
+    const frac = old > 0 ? p.hp / old : 1;
+    p.maxHp = Math.max(1, Math.round(p.baseMaxHp * mul));
+    if (mode === 'delta') p.hp = Math.min(p.maxHp, p.hp + Math.max(0, p.maxHp - old));
+    else if (mode === 'scale') p.hp = Math.min(p.maxHp, Math.round(p.maxHp * frac));
+    else p.hp = Math.min(p.hp, p.maxHp);
+  }
+
+  // Movement speed: base times one additive pool of the tree's speed stars and
+  // Zephyr Step (+8% per rank). A swiftness surge multiplies this at move time.
+  recomputeSpeed() {
+    const pct = (this.meta.speed || 0) + 8 * (this.player.boons.swift || 0);
+    this.player.speed = 190 * (1 + pct / 100);
+  }
+
   // -------------------------------------------------------------- boon math
   dmgMul() {
-    return (1 + 0.12 * (this.player.boons.power || 0)) * (1 + 0.1 * this.player.genericPower)
+    return (1 + 0.12 * (this.player.boons.power || 0)) * (1 + 0.12 * this.player.genericPower)
       * (1 + (this.meta.dmg || 0) / 100) * (this.surges.dmg > 0 ? 1.3 : 1)
       * (1 + this.pact.dmg / 100)
       * (this.relics.has('sovereign') ? 1.35 : 1)
       * (this.relics.has('anchor') && this.standT >= 0.8 ? 1.25 : 1);
   }
   cdMul() {
-    const haste = (this.player.boons.haste || 0) * 10 + (this.meta.cast || 0) + this.pact.haste;
-    // the surge is multiplicative like every other surge: 30% MORE cast speed on
-    // top of whatever haste is already stacked, not a flat +30 points into the sum
+    // Quickened Reverie is its own multiplicative bucket — each rank is a clean
+    // 10% MORE spell haste (1.1×, 1.2×, 1.3×). The tree's haste stars and any
+    // pact stack additively in a second bucket; a haste surge multiplies on top.
+    const boon = 1 + 0.1 * (this.player.boons.haste || 0);
+    const tree = 1 + ((this.meta.cast || 0) + this.pact.haste) / 100;
     const surge = this.surges.haste > 0 ? 1.3 : 1;
-    return 1 / ((1 + haste / 100) * surge);
+    return 1 / (boon * tree * surge);
   }
+  // Essence pickup, expressed as area — every source multiplies into one area
+  // factor, then the radius is its square root, so growth naturally tapers the
+  // way a circle's radius does against its area (no artificial cap).
   magnetR() {
-    // combined pull with a soft cap: the first stacks land in full, everything
-    // past 2x diminishes hard so the lure never swallows the whole screen
-    const mul = (1 + 0.45 * (this.player.boons.magnet || 0)) * this.player.metaMagnet * (this.surges.magnet > 0 ? 1.6 : 1);
-    return 90 * (mul <= 2 ? mul : 2 * Math.pow(mul / 2, 0.4));
+    const boon = 1 + 0.4 * (this.player.boons.magnet || 0);        // 1.4×, 1.8×, 2.2× MORE pickup area
+    const area = boon * this.player.metaMagnet * (this.surges.magnet > 0 ? 1.6 : 1);
+    return 90 * Math.sqrt(area);
   }
-  // every AoE source — the tree's "area of effect" nodes, the run boon, surge
-  // and pact — scales the spell's radius directly.
-  aoeMul() { return (1 + 0.1 * this.player.genericAoe) * (1 + (this.meta.aoe || 0) / 100) * (this.surges.aoe > 0 ? 1.3 : 1) * (1 + this.pact.aoe / 100); }
+  // Area of effect: the tree's "area" stars, the run boon, surge and pact all
+  // increase AREA. Radius is the square root of the combined area factor, so
+  // +300% area is exactly a 2× radius. (Per-spell radius stars scale the radius
+  // directly instead — see spellStats — so those still feel huge.)
+  aoeMul() {
+    const area = (1 + 0.1 * (this.player.boons.aoe || 0)) * (1 + (this.meta.aoe || 0) / 100) * (this.surges.aoe > 0 ? 1.3 : 1) * (1 + this.pact.aoe / 100);
+    return Math.sqrt(area);
+  }
   // resonance marks last longer under the Prism Heart
   markDur(base: number) { return base * (this.relics.has('prismheart') ? 2 : 1); }
   // bonus stardust that keeps pace with the run — a flat "+10" reads as an
@@ -888,8 +924,10 @@ export class Engine {
   private computeSpellStats(id: string, lv: number, mastery: number): SpellStats {
     const st: SpellStats = { ...SPELLS[id].stats(Math.min(lv, SPELLS[id].maxLevel)) };
     if (mastery > 0) {
+      // each mastery rank adds a flat +8% of the maxed spell's (or its
+      // evolution's) base damage — 1.08×, 1.16×, 1.24×, a steady endless climb
       const per = 0.08 + (this.meta.masteryPlus || 0) / 100;
-      const bonus = per * Math.sqrt(mastery);
+      const bonus = per * mastery;
       if (st.damage != null) st.damage *= 1 + bonus;
       if (st.dps != null) st.dps *= 1 + bonus;
       // defensive spells carry no damage — mastery tempers ward & drowse instead
@@ -948,8 +986,9 @@ export class Engine {
   applyBoon(id: string) {
     const p = this.player;
     p.boons[id] = (p.boons[id] || 0) + 1;
-    if (id === 'vitality') { p.maxHp += 25; p.hp = Math.min(p.maxHp, p.hp + 25); }
-    if (id === 'swift') p.speed *= 1.1;
+    if (id === 'vitality') this.recomputeMaxHp('scale');
+    if (id === 'swift') this.recomputeSpeed();
+    codex.discoverBoon(id);
   }
 
   addSpell(id: string) {
@@ -959,6 +998,7 @@ export class Engine {
     if (id === 'petals') this.rebuildOrbitals();
     if (id === 'frost') this.rebuildFrostOrbs();
     if (id === 'wisps') this.rebuildWisps();
+    codex.discoverSpell(id, this.player.spells.find((x) => x.id === id)!.level);
   }
 
   rebuildOrbitals() {
@@ -1036,7 +1076,6 @@ export class Engine {
     const pool: Choice[] = [];
     const genericPool = () => {
       pool.push({ kind: 'generic', id: 'power', level: p.genericPower + 1 });
-      pool.push({ kind: 'generic', id: 'aoe', level: p.genericAoe + 1 });
       pool.push({ kind: 'generic', id: 'vital', level: p.genericVital + 1 });
     };
 
@@ -1173,6 +1212,8 @@ export class Engine {
         s.level = Math.max(s.level, SPELLS[choice.id].maxLevel);
         if (choice.id === 'petals') this.rebuildOrbitals();
         if (choice.id === 'frost') this.rebuildFrostOrbs();
+        codex.discoverSpell(choice.id, SPELLS[choice.id].maxLevel);
+        codex.discoverEvolution(choice.id);
         this.setBanner(`${SPELLS[choice.id].name.toUpperCase()} → ${EVOLVE[choice.id].name.toUpperCase()}`, SPELLS[choice.id].color);
         this.flash = { color: '255,210,122', a: 0.3 };
       }
@@ -1216,11 +1257,11 @@ export class Engine {
   chooseRelic(id: string) {
     if (!this.relicChoiceActive || this.relics.has(id) || !RELICS[id]) return;
     this.relics.add(id);
+    codex.discoverRelic(id);
     const p = this.player;
     // relics with an immediate price or gift settle it on pickup
     if (id === 'sovereign') {
-      p.maxHp = Math.max(40, Math.round(p.maxHp * 0.8));
-      p.hp = Math.min(p.hp, p.maxHp);
+      this.recomputeMaxHp('clamp'); // now folds in the −20% life penalty
     } else if (id === 'cartographer') {
       // the map redraws itself at once: more altars, and the next wonders
       // are already on their way
@@ -1246,6 +1287,7 @@ export class Engine {
     if (!this.pactActive || !this.pactCurrent) return;
     const p = this.player;
     if (accept) {
+      codex.discoverPact(this.pactCurrent.id);
       const fx: PactFx = this.pactCurrent.fx;
       this.pact.dmg += fx.dmg || 0;
       this.pact.aoe += fx.aoe || 0;
@@ -1257,7 +1299,7 @@ export class Engine {
       this.pact.curseHp += fx.curseHp || 0;
       this.pact.curseFloor += fx.curseFloor || 0;
       this.pact.curseElite += fx.curseElite || 0;
-      if (fx.hp) { p.maxHp += fx.hp; p.hp = Math.min(p.maxHp, p.hp + fx.hp); }
+      if (fx.hp) { p.baseMaxHp += fx.hp; this.recomputeMaxHp('delta'); }
       if (fx.healFull) p.hp = p.maxHp;
       audio.banish();
       this.setBanner('THE PACT IS SEALED', '#c48cff', 3.2, 28);
@@ -1294,7 +1336,8 @@ export class Engine {
     const p = this.player;
     p.level = 25;
     p.xpNext = this.xpNextFor(p.level);
-    p.maxHp += 150;
+    p.baseMaxHp += 150;
+    this.recomputeMaxHp('clamp');
     p.hp = p.maxHp;
     const ids = Object.keys(SPELLS);
     while (p.spells.length < this.spellCap() && ids.length) {
@@ -1316,8 +1359,8 @@ export class Engine {
   applyGeneric(id: string) {
     const p = this.player;
     if (id === 'power') p.genericPower++;
-    if (id === 'aoe') p.genericAoe++;
-    if (id === 'vital') { p.genericVital++; p.maxHp += 15; p.hp = Math.min(p.maxHp, p.hp + 15); }
+    if (id === 'vital') { p.genericVital++; this.recomputeMaxHp('scale'); }
+    codex.discoverGeneric(id);
   }
 
   // -------------------------------------------------------------- waves
@@ -2965,6 +3008,7 @@ export class Engine {
   // A resonance reaction blooming off enemy `e`, seeded by the hit that
   // triggered it. Prism Heart makes every reaction half again as strong.
   private react(kind: 'shatter' | 'eclipse', e: Enemy, trig: number) {
+    codex.discoverReaction(kind);
     const mul = this.relics.has('prismheart') ? 1.5 : 1;
     if (kind === 'shatter') {
       const R = 95 * this.aoeMul();
@@ -3026,6 +3070,7 @@ export class Engine {
       // each cascade generation emits at half the strength of the last, so
       // deep chains still light up the screen without wiping it
       const mul = (this.relics.has('prismheart') ? 1.5 : 1) * Math.pow(0.5, this.dischargeDepth);
+      codex.discoverReaction('discharge');
       audio.castStorm();
       this.spawnText(e.x, e.y - e.radius - 22, 'DISCHARGE', '#bfeaff', 0.8, -42, 14);
       let arcs = 0;
