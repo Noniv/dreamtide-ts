@@ -1341,7 +1341,7 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 .settings-panel {
   width: min(720px, 94vw);
   /* vh is not zoom-aware — divide by the UI scale so the panel fits the screen */
-  max-height: min(calc(88vh / var(--ui-scale)), 820px);
+  height: min(calc(88vh / var(--ui-scale)), 820px);
   display: flex; flex-direction: column;
   /* no overflow:hidden — it would clip the panel's top ✦ ornament; the
      scroll region is .settings-scroll inside */
