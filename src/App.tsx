@@ -10,11 +10,14 @@ import { isNative, exitApp } from './game/nativeWindow';
 import {
   CONST_NODES, CONST_EDGES, DARK_NODES, DARK_EDGES, NODE_MAP, ADJACENT,
   loadMeta, saveMeta, computeBonuses, dustForRun, setLoadout, loadoutSlots, unlockedSpells,
+  setSkin, unlockedSkins,
   markTreeRevealed, markDarkRevealed,
   nextPointCost, nextDarkPointCost, canBuyPoint, buyPoint, canBuyDarkPoint, buyDarkPoint,
   allocateNode, deallocateNode, removableSet, darkDepth, keystonesOwned,
   type Meta,
 } from './game/meta';
+import { WIZARD_SKINS, skinName, applySkin } from './game/wizardSkins';
+import { paintWizardPreview, type WizardSkin } from './game/enemySprites';
 import { TreeCanvas, type TreePhase } from './game/treeCanvas';
 
 type Screen = 'menu' | 'playing' | 'levelup' | 'relic' | 'pact' | 'dead' | 'tree' | 'dark' | 'settings';
@@ -157,6 +160,10 @@ export default function App() {
     };
   }, []);
 
+  // the chosen vestment recolors the wizard's sheet in the sprite atlas; the
+  // GPU renderer picks the repaint up on its next frame
+  useEffect(() => { applySkin(meta.skin); }, [meta.skin]);
+
   const begin = () => {
     if (menuFading) return;
     const fromMenu = useGame.getState().screen === 'menu';
@@ -220,6 +227,7 @@ export default function App() {
         onRevealed={() => set({ meta: markTreeRevealed(useGame.getState().meta) })}
         onMeta={(m) => set({ meta: m })}
         onLoadout={(l) => set({ meta: setLoadout(useGame.getState().meta, l) })}
+        onSkin={(id) => set({ meta: setSkin(useGame.getState().meta, id) })}
         onClose={() => set({ screen: useGame.getState().result ? 'dead' : 'menu' })}
       />
     );
@@ -1006,10 +1014,10 @@ function NodeTip({ tip, meta, dark, frontier, removable }: {
   );
 }
 
-function SkillTree({ meta, reveal, onRevealed, onMeta, onLoadout, onClose }: {
+function SkillTree({ meta, reveal, onRevealed, onMeta, onLoadout, onSkin, onClose }: {
   meta: Meta; reveal: boolean;
   onRevealed: () => void; onMeta: (m: Meta) => void;
-  onLoadout: (loadout: string[]) => void; onClose: () => void;
+  onLoadout: (loadout: string[]) => void; onSkin: (id: string) => void; onClose: () => void;
 }) {
   const sky = useSkyState();
   const [phase, setPhase] = useState<TreePhase>(reveal ? 'seed' : 'done');
@@ -1135,7 +1143,7 @@ function SkillTree({ meta, reveal, onRevealed, onMeta, onLoadout, onClose }: {
         </div>
       )}
 
-      <LoadoutBar meta={meta} onLoadout={onLoadout} veiled={phase !== 'done'} />
+      <LoadoutBar meta={meta} onLoadout={onLoadout} onSkin={onSkin} veiled={phase !== 'done'} />
     </div>
   );
 }
@@ -1248,14 +1256,36 @@ function DarkBargain({ meta, reveal, onRevealed, onMeta, onClose }: {
   );
 }
 
+// A small live-painted portrait of the wizard wearing a given skin, for the
+// vestment slot and its picker. Painted once per skin via the same Canvas2D
+// painter the atlas bakes with, so the preview is pixel-true.
+function WizardPortrait({ skin, size }: { skin: Partial<WizardSkin> | null; size: number }) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const c = ref.current;
+    if (!c) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    c.width = c.height = size * dpr;
+    const ctx = c.getContext('2d')!;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    paintWizardPreview(ctx, size, skin ?? undefined);
+  }, [skin, size]);
+  return <canvas ref={ref} style={{ width: size, height: size, display: 'block' }} />;
+}
+
 // The loadout: which spells the player carries into every run. One slot by
 // default (Arcane Missiles); +1-slot notables add slots up to MAX_LOADOUT. Each
 // slot is a picker over the unlocked spells; picking the blank clears the slot.
-function LoadoutBar({ meta, onLoadout, veiled }: { meta: Meta; onLoadout: (l: string[]) => void; veiled?: boolean }) {
+// Once any spell-evolution star is awakened, a vestment slot joins the bar:
+// the wizard's skin, one per mastered evolution.
+function LoadoutBar({ meta, onLoadout, onSkin, veiled }: {
+  meta: Meta; onLoadout: (l: string[]) => void; onSkin: (id: string) => void; veiled?: boolean;
+}) {
   const slots = loadoutSlots(meta);
   const unlocked = unlockedSpells(meta);
+  const skins = useMemo(() => unlockedSkins(meta), [meta.owned]);
   const loadout = meta.loadout;
-  const [open, setOpen] = useState<number | null>(null);
+  const [open, setOpen] = useState<number | 'skin' | null>(null);
 
   // set slot `i` to spell `id` (or clear if null), keeping the array compact and
   // free of duplicates. Slot 0 always keeps a spell (falls back to Arcane).
@@ -1319,6 +1349,44 @@ function LoadoutBar({ meta, onLoadout, veiled }: { meta: Meta; onLoadout: (l: st
           <div className="loadout-locked" title="Awaken a +1 spell slot star to widen your loadout">
             {Array.from({ length: 4 - slots }, (_, i) => <span key={i} className="ls-lock">🔒</span>)}
           </div>
+        )}
+        {skins.length > 0 && (
+          <>
+            <div className="loadout-divider" />
+            <div className="loadout-slot-wrap">
+              <button
+                className={`loadout-slot skin-slot ${meta.skin ? 'filled' : ''}`}
+                style={meta.skin ? ({ '--c': SPELLS[meta.skin].color } as React.CSSProperties) : undefined}
+                onClick={() => setOpen(open === 'skin' ? null : 'skin')}
+                title={meta.skin ? `Vestment: ${skinName(meta.skin)}` : 'Your vestment — click to choose'}
+              >
+                <WizardPortrait skin={meta.skin ? WIZARD_SKINS[meta.skin] : null} size={46} />
+              </button>
+              {open === 'skin' && (
+                <div className="loadout-menu skin-menu">
+                  <button
+                    className={`lm-item ${meta.skin === '' ? 'active' : ''}`}
+                    style={{ '--c': '#b48cff' } as React.CSSProperties}
+                    onClick={() => { onSkin(''); setOpen(null); }}
+                  >
+                    <span className="lm-portrait"><WizardPortrait skin={null} size={34} /></span>
+                    <span className="lm-name">The Old Robe</span>
+                  </button>
+                  {skins.map((id) => (
+                    <button
+                      key={id}
+                      className={`lm-item ${meta.skin === id ? 'active' : ''}`}
+                      style={{ '--c': SPELLS[id].color } as React.CSSProperties}
+                      onClick={() => { onSkin(id); setOpen(null); }}
+                    >
+                      <span className="lm-portrait"><WizardPortrait skin={WIZARD_SKINS[id]} size={34} /></span>
+                      <span className="lm-name">{skinName(id)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>

@@ -1,7 +1,7 @@
 // Standalone dev page: renders every enemy's baked sprite frames as animated,
 // labeled cards. Open at /enemy-viewer.html with the normal dev server.
 import {
-  buildAtlas, enemyFrameId, ENEMY_KINDS, FRAMES, type Atlas,
+  buildAtlas, enemyFrameId, ENEMY_KINDS, ENEMY_SPRITES, type Atlas,
 } from './game/enemySprites';
 
 const NAMES: Record<string, string> = {
@@ -27,8 +27,9 @@ title.textContent = 'Dreamtide — Enemies';
 title.style.cssText = 'font-weight:normal;letter-spacing:0.2em;color:#e6d1ff;margin:28px 0 4px';
 document.body.appendChild(title);
 
+const totalFrames = ENEMY_KINDS.reduce((s, k) => s + ENEMY_SPRITES[k].frames, 0);
 const hint = document.createElement('div');
-hint.textContent = `${ENEMY_KINDS.length} kinds · ${FRAMES} baked frames each`;
+hint.textContent = `${ENEMY_KINDS.length} kinds · ${totalFrames} baked frames total`;
 hint.style.cssText = 'opacity:0.55;font-size:13px;margin-bottom:24px';
 document.body.appendChild(hint);
 
@@ -55,6 +56,11 @@ for (const type of ENEMY_KINDS) {
   label.style.cssText = 'font-size:17px;letter-spacing:0.12em;color:#e6d1ff';
   card.appendChild(label);
 
+  const frames = document.createElement('div');
+  frames.textContent = `${ENEMY_SPRITES[type].frames} frame${ENEMY_SPRITES[type].frames === 1 ? '' : 's'}`;
+  frames.style.cssText = 'font-size:11px;opacity:0.45';
+  card.appendChild(frames);
+
   grid.appendChild(card);
   cards.push({ type, ctx: canvas.getContext('2d')! });
 }
@@ -79,8 +85,8 @@ const atlas = buildAtlas();
 
 function tick(now: number) {
   const t = now / 1000;
-  const frame = Math.floor(t * FPS) % FRAMES;
   for (const c of cards) {
+    const frame = Math.floor(t * FPS) % ENEMY_SPRITES[c.type].frames;
     c.ctx.clearRect(0, 0, CANVAS, CANVAS);
     if (c.type === 'eye') {
       // eye bakes body only; crown + iris are live quads in-game — mirror that

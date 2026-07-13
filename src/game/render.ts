@@ -15,7 +15,7 @@
 import type { Engine } from './engine';
 import { ENEMY_TYPES, MELEE_ANIM_DUR, BLINK_IN, PLAYER_HURT_DY, PLAYER_HURT_R, STEP, BOSS_RAGE_START, BOSS_RAGE_FULL, LUCID_DUR } from './engine';
 import { TAU, clamp, serpentPoint, type Enemy, type Zone, type Projectile, type BossProjectile, type Beam, type Bolt, type Gem, type Pickup } from './world';
-import { enemyFrameId, wizardFrameId, FRAMES, WIZARD_CY, type AtlasEntry } from './enemySprites';
+import { ENEMY_SPRITES, enemyFrameId, wizardFrameId, WIZARD_FRAMES, WIZARD_CY, getWizardSkin, type AtlasEntry } from './enemySprites';
 import { SHAPE_RING, SHAPE_DISC, SHAPE_SPIRAL, SHAPE_CAPSULE, type QuadList, type ShapeList } from './worldGPU';
 import { drawStats } from './perf';
 import { settings } from './settings';
@@ -720,14 +720,14 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
   const tr = frozen ? FROZEN_TINT[0] : 1, tg = frozen ? FROZEN_TINT[1] : 1, tb = frozen ? FROZEN_TINT[2] : 1;
   const mix = flashMix > 0 ? flashMix : frozen ? 0.55 : 0;
 
-  const anim = ENEMY_ANIM[e.type];
+  const def = ENEMY_SPRITES[e.type];
   // bosses wear their archetype's own body (Devourer eye, Colossus golem,
   // Choir siren), scaled up from the base sprite by their radius
   const type = e.type;
   const sc = e.radius / ENEMY_TYPES[e.type].radius;
-  const bob = anim.bob(e.animT);
-  let fi = ((e.animT * anim.rate + e.seed) / TAU * FRAMES) | 0;
-  fi = ((fi % FRAMES) + FRAMES) % FRAMES;
+  const bob = def.bob(e.animT);
+  let fi = ((e.animT * def.rate + e.seed) / TAU * def.frames) | 0;
+  fi = ((fi % def.frames) + def.frames) % def.frames;
   const entry = q.uv(enemyFrameId(type, fi));
   if (!entry) return;
   const half = entry.half * sc;
@@ -941,18 +941,21 @@ function emitPlayer(q: QuadList, eng: Engine, x: number, y: number) {
   // ground shadow
   q.push(false, glowE, x, y + 8, 21, 0, 0.4, 0.01, 0.005, 0.03, 1, 0.32);
   // body
-  let fi = ((p.animT * 8) / TAU * FRAMES) | 0;
-  fi = ((fi % FRAMES) + FRAMES) % FRAMES;
+  let fi = ((p.animT * 8) / TAU * WIZARD_FRAMES) | 0;
+  fi = ((fi % WIZARD_FRAMES) + WIZARD_FRAMES) % WIZARD_FRAMES;
   const wizE = q.uv(wizardFrameId(fi));
   if (!wizE) return;
   const mirrored = p.facing < 0;
   q.push(false, wizE, x, y - WIZARD_CY - bob, wizE.half, mirrored ? -sway : sway, alpha, 1, 1, 1, 0, 1, mirrored);
   // staff orb: pulsing beacon that flares on casts (castPulse)
+  const skin = getWizardSkin();
+  const [ogr, ogg, ogb] = rgb(skin.orbGlow);
+  const [ocr, ocg, ocb] = rgb(skin.orbCore);
   const pulse = 5 + Math.sin(vt * 5) * 1.2 + p.castPulse * 6;
   const ox = x + 14 * p.facing;
   const oy = y - 48 - bob;
-  q.push(true, glowE, ox, oy, pulse * 2.6, 0, 0.9 * alpha, 0.50, 0.96, 1, 1);
-  q.push(true, glowE, ox, oy, pulse * 1.05, 0, alpha, 0.94, 1, 1, 1);
+  q.push(true, glowE, ox, oy, pulse * 2.6, 0, 0.9 * alpha, ogr, ogg, ogb, 1);
+  q.push(true, glowE, ox, oy, pulse * 1.05, 0, alpha, ocr, ocg, ocb, 1);
 }
 
 // Defensive spells drawn around the player. The Hush veil belongs under the
@@ -1238,23 +1241,6 @@ function emitParticles(q: QuadList, eng: Engine, camX: number, camY: number) {
     }
   }
 }
-
-// ---------------------------------------------------------------- enemies
-// Per-type mapping from the animation clock to a baked-loop phase, plus the
-// live vertical bob/hover kept continuous at blit time. `rate` is the sin()
-// frequency of the body's baked loop (e.g. bat flap = animT*14); `bob(animT)`
-// returns the live y-offset applied per-instance.
-interface EnemyAnim { rate: number; bob: (animT: number) => number }
-const ENEMY_ANIM: Record<string, EnemyAnim> = {
-  wisp: { rate: 9, bob: () => 0 },
-  bat: { rate: 14, bob: (t) => Math.sin(t * 5) * 2 },
-  eye: { rate: 1, bob: (t) => Math.sin(t * 3) * 3 },      // body baked static
-  // (eyeball+veins only); tentacles + iris are drawn live, so any rate is fine
-  shade: { rate: 5, bob: () => 0 },
-  golem: { rate: 2, bob: () => 0 },
-  siren: { rate: 4, bob: (t) => Math.sin(t * 4) * 3 },
-  warlock: { rate: 3, bob: (t) => Math.sin(t * 3) * 2 },
-};
 
 // Health bars for hurt / big enemies. Drawn on the 2D overlay layer (full res,
 // crisp above the bloom). Capped at the player's HP-bar performance preset:

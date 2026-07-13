@@ -5,25 +5,16 @@
 //
 // WHAT IS BAKED vs LIVE
 //   baked  : the internal shape morph driven by animT (wing flap, flame lick,
-//            robe hem ripple). Discretised into FRAMES steps of a canonical
-//            loop; per-enemy `seed` selects a frame so enemies never march in
-//            lockstep.
+//            robe hem ripple). Discretised into each sprite's own `frames`
+//            steps of a canonical loop; per-enemy `seed` selects a frame so
+//            enemies never march in lockstep.
 //   live   : bob/hover, rotation, hit-flash / freeze tint (per-instance shader
 //            tint — no baked variants), coronas, the eye's player-tracking
 //            iris. Applied per-instance at emit time so the motions the eye
 //            actually locks onto stay continuous.
 
-export const FRAMES = 24;          // animation-loop samples per type
 const SS = 3;                      // supersample factor (bake at 3x for crisp magnification)
 const PAD = 10;                    // px padding around the art (glow spill)
-export const ENEMY_KINDS = ['wisp', 'bat', 'eye', 'shade', 'golem', 'siren', 'warlock'];
-
-// Half-extent of each type's art in local (pre-scale) space, generous enough
-// to contain glows/coronas/tentacles. Keyed to the same local coords the draw
-// code uses. Bosses reuse the 'eye' sheet scaled up by the caller.
-const HALF: Record<string, number> = {
-  wisp: 26, bat: 30, eye: 34, shade: 30, golem: 34, siren: 24, warlock: 26,
-};
 
 // Parametric body painters: draw the type's shape at loop phase `ph` in [0,1),
 // in local space centred at (0,0). Hit-flash / frozen tints are applied by the
@@ -32,8 +23,29 @@ type Painter = (ctx: CanvasRenderingContext2D, ph: number) => void;
 
 const TAU = Math.PI * 2;
 
-const PAINTERS: Record<string, Painter> = {
-  wisp(ctx, ph) {
+// Everything the atlas and the renderer need to know about one enemy body:
+//   half   : art half-extent in local (pre-scale) space, generous enough to
+//            contain glows/coronas/tentacles. Bosses reuse the sheet scaled up.
+//   frames : baked loop samples. 1 = static body (motion lives in live-quad
+//            parts instead). Soft additive morphs hide stepping well (8–12);
+//            hard-edged large motion wants 24, as does any body a boss wears
+//            magnified.
+//   rate   : animT → baked-loop phase frequency (the sin() frequency of the
+//            body's morph, e.g. bat flap = animT*14).
+//   bob    : live per-instance vertical hover, applied at emit time so it
+//            stays continuous at any scale.
+export interface EnemySpriteDef {
+  half: number;
+  frames: number;
+  rate: number;
+  bob: (animT: number) => number;
+  paint: Painter;
+}
+
+const NO_BOB = () => 0;
+
+export const ENEMY_SPRITES: Record<string, EnemySpriteDef> = {
+  wisp: { half: 26, frames: 12, rate: 9, bob: NO_BOB, paint(ctx, ph) {
     const a = ph * TAU;
     const f = Math.sin(a);          // flame lick, one full cycle across the sheet
     ctx.globalCompositeOperation = 'lighter';
@@ -56,9 +68,9 @@ const PAINTERS: Record<string, Painter> = {
     ctx.ellipse(-3.2, -1, 1.4, 2.4 * blink, 0, 0, TAU);
     ctx.ellipse(3.2, -1, 1.4, 2.4 * blink, 0, 0, TAU);
     ctx.fill();
-  },
+  } },
 
-  bat(ctx, ph) {
+  bat: { half: 30, frames: 24, rate: 14, bob: (t) => Math.sin(t * 5) * 2, paint(ctx, ph) {
     const a = ph * TAU;
     const flap = Math.sin(a);       // one wingbeat across the sheet
     // (hover bob is applied LIVE by the caller, not baked)
@@ -98,13 +110,13 @@ const PAINTERS: Record<string, Painter> = {
     ctx.moveTo(-2, 4); ctx.lineTo(-1, 7); ctx.lineTo(0, 4);
     ctx.moveTo(2, 4); ctx.lineTo(1, 7); ctx.lineTo(0, 4);
     ctx.fill();
-  },
+  } },
 
   // eye: bake the eyeball WITHOUT the iris (iris tracks the player → drawn live
   // as a tiny quad by the caller). The tentacle crown is a separate static
   // sprite emitted as one live continuously-rotating quad — smooth at any
-  // scale, which matters for the magnified boss.
-  eye(ctx, _ph) {
+  // scale, which matters for the magnified boss. Body is static → one frame.
+  eye: { half: 34, frames: 1, rate: 1, bob: (t) => Math.sin(t * 3) * 3, paint(ctx, _ph) {
     ctx.fillStyle = '#fdeef6';
     ctx.beginPath(); ctx.arc(0, 0, 15, 0, TAU); ctx.fill();
     // veins (static)
@@ -114,9 +126,9 @@ const PAINTERS: Record<string, Painter> = {
     ctx.moveTo(-13, -4); ctx.quadraticCurveTo(-8, -2, -7, 2);
     ctx.moveTo(12, 5); ctx.quadraticCurveTo(8, 3, 7, -1);
     ctx.stroke();
-  },
+  } },
 
-  shade(ctx, ph) {
+  shade: { half: 30, frames: 24, rate: 5, bob: NO_BOB, paint(ctx, ph) {
     const wave = ph * TAU;
     ctx.globalAlpha = 0.92;
     ctx.fillStyle = 'rgba(60,40,120,0.35)';
@@ -150,9 +162,9 @@ const PAINTERS: Record<string, Painter> = {
     ctx.moveTo(15, -4 + reach); ctx.lineTo(18, -3 + reach);
     ctx.stroke();
     ctx.globalAlpha = 1;
-  },
+  } },
 
-  golem(ctx, ph) {
+  golem: { half: 34, frames: 24, rate: 2, bob: NO_BOB, paint(ctx, ph) {
     const a = ph * TAU;
     const breathe = Math.sin(a) * 1.5;
     // orbiting rock chunks are emitted as LIVE quads by the caller (a full
@@ -180,12 +192,12 @@ const PAINTERS: Record<string, Painter> = {
     ctx.beginPath();
     ctx.ellipse(0, -14 - breathe * 0.5, 6, 1.8 + Math.sin(a) * 0.6, 0, 0, TAU);
     ctx.fill();
-  },
+  } },
 
   // siren: a spectral pale chorister — a veiled, gowned wraith singing, hollow
   // mournful eyes and an open mouth where the charging glow (drawn live by the
   // caller) blooms. The gown hem and side veils sway; the rest is baked at rest.
-  siren(ctx, ph) {
+  siren: { half: 24, frames: 24, rate: 4, bob: (t) => Math.sin(t * 4) * 3, paint(ctx, ph) {
     const a = ph * TAU;
     const sway = Math.sin(a);
     // trailing veils streaming to either side
@@ -235,9 +247,9 @@ const PAINTERS: Record<string, Painter> = {
     ctx.strokeStyle = 'rgba(205,240,255,0.45)';
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.ellipse(0, -22, 6, 2.1, 0, 0, TAU); ctx.stroke();
-  },
+  } },
 
-  warlock(ctx, _ph) {
+  warlock: { half: 26, frames: 1, rate: 3, bob: (t) => Math.sin(t * 3) * 2, paint(ctx, _ph) {
     ctx.fillStyle = linGrad(ctx, 0, -20, 0, 16, '#7a3aa8', '#2a1040');
     ctx.beginPath();
     ctx.moveTo(0, -22);
@@ -256,9 +268,12 @@ const PAINTERS: Record<string, Painter> = {
     // the floating grimoire + orbiting charge-orbs are emitted as LIVE quads by
     // the caller: a hard-edged book baked into 24 frames read as choppy at boss
     // scale (unlike the soft glows other bosses hide their stepping behind), so
-    // the body sheet is now fully static and the book rides the smooth clock.
-  },
+    // the body sheet is fully static (frames: 1) and the book rides the smooth
+    // clock.
+  } },
 };
+
+export const ENEMY_KINDS = Object.keys(ENEMY_SPRITES);
 
 // ------------------------------------------------------------------- wizard
 // The player joins the GPU world as a baked sprite sheet: robe hem ripple and
@@ -268,8 +283,75 @@ const PAINTERS: Record<string, Painter> = {
 // px above the feet anchor the engine simulates.
 export const WIZARD_CY = 25;   // sprite centre sits this far above the feet
 export const WIZARD_HALF = 38;
+export const WIZARD_FRAMES = 24;
 
-function paintWizard(ctx: CanvasRenderingContext2D, ph: number) {
+// A skin is a full palette for the wizard painter. Only the ACTIVE skin is
+// baked — swapping repaints the same 24 atlas tiles in place (setWizardSkin),
+// so any number of skins costs the atlas space of one. All values are solid
+// hex colours; the painter derives its soft-glow alphas from them.
+export interface WizardSkin {
+  robeOuter: [string, string];   // gradient, shoulders → hem
+  robeInner: [string, string];
+  specks: [string, string, string, string]; // woven-star twinkle colours
+  rim: string;                   // side rim-light
+  trim: string;                  // belt, hat band, tip star, staff crescent
+  buckle: string;                // bright diamond at the belt
+  sigil: string;                 // moon sigil stroke
+  sigilGlow: string;
+  skinTone: string;              // face + hands
+  eyeDot: string;
+  beard: string;
+  beardShade: string;
+  hatBrim: string;
+  hatBrimTop: string;
+  hatCone: [string, string];     // gradient, base → tip
+  staffWood: string;
+  staffSheen: string;
+  orb: string;                   // baked orb core in the sheet
+  orbGlow: string;               // live staff-orb halo (emitted by render.ts)
+  orbCore: string;               // live staff-orb hot centre
+  // Optional themed staff head, drawn in the wizard's feet-anchored local
+  // space around (14,-48) in place of the default crescent + orb. The live
+  // orb glow (orbGlow/orbCore) still pulses over it on casts.
+  staffHead?: (ctx: CanvasRenderingContext2D) => void;
+  // Optional chest emblem drawn centred on (0,-4) in place of the default
+  // moon sigil (the sigilGlow halo is painted beneath either way).
+  chest?: (ctx: CanvasRenderingContext2D) => void;
+}
+
+export const DEFAULT_WIZARD_SKIN: WizardSkin = {
+  robeOuter: ['#2b2058', '#181140'],
+  robeInner: ['#46329a', '#2b1f61'],
+  specks: ['#ffd27a', '#8fe8ff', '#e6d1ff', '#fff2cc'],
+  rim: '#b48cff',
+  trim: '#ffd27a',
+  buckle: '#fff2cc',
+  sigil: '#bff1ff',
+  sigilGlow: '#8fe8ff',
+  skinTone: '#f2d9c0',
+  eyeDot: '#1a1330',
+  beard: '#d9d4f2',
+  beardShade: '#968ccd',
+  hatBrim: '#221850',
+  hatBrimTop: '#352a70',
+  hatCone: ['#332566', '#4a37a0'],
+  staffWood: '#5a3d22',
+  staffSheen: '#ffdca0',
+  orb: '#bff9ff',
+  orbGlow: '#80f5ff',
+  orbCore: '#f0ffff',
+};
+
+let _skin: WizardSkin = DEFAULT_WIZARD_SKIN;
+
+export function getWizardSkin(): WizardSkin { return _skin; }
+
+function withAlpha(hex: string, a: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+function paintWizard(ctx: CanvasRenderingContext2D, ph: number, skin: WizardSkin) {
   ctx.translate(0, WIZARD_CY); // paint in original feet-anchored coords
   const hemT = ph * TAU;
 
@@ -288,18 +370,19 @@ function paintWizard(ctx: CanvasRenderingContext2D, ph: number) {
     ctx.fill();
   };
   // a piece of the night sky: deeper toward the hem, lighter at the shoulders
-  robe(9, 16, 8, linGrad(ctx, 0, -26, 0, 10, '#2b2058', '#181140'));
-  robe(8, 13, 5, linGrad(ctx, 0, -26, 0, 8, '#46329a', '#2b1f61'));
+  robe(9, 16, 8, linGrad(ctx, 0, -26, 0, 10, skin.robeOuter[0], skin.robeOuter[1]));
+  robe(8, 13, 5, linGrad(ctx, 0, -26, 0, 8, skin.robeInner[0], skin.robeInner[1]));
 
   // stars woven into the cloth, twinkling out of phase (loop-safe sin terms)
   ctx.globalCompositeOperation = 'lighter';
+  const [spA, spB, spC, spD] = skin.specks;
   const SPECKS: [number, number, number, string][] = [
-    [-6, -20, 2.0, '#ffd27a'],
-    [5, -16, 1.6, '#8fe8ff'],
-    [0, -10, 1.3, '#e6d1ff'],
-    [-8, -4, 1.7, '#8fe8ff'],
-    [7, -5, 2.0, '#ffd27a'],
-    [-3, 1, 1.4, '#fff2cc'],
+    [-6, -20, 2.0, spA],
+    [5, -16, 1.6, spB],
+    [0, -10, 1.3, spC],
+    [-8, -4, 1.7, spB],
+    [7, -5, 2.0, spA],
+    [-3, 1, 1.4, spD],
   ];
   for (let k = 0; k < SPECKS.length; k++) {
     const [sx, sy, sr, c] = SPECKS[k];
@@ -325,13 +408,14 @@ function paintWizard(ctx: CanvasRenderingContext2D, ph: number) {
 
   // rim light: a violet whisper on both sides — it lifts the figure out of the
   // dark like the enemies' own glows do
-  ctx.strokeStyle = 'rgba(180,140,255,0.25)';
+  const rimC = withAlpha(skin.rim, 0.25);
+  ctx.strokeStyle = rimC;
   ctx.lineWidth = 1.6;
   ctx.beginPath();
   ctx.moveTo(9, -26);
   ctx.quadraticCurveTo(18, -6, 16, 7);
   ctx.stroke();
-  ctx.strokeStyle = 'rgba(180,140,255,0.25)';
+  ctx.strokeStyle = rimC;
   ctx.beginPath();
   ctx.moveTo(-9, -26);
   ctx.quadraticCurveTo(-18, -6, -16, 7);
@@ -339,37 +423,42 @@ function paintWizard(ctx: CanvasRenderingContext2D, ph: number) {
   ctx.globalCompositeOperation = 'source-over';
 
   // belt with a soft gold breath at the buckle
-  ctx.fillStyle = '#ffd27a';
+  ctx.fillStyle = skin.trim;
   ctx.fillRect(-8, -14, 16, 2.4);
-  softGlow(ctx, 0, -12.8, 5, 'rgba(255,210,122,0.4)');
-  ctx.fillStyle = '#fff2cc';
+  softGlow(ctx, 0, -12.8, 5, withAlpha(skin.trim, 0.4));
+  ctx.fillStyle = skin.buckle;
   ctx.beginPath(); // small diamond buckle
   ctx.moveTo(0, -15.2); ctx.lineTo(2, -12.8); ctx.lineTo(0, -10.4); ctx.lineTo(-2, -12.8);
   ctx.closePath(); ctx.fill();
 
-  // moon sigil, luminous now (the bloom pass picks it up)
-  softGlow(ctx, 0, -4, 7, 'rgba(143,232,255,0.4)');
-  ctx.strokeStyle = '#bff1ff';
-  ctx.lineWidth = 1.4;
-  ctx.beginPath();
-  ctx.arc(0, -4, 4.4, 0.7, TAU - 0.7);
-  ctx.stroke();
+  // chest sigil, luminous (the bloom pass picks it up): the moon by default,
+  // the mastered spell's own icon on themed vestments
+  softGlow(ctx, 0, -4, 7, withAlpha(skin.sigilGlow, 0.4));
+  if (skin.chest) {
+    skin.chest(ctx);
+  } else {
+    ctx.strokeStyle = skin.sigil;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(0, -4, 4.4, 0.7, TAU - 0.7);
+    ctx.stroke();
+  }
 
   // staff arm
-  ctx.strokeStyle = '#f2d9c0';
+  ctx.strokeStyle = skin.skinTone;
   ctx.lineWidth = 3;
   ctx.lineCap = 'round';
   ctx.beginPath(); ctx.moveTo(4, -22); ctx.lineTo(13, -26); ctx.stroke();
 
   // head
-  ctx.fillStyle = '#f2d9c0';
+  ctx.fillStyle = skin.skinTone;
   ctx.beginPath(); ctx.arc(1, -32, 6.5, 0, TAU); ctx.fill();
-  ctx.fillStyle = '#1a1330';
+  ctx.fillStyle = skin.eyeDot;
   ctx.beginPath(); ctx.arc(3.4, -33, 1, 0, TAU); ctx.fill();
 
   // a magus beard: silver-lavender, drifting with the same breeze as the hem
   const bw = Math.sin(hemT + 1.2) * 0.8;
-  ctx.fillStyle = '#d9d4f2';
+  ctx.fillStyle = skin.beard;
   ctx.beginPath();
   ctx.moveTo(-3.5, -29.5);
   ctx.quadraticCurveTo(-4.5, -24, -1.5 + bw, -20);
@@ -378,7 +467,7 @@ function paintWizard(ctx: CanvasRenderingContext2D, ph: number) {
   ctx.quadraticCurveTo(1, -26.5, -3.5, -29.5);
   ctx.closePath();
   ctx.fill();
-  ctx.fillStyle = 'rgba(150,140,205,0.45)'; // a little depth in the strands
+  ctx.fillStyle = withAlpha(skin.beardShade, 0.45); // a little depth in the strands
   ctx.beginPath();
   ctx.moveTo(-1.5, -27.5);
   ctx.quadraticCurveTo(-2, -23.5, 0 + bw, -20.5);
@@ -388,11 +477,11 @@ function paintWizard(ctx: CanvasRenderingContext2D, ph: number) {
 
   // hat: brim with underside depth, gradient cone, gold band, tip star
   const hatBend = Math.sin(hemT * 0.5) * 1.5;
-  ctx.fillStyle = '#221850';
+  ctx.fillStyle = skin.hatBrim;
   ctx.beginPath(); ctx.ellipse(0.5, -35.6, 13.5, 3.6, -0.06, 0, TAU); ctx.fill();
-  ctx.fillStyle = '#352a70';
+  ctx.fillStyle = skin.hatBrimTop;
   ctx.beginPath(); ctx.ellipse(0.5, -36.4, 13.2, 3.3, -0.06, 0, TAU); ctx.fill();
-  ctx.fillStyle = linGrad(ctx, 0, -37, 0, -58, '#332566', '#4a37a0');
+  ctx.fillStyle = linGrad(ctx, 0, -37, 0, -58, skin.hatCone[0], skin.hatCone[1]);
   ctx.beginPath();
   ctx.moveTo(-7.5, -37);
   ctx.quadraticCurveTo(-3, -52, 2 + hatBend, -56);
@@ -400,13 +489,13 @@ function paintWizard(ctx: CanvasRenderingContext2D, ph: number) {
   ctx.quadraticCurveTo(7, -44, 8, -37.5);
   ctx.closePath();
   ctx.fill();
-  ctx.fillStyle = '#ffd27a'; // hat band at the cone's base
+  ctx.fillStyle = skin.trim; // hat band at the cone's base
   ctx.fillRect(-5.5, -39.8, 11.5, 1.9);
   ctx.save(); // the slowly-spinning tip star, now breathing light
-  softGlow(ctx, 3.5 + hatBend, -54, 6, 'rgba(255,210,122,0.5)');
+  softGlow(ctx, 3.5 + hatBend, -54, 6, withAlpha(skin.trim, 0.5));
   ctx.translate(3.5 + hatBend, -54);
   ctx.rotate(ph * TAU);
-  ctx.fillStyle = '#ffd27a';
+  ctx.fillStyle = skin.trim;
   ctx.beginPath();
   for (let k = 0; k < 5; k++) {
     const a = (k / 5) * TAU - Math.PI / 2;
@@ -420,26 +509,43 @@ function paintWizard(ctx: CanvasRenderingContext2D, ph: number) {
 
   // staff: driftwood with a moonlit edge and a crescent cradling the orb
   // (orb glow/core stay LIVE quads at (14,-48) so casts can pulse them)
-  ctx.strokeStyle = '#5a3d22';
+  ctx.strokeStyle = skin.staffWood;
   ctx.lineWidth = 2.6;
   ctx.beginPath();
   ctx.moveTo(14, 6);
   ctx.quadraticCurveTo(15.5, -20, 14, -44);
   ctx.stroke();
-  ctx.strokeStyle = 'rgba(255,220,160,0.3)';
+  ctx.strokeStyle = withAlpha(skin.staffSheen, 0.3);
   ctx.lineWidth = 0.9;
   ctx.beginPath();
   ctx.moveTo(13.2, 5);
   ctx.quadraticCurveTo(14.7, -20, 13.3, -43);
   ctx.stroke();
-  ctx.strokeStyle = '#ffd27a';
-  ctx.lineWidth = 1.5;
-  ctx.lineCap = 'round';
-  ctx.beginPath(); // crescent cup under the orb
-  ctx.arc(14, -47, 5.2, Math.PI * 0.18, Math.PI * 0.82);
-  ctx.stroke();
-  ctx.fillStyle = '#bff9ff';
-  ctx.beginPath(); ctx.arc(14, -48, 3.6, 0, TAU); ctx.fill();
+  if (skin.staffHead) {
+    skin.staffHead(ctx);
+  } else {
+    ctx.strokeStyle = skin.trim;
+    ctx.lineWidth = 1.5;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); // crescent cup under the orb
+    ctx.arc(14, -47, 5.2, Math.PI * 0.18, Math.PI * 0.82);
+    ctx.stroke();
+    ctx.fillStyle = skin.orb;
+    ctx.beginPath(); ctx.arc(14, -48, 3.6, 0, TAU); ctx.fill();
+  }
+}
+
+// Paint the wizard once into a size×size canvas — for skin previews in menus.
+// Draws in the same feet-anchored local space the atlas bakes, centred on the
+// figure's midpoint.
+export function paintWizardPreview(ctx: CanvasRenderingContext2D, size: number, skin?: Partial<WizardSkin>, ph = 0) {
+  const s: WizardSkin = { ...DEFAULT_WIZARD_SKIN, ...skin };
+  ctx.clearRect(0, 0, size, size);
+  ctx.save();
+  const sc = size / (WIZARD_HALF * 2 - 12); // trim the padded margin so the figure fills the tile
+  ctx.setTransform(sc, 0, 0, sc, size / 2, size / 2);
+  paintWizard(ctx, ph, s);
+  ctx.restore();
 }
 
 export function wizardFrameId(frame: number): string { return `wiz:${frame}`; }
@@ -465,6 +571,7 @@ export interface Atlas {
   canvas: HTMLCanvasElement;
   size: number;                       // atlas is size×size px
   entries: Map<string, AtlasEntry>;
+  version: number;                    // bumped on repaint → GPU re-uploads
 }
 
 let _atlas: Atlas | null = null;
@@ -846,7 +953,8 @@ function extraSprites(): ExtraSprite[] {
 }
 
 // Build the atlas: shelf-pack every sprite into a square texture. Enemy frames
-// dominate the count (7 types × 24 + 24 wizard frames) but pack tightly.
+// dominate the count (each type bakes its own `frames`, plus the wizard's 24)
+// but pack tightly.
 export function buildAtlas(): Atlas {
   if (_atlas) return _atlas;
 
@@ -865,10 +973,13 @@ export function buildAtlas(): Atlas {
 
   // enemy frames (single tint — hit-flash/frozen are per-instance shader mixes)
   for (const type of ENEMY_KINDS) {
-    for (let f = 0; f < FRAMES; f++) bake(enemyFrameId(type, f), HALF[type], PAINTERS[type], f / FRAMES);
+    const def = ENEMY_SPRITES[type];
+    for (let f = 0; f < def.frames; f++) bake(enemyFrameId(type, f), def.half, def.paint, f / def.frames);
   }
-  // wizard frames
-  for (let f = 0; f < FRAMES; f++) bake(wizardFrameId(f), WIZARD_HALF, paintWizard, f / FRAMES);
+  // wizard frames (active skin only)
+  for (let f = 0; f < WIZARD_FRAMES; f++) {
+    bake(wizardFrameId(f), WIZARD_HALF, (c: CanvasRenderingContext2D, ph: number) => paintWizard(c, ph, _skin), f / WIZARD_FRAMES);
+  }
   // extra sprites
   for (const es of extraSprites()) bake(es.id, es.half, es.paint);
 
@@ -908,7 +1019,7 @@ export function buildAtlas(): Atlas {
     ctx.drawImage(t.canvas, Math.round(e.u0 * size), Math.round(e.v0 * size));
   }
 
-  _atlas = { canvas, size, entries };
+  _atlas = { canvas, size, entries, version: 0 };
   return _atlas;
 }
 
@@ -916,6 +1027,29 @@ export function getAtlas(): Atlas { return _atlas || buildAtlas(); }
 
 // Pre-bake up front (one-time) so the first heavy frame doesn't stall.
 export function prebakeSprites() { buildAtlas(); }
+
+// Swap the player's palette. Wizard tile rects and UVs are skin-independent,
+// so only the 24 wizard tiles are repainted in place and the atlas version is
+// bumped for the GPU renderer to re-upload. Any number of skins therefore
+// costs the atlas space (and bake time) of exactly one.
+export function setWizardSkin(skin: Partial<WizardSkin>) {
+  _skin = { ...DEFAULT_WIZARD_SKIN, ...skin };
+  if (!_atlas) return;
+  const { canvas, size, entries } = _atlas;
+  const ctx = canvas.getContext('2d')!;
+  for (let f = 0; f < WIZARD_FRAMES; f++) {
+    const e = entries.get(wizardFrameId(f))!;
+    const x = e.u0 * size, y = e.v0 * size;
+    const px = (e.u1 - e.u0) * size;
+    ctx.save();
+    ctx.clearRect(x, y, px, px);
+    ctx.beginPath(); ctx.rect(x, y, px, px); ctx.clip();
+    ctx.setTransform(SS, 0, 0, SS, x + (WIZARD_HALF + PAD) * SS, y + (WIZARD_HALF + PAD) * SS);
+    paintWizard(ctx, f / WIZARD_FRAMES, _skin);
+    ctx.restore();
+  }
+  _atlas.version++;
+}
 
 // ---- local baking helpers ----
 function radial(ctx: CanvasRenderingContext2D, r: number, c0: string, c1: string): CanvasGradient {

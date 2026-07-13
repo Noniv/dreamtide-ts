@@ -1287,6 +1287,25 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
   border: 1px dashed rgba(205, 216, 255, 0.2);
 }
 
+/* ---- the vestment (skin) slot at the bar's end ---- */
+.loadout-divider {
+  width: 1px; height: 40px; margin: 0 4px;
+  background: linear-gradient(180deg, transparent, rgba(205, 216, 255, 0.3), transparent);
+}
+.loadout-slot.skin-slot {
+  background: rgba(255, 210, 122, 0.22);
+}
+.loadout-slot.skin-slot:hover { background: rgba(255, 210, 122, 0.45); }
+.loadout-slot.skin-slot.filled {
+  background: var(--c);
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--c) 55%, transparent));
+}
+.skin-menu { min-width: 230px; }
+.lm-portrait {
+  width: 34px; height: 34px; flex: none;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--c) 45%, transparent));
+}
+
 .loadout-menu {
   position: absolute; bottom: 68px; left: 50%; transform: translateX(-50%);
   min-width: 200px; max-height: calc(46vh / var(--ui-scale)); overflow-y: auto;

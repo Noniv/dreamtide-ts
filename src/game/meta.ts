@@ -47,6 +47,7 @@ export interface Meta {
   darkOwned: string[]; // allocated bargain stars (always contains 'dark-core')
   best: number;
   loadout: string[];
+  skin: string;        // chosen wizard skin (a spell id) — '' is the old robe
   treeRevealed: boolean; // the first-discovery reveal has played
   darkRevealed: boolean;
 }
@@ -71,6 +72,20 @@ export function unlockedSpells(meta: Meta): string[] {
     if (n && n.fx.unlock && n.fx.spell) set.add(n.fx.spell as string);
   }
   return [...set];
+}
+
+// Every awakened spell-evolution star also unlocks that spell's wizard skin.
+export function unlockedSkins(meta: Meta): string[] {
+  const out: string[] = [];
+  for (const id of meta.owned) {
+    const n = NODE_MAP[id];
+    if (n && n.fx.evo && n.fx.spell) out.push(n.fx.spell as string);
+  }
+  return out;
+}
+
+export function sanitizeSkin(meta: Meta): string {
+  return meta.skin && unlockedSkins(meta).includes(meta.skin) ? meta.skin : '';
 }
 
 // Great keystones awakened in one web — the school keystones / the black stars
@@ -1034,7 +1049,7 @@ function freshMeta(): Meta {
     dust: 0, shards: 0,
     points: 0, pointsBought: 0, darkPoints: 0, darkPointsBought: 0,
     owned: ['core'], darkOwned: ['dark-core'],
-    best: 0, loadout: [LOADOUT_BASE],
+    best: 0, loadout: [LOADOUT_BASE], skin: '',
     treeRevealed: false, darkRevealed: false,
   };
 }
@@ -1085,12 +1100,14 @@ export function loadMeta(): Meta {
         owned, darkOwned,
         best: d.best || 0,
         loadout: Array.isArray(d.loadout) ? d.loadout : [LOADOUT_BASE],
+        skin: typeof d.skin === 'string' ? d.skin : '',
         treeRevealed: !!d.treeRevealed,
         darkRevealed: !!d.darkRevealed,
       };
       if (!meta.owned.includes('core')) meta.owned.unshift('core');
       if (!meta.darkOwned.includes('dark-core')) meta.darkOwned.unshift('dark-core');
       meta.loadout = sanitizeLoadout(meta);
+      meta.skin = sanitizeSkin(meta);
       return meta;
     }
   } catch { /* corrupted store — fall through */ }
@@ -1250,6 +1267,7 @@ export function deallocateNode(meta: Meta, id: string): Meta {
     ? { ...meta, darkOwned: meta.darkOwned.filter((o) => o !== id), darkPoints: meta.darkPoints + refund }
     : { ...meta, owned: meta.owned.filter((o) => o !== id), points: meta.points + refund };
   next.loadout = sanitizeLoadout(next);
+  next.skin = sanitizeSkin(next);
   saveMeta(next);
   return next;
 }
@@ -1271,6 +1289,13 @@ export function markDarkRevealed(meta: Meta): Meta {
 export function setLoadout(meta: Meta, loadout: string[]): Meta {
   const next = { ...meta, loadout };
   next.loadout = sanitizeLoadout(next);
+  saveMeta(next);
+  return next;
+}
+
+export function setSkin(meta: Meta, skin: string): Meta {
+  const next = { ...meta, skin };
+  next.skin = sanitizeSkin(next);
   saveMeta(next);
   return next;
 }

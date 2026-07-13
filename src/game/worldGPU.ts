@@ -572,7 +572,9 @@ class WorldGPUImpl implements WorldGPU {
   private uniBuf: GPUBuffer;
   private uniData = new Float32Array(12);
   private sampler: GPUSampler;
+  private atlas: Atlas;
   private atlasTex: GPUTexture;
+  private atlasVersion: number;
   private sceneBind!: GPUBindGroup;
 
   private quadBuf: GPUBuffer;
@@ -618,16 +620,14 @@ class WorldGPUImpl implements WorldGPU {
     this.configureCanvas();
 
     // atlas texture
+    this.atlas = atlas;
+    this.atlasVersion = atlas.version;
     this.atlasTex = device.createTexture({
       size: [atlas.size, atlas.size],
       format: 'rgba8unorm',
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
     });
-    device.queue.copyExternalImageToTexture(
-      { source: atlas.canvas },
-      { texture: this.atlasTex, premultipliedAlpha: false },
-      [atlas.size, atlas.size],
-    );
+    this.uploadAtlas();
     this.sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
     this.uniBuf = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.quadBuf = device.createBuffer({ size: MAX_QUADS * FLOATS_PER_QUAD * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
@@ -635,6 +635,18 @@ class WorldGPUImpl implements WorldGPU {
     this.shapeOverBuf = device.createBuffer({ size: MAX_SHAPES * FLOATS_PER_SHAPE * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
 
     this.buildPipelines();
+  }
+
+  // (Re)copy the atlas canvas into the GPU texture. Called once up front and
+  // again whenever the atlas canvas is repainted in place (skin swaps bump
+  // atlas.version; tile rects never change, so the texture size is stable).
+  private uploadAtlas() {
+    this.device.queue.copyExternalImageToTexture(
+      { source: this.atlas.canvas },
+      { texture: this.atlasTex, premultipliedAlpha: false },
+      [this.atlas.size, this.atlas.size],
+    );
+    this.atlasVersion = this.atlas.version;
   }
 
   private buildPipelines() {
@@ -835,6 +847,7 @@ class WorldGPUImpl implements WorldGPU {
 
   render(time: number, camX: number, camY: number, shapes: ShapeList, quads: QuadList, over?: ShapeList, ornate = 0, mood = 0) {
     if (!this.sceneTex) return;
+    if (this.atlas.version !== this.atlasVersion) this.uploadAtlas();
     const device = this.device;
     const u = this.uniData;
     u[0] = this.cssW; u[1] = this.cssH;
