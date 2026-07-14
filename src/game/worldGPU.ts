@@ -44,10 +44,14 @@ export class QuadList {
   atlas: Atlas;
   data = new Float32Array(MAX_QUADS * FLOATS_PER_QUAD);
   n = 0;
+  // multiplies the alpha of every quad pushed while set — lets a whole layer
+  // (e.g. the player's spells during the boss duel) fade as one, without
+  // threading a factor through every emitter. Always restored to 1.
+  groupAlpha = 1;
 
   constructor() { this.atlas = getAtlas(); }
 
-  reset() { this.n = 0; }
+  reset() { this.n = 0; this.groupAlpha = 1; }
 
   // look up a sprite's atlas entry (uv + half)
   uv(id: string): AtlasEntry | undefined { return this.atlas.entries.get(id); }
@@ -71,7 +75,7 @@ export class QuadList {
     if (mirror) { d[o + 4] = e.u1; d[o + 6] = e.u0; } else { d[o + 4] = e.u0; d[o + 6] = e.u1; }
     d[o + 5] = e.v0; d[o + 7] = e.v1;
     d[o + 8] = tintR; d[o + 9] = tintG; d[o + 10] = tintB; d[o + 11] = tintMix;
-    d[o + 12] = alpha; d[o + 13] = aspect; d[o + 14] = additive ? 1 : 0; d[o + 15] = 0;
+    d[o + 12] = alpha * this.groupAlpha; d[o + 13] = aspect; d[o + 14] = additive ? 1 : 0; d[o + 15] = 0;
     this.n++;
   }
 }
@@ -87,7 +91,8 @@ export class QuadList {
 export class ShapeList {
   data = new Float32Array(MAX_SHAPES * FLOATS_PER_SHAPE);
   n = 0;
-  reset() { this.n = 0; }
+  groupAlpha = 1;
+  reset() { this.n = 0; this.groupAlpha = 1; }
   push(
     kind: number, x: number, y: number, rot: number,
     p0: number, p1: number, p2: number, p3: number,
@@ -99,7 +104,7 @@ export class ShapeList {
     const d = this.data;
     d[o] = x; d[o + 1] = y; d[o + 2] = rot; d[o + 3] = kind;
     d[o + 4] = p0; d[o + 5] = p1; d[o + 6] = p2; d[o + 7] = p3;
-    d[o + 8] = c1r; d[o + 9] = c1g; d[o + 10] = c1b; d[o + 11] = alpha;
+    d[o + 8] = c1r; d[o + 9] = c1g; d[o + 10] = c1b; d[o + 11] = alpha * this.groupAlpha;
     d[o + 12] = c2r; d[o + 13] = c2g; d[o + 14] = c2b; d[o + 15] = additive ? 1 : 0;
     this.n++;
   }

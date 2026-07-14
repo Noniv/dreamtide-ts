@@ -21,6 +21,7 @@ export interface Particle {
   rot: number; rotV: number;
   wobble: number; wobbleF: number;
   seed: number; glow: number;
+  noDim: boolean; // exempt from the spell-fade dimming (the Dreamer's own FX)
 }
 
 export interface SpawnOpts {
@@ -45,6 +46,7 @@ function makeParticle(): Particle {
     alive: false, x: 0, y: 0, vx: 0, vy: 0, ax: 0, ay: 0, drag: 1,
     life: 0, maxLife: 1, size: 3, endSize: 0, color: '#fff', color2: null,
     mode: 'glow', rot: 0, rotV: 0, wobble: 0, wobbleF: 3, seed: 0, glow: 1,
+    noDim: false,
   };
 }
 
@@ -54,6 +56,9 @@ export class ParticleSystem {
   pool: Particle[];
   count = 0;
   overwrite = 0;
+  // while true, particles spawn exempt from the boss-duel spell-fade (used to
+  // keep the Other Dreamer's own attacks and the safe/hit feedback at full glow)
+  keepBright = false;
 
   constructor() {
     this.pool = new Array(INITIAL);
@@ -100,6 +105,7 @@ export class ParticleSystem {
     p.wobbleF = opts.wobbleF ?? 3;
     p.seed = Math.random() * 1000;
     p.glow = opts.glow ?? 1;
+    p.noDim = this.keepBright;
     return p;
   }
 

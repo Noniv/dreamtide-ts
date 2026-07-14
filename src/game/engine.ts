@@ -230,6 +230,10 @@ const BOSS_ARCHS: BossArch[] = [
 // bullet language in the game.
 export const FINALE_AT = 900;          // 15:00 on the run clock
 export const FINALE_MOTE_WINDOW = 12;  // seconds to gather the stolen light
+// no rift opens within this of a coming collapse — longer than a rift's 1.4s
+// max telegraph, so none is ever left hanging (and blinking out) when the calm
+// opens, and none can erupt inside a safe zone
+const FINALE_RIFT_LEAD = 1.6;
 export const FINALE_DASH_WINDUP = 0.62; // lunge telegraph duration (chained lunges re-aim faster)
 const FINALE_DASH_REAIM = 0.32;
 
@@ -243,8 +247,10 @@ export interface FinaleHazard { x: number; y: number; r: number; t: number; max:
 //   islands — three golden circles away from where you stand
 //   halves  — a line through the boss; the safe side is never yours
 //   band    — a golden ring around the boss: not too close, not too far
+//   doom    — three circles like islands, but NOTHING is safe: the guaranteed
+//             punishment for failing to gather his stolen light in time
 export interface FinaleCollapse {
-  kind: 'islands' | 'halves' | 'band';
+  kind: 'islands' | 'halves' | 'band' | 'doom';
   t: number; max: number;
   erupt: number;                               // >0 during the brief eruption flash (after t hits 0)
   cx: number; cy: number;                      // anchor, frozen at the start
@@ -253,6 +259,9 @@ export interface FinaleCollapse {
   halfA: number;                               // halves: line heading; safe where s > margin
 }
 export const FINALE_ERUPT_DUR = 0.45;          // how long the localized red eruption lingers
+// during the Other Dreamer's scene the player's own spells recede to a whisper
+// so the duel reads clean — their sprites, shapes and particles ease to this.
+export const SPELL_DUEL_DIM = 0.12;
 
 export interface FinaleState {
   phase: FinalePhase;
@@ -433,6 +442,9 @@ export class Engine {
   cam = { x: 0, y: 0, w: 1, h: 1 }; // extent (w/h) is in world units, not pixels
   viewScale = 1;                    // world→screen zoom = innerHeight / DESIGN_H
   shake = 0;
+  // 1 normally; eases to SPELL_DUEL_DIM through the Other Dreamer's scene so the
+  // player's spell visuals fall to a whisper, then eases back once he is gone
+  spellVisibility = 1;
   flash: { color: string; a: number } | null = null;
   banner: { str: string; color: string; life: number; maxLife: number; size: number } | null = null;
   kills = 0;
@@ -678,6 +690,8 @@ export class Engine {
     this.kills = 0;
     this.pendingLevels = 0;
     this.shake = 0;
+    this.spellVisibility = 1;
+    this.particles.keepBright = false;
     this.hudTimer = 0;
     this.spawnTimer = 1.2;
     this.eliteTimer = 35 / (1 + (this.meta.baneElite || 0) / 100);
@@ -865,7 +879,12 @@ export class Engine {
 
       // ---- particles advance on the render clock (cosmetic only) ----
       const pStart = performance.now();
-      if (!this.paused) this.particles.update(dt);
+      if (!this.paused) {
+        this.particles.update(dt);
+        const inScene = this.finale.phase !== 'none' && this.finale.phase !== 'done';
+        const target = inScene ? SPELL_DUEL_DIM : 1;
+        this.spellVisibility += (target - this.spellVisibility) * (1 - Math.exp(-dt * 2.4));
+      }
       let particleMs = performance.now() - pStart;
 
       // ---- render at display rate, interpolating sim state ----
@@ -1716,9 +1735,10 @@ export class Engine {
     const pat = bf.patterns[bf.pIdx % bf.patterns.length];
     bf.pIdx++;
     const baseA = Math.atan2(p.y - e.y, p.x - e.x);
-    // the Other Dreamer hits harder AND thicker: ~50% more shots per volley
+    // the Other Dreamer hits harder, but his volleys are kept thin so the safe
+    // zones and the veil, not a wall of bullets, are the real fight
     const nightmare = e.type === 'nightmare';
-    const dense = nightmare ? 1.5 : 1;
+    const dense = nightmare ? 0.75 : 1;
     const dmg = (12 + n * 3 + this.endgame() * 4) * (nightmare ? 1.4 : 1);
     const shoot = (ang: number, spd: number, r = 6) => this.shootBossProj(e.x, e.y, ang, spd, r, dmg, 16, nightmare ? '#ff3d5e' : null);
     // the safe gap in ring volleys: first one opens straight at the player,
@@ -1756,7 +1776,7 @@ export class Engine {
       }
     } else if (pat === 'cross') {
       const spokes = nightmare ? 6 : 4;
-      const arm = nightmare ? 2 : 1; // wider arms per spoke
+      const arm = 1;
       for (let k = 0; k < spokes; k++) {
         const base = bf.spin + k * (TAU / spokes);
         for (let j = -arm; j <= arm; j++) shoot(base + j * 0.12, bf.speed * 1.25);
@@ -2359,18 +2379,21 @@ export class Engine {
     // it): he keeps hunting, drifting after you and firing, so the gather is a
     // fight, not a free breather.
     if (F.veiled) {
-      // his own step (main-loop chase is held off; he drifts directly so his
-      // CC-immune body keeps a slow, menacing pace — sealed, never frozen)
-      bf.hold = 0.2;
-      const va = Math.atan2(p.y - e.y, p.x - e.x);
-      e.x += Math.cos(va) * 85 * dt;
-      e.y += Math.sin(va) * 85 * dt;
+      const furyV = e.hp < e.maxHp * 0.35;
+      // his lunge presses on through the veil (a non-safe-zone attack); when it
+      // is not driving the body he drives straight at you at full pace, CC-immune
+      if (!this.updateNightmareDash(e, dt, furyV)) {
+        bf.hold = 0.2;
+        const va = Math.atan2(p.y - e.y, p.x - e.x);
+        e.x += Math.cos(va) * e.speed * dt;
+        e.y += Math.sin(va) * e.speed * dt;
+      }
       F.moteT -= dt;
       let left = 0;
       for (const m of F.motes) {
         if (m.got) continue;
         m.ph += dt * 3;
-        if (dist2(m.x, m.y, p.x, p.y) < 38 * 38) {
+        if (dist2(m.x, m.y, p.x, p.y) < 53 * 53) {
           m.got = true;
           let got = 0;
           for (const mm of F.motes) if (mm.got) got++;
@@ -2385,6 +2408,7 @@ export class Engine {
       if (left === 0) {
         // the stolen light returns — the veil shatters, and he is exposed
         F.veiled = false;
+        F.dash = 0; // any in-flight lunge ends with the veil
         F.stunT = 2.8;
         F.veilT = 24;
         audio.veilShatter();
@@ -2397,33 +2421,31 @@ export class Engine {
           this.particles.spawn({ x: e.x, y: e.y, vx: Math.cos(a) * rand(120, 420), vy: Math.sin(a) * rand(120, 420), life: rand(0.4, 0.9), size: rand(3, 7), endSize: 0.5, color: '#ffd27a', color2: '#ff3d5e', mode: 'shard', rotV: rand(-9, 9), drag: 0.88 });
         }
       } else if (F.moteT <= 0) {
-        // too slow: the stolen dream detonates
+        // too slow: the stolen dream turns the whole floor against you. Unlike
+        // the collapse, this one has NO calm — three doom-wells bloom like the
+        // island telegraph, but nowhere is safe. The one guaranteed wound.
         F.veiled = false;
+        F.dash = 0; // any in-flight lunge ends as the doom blooms
         F.veilT = 16;
         F.motes.length = 0;
         audio.nightmareBloom();
-        this.flash = { color: '255,32,64', a: 0.5 };
+        this.flash = { color: '255,32,64', a: 0.4 };
         this.shake = 14;
-        this.spawnText(e.x, e.y - e.radius - 30, 'HIS DREAM BLOOMS', '#ff3d5e', 1.6, -30, 18);
-        const baseA = Math.atan2(p.y - e.y, p.x - e.x);
-        const dmg = 14 + this.bossCount * 3 + this.endgame() * 4;
-        for (let ring = 0; ring < 3; ring++) {
-          const count = 26;
-          for (let i2 = 0; i2 < count; i2++) {
-            const ang = (i2 / count) * TAU + ring * 0.08;
-            // one narrow escape, opened toward where you stand
-            const off = Math.atan2(Math.sin(ang - baseA), Math.cos(ang - baseA));
-            if (Math.abs(off) < 0.22) continue;
-            this.shootBossProj(e.x, e.y, ang, bf.speed * (0.7 + ring * 0.18), 7, dmg, 16, '#ff3d5e');
-          }
+        this.setBanner('HIS DREAM DEVOURS — NOWHERE IS SAFE', '#ff3d5e', 2.6, 20);
+        const c: FinaleCollapse = { kind: 'doom', t: 1.3, max: 1.3, erupt: 0, cx: e.x, cy: e.y, islands: [], r0: 260, r1: 430, halfA: 0 };
+        const base = rand(0, TAU);
+        for (let i = 0; i < 3; i++) {
+          const a = base + (i / 3) * TAU + rand(-0.3, 0.3);
+          const pt = this.clampToView(p.x + Math.cos(a) * rand(200, 360), p.y + Math.sin(a) * rand(200, 360), 120);
+          c.islands.push({ x: pt.x, y: pt.y, r: 150 });
         }
+        F.collapse = c;
       } else {
         // still veiled and light still uncollected: he keeps up the pressure —
-        // volleys and rifts continue (his lunge and the collapse hold off so
-        // gathering isn't buried). He is NOT staggered until left === 0 above.
-        const furyV = e.hp < e.maxHp * 0.35;
+        // volleys, rifts and lunges all continue (only the collapse holds off, so
+        // the safe-zone demand isn't stacked on the gather). NOT staggered here.
         bf.interval = furyV ? 0.72 : 0.95;
-        this.updateBossFire(e, dt);
+        if (F.dash === 0) this.updateBossFire(e, dt); // fire pauses mid-lunge
         this.nightmareRifts(dt, furyV);
       }
       return;
@@ -2446,12 +2468,14 @@ export class Engine {
       }
     } else {
       F.collapseT -= dt;
-      if (F.collapseT <= 0) this.startNightmareCollapse(e);
+      // never open the collapse mid-lunge — the two big threats never stack
+      if (F.collapseT <= 0 && F.dash === 0) this.startNightmareCollapse(e);
     }
 
-    // the veil clock (never mid-collapse: one demand on the legs at a time)
+    // the veil clock (never mid-collapse, and never mid-lunge: let the dash he
+    // has already committed to land instead of vanishing into the veil)
     F.veilT -= dt;
-    if (F.veilT <= 0 && !F.collapse) {
+    if (F.veilT <= 0 && !F.collapse && F.dash === 0) {
       F.veiled = true;
       F.moteT = FINALE_MOTE_WINDOW;
       F.motes.length = 0;
@@ -2465,8 +2489,26 @@ export class Engine {
       return;
     }
 
-    // the hunt: telegraphed lunges — chained, re-aiming between each, so one
-    // sidestep is never the whole answer
+    // the hunt: telegraphed, chained lunges (see updateNightmareDash)
+    this.updateNightmareDash(e, dt, fury);
+
+    // rifts tear open where the dreamer is HEADED, not where they were — but
+    // never during the collapse, nor in the lead-up to it: a telegraph left
+    // hanging when the calm opens would just blink out. Held back this way, no
+    // rift is ever live at collapse start, so the safe zones stay clean.
+    if (!F.collapse && F.collapseT > FINALE_RIFT_LEAD) this.nightmareRifts(dt, fury);
+
+    // and always, the bullet language of a nightmare (paused during the lunge)
+    if (F.dash === 0) this.updateBossFire(e, dt);
+  }
+
+  // The telegraphed, chained lunge — a non-safe-zone attack, so it presses on
+  // through the veil too. Returns true while the lunge itself is driving the
+  // body, so the caller yields its own movement to it.
+  private updateNightmareDash(e: Enemy, dt: number, fury: boolean): boolean {
+    const F = this.finale;
+    const p = this.player;
+    const bf = e.bossFire!;
     if (F.dash === 1) {
       bf.hold = 0.2;
       F.dashT -= dt;
@@ -2476,7 +2518,9 @@ export class Engine {
         F.dashT = 0.32;
         audio.nightmareDash(this.panOf(e.x));
       }
-    } else if (F.dash === 2) {
+      return false;
+    }
+    if (F.dash === 2) {
       bf.hold = 0.2;
       e.x += Math.cos(F.dashA) * 1700 * dt;
       e.y += Math.sin(F.dashA) * 1700 * dt;
@@ -2496,23 +2540,18 @@ export class Engine {
           F.dashCd = rand(5, 7.5);
         }
       }
-    } else {
-      F.dashCd -= dt;
-      if (F.dashCd <= 0 && !F.collapse && dist2(e.x, e.y, p.x, p.y) > 260 * 260) {
-        F.dash = 1;
-        F.dashT = FINALE_DASH_WINDUP;
-        F.dashMax = FINALE_DASH_WINDUP;
-        F.dashChain = fury ? 2 : 1; // 2 lunges, 3 in fury
-        F.dashA = Math.atan2(p.y - e.y, p.x - e.x);
-        audio.nightmareAim(this.panOf(e.x));
-      }
+      return true;
     }
-
-    // rifts tear open where the dreamer is HEADED, not where they were
-    this.nightmareRifts(dt, fury);
-
-    // and always, the bullet language of a nightmare (paused during the lunge)
-    if (F.dash === 0) this.updateBossFire(e, dt);
+    F.dashCd -= dt;
+    if (F.dashCd <= 0 && !F.collapse && dist2(e.x, e.y, p.x, p.y) > 260 * 260) {
+      F.dash = 1;
+      F.dashT = FINALE_DASH_WINDUP;
+      F.dashMax = FINALE_DASH_WINDUP;
+      F.dashChain = fury ? 2 : 1; // 2 lunges, 3 in fury
+      F.dashA = Math.atan2(p.y - e.y, p.x - e.x);
+      audio.nightmareAim(this.panOf(e.x));
+    }
+    return false;
   }
 
   // Rifts tear open ahead of the dreamer's path (shared by the veil phase and
@@ -2537,6 +2576,7 @@ export class Engine {
 
   // ---- the collapse: the safe shape is the attack --------------------------
   private collapseSafeAt(c: FinaleCollapse, x: number, y: number): boolean {
+    if (c.kind === 'doom') return false; // nowhere is safe — the fail punishment
     if (c.kind === 'islands') {
       for (const isl of c.islands) if (dist2(x, y, isl.x, isl.y) < isl.r * isl.r) return true;
       return false;
@@ -2559,6 +2599,10 @@ export class Engine {
   private startNightmareCollapse(e: Enemy) {
     const F = this.finale;
     const p = this.player;
+    // rifts are already held off in the lead-up (FINALE_RIFT_LEAD), so none is
+    // live here to wipe; keep the next one back a beat so it doesn't crowd the
+    // eruption's tail
+    F.hazardT = Math.max(F.hazardT, 2);
     const kind = (['islands', 'halves', 'band'] as const)[F.collapseN % 3];
     F.collapseN++;
     const c: FinaleCollapse = { kind, t: 0, max: 0, erupt: 0, cx: e.x, cy: e.y, islands: [], r0: 260, r1: 430, halfA: 0 };
@@ -2571,7 +2615,9 @@ export class Engine {
         c.islands.push({ x: pt.x, y: pt.y, r: 140 });
       }
     } else if (kind === 'halves') {
-      c.max = 1.8;
+      // the seam anchors on the boss, so a lunge can leave it starting far off —
+      // a longer wind-up gives time to cross to the safe side wherever it lands
+      c.max = 2.2;
       c.halfA = rand(0, TAU);
       // the safe side is never the one you stand on
       const s = (p.x - c.cx) * -Math.sin(c.halfA) + (p.y - c.cy) * Math.cos(c.halfA);
@@ -2595,10 +2641,11 @@ export class Engine {
     // red belongs to the doomed ground alone (a screen-wide flash falsely read
     // as taking a hit even while standing safe). The renderer glares the unsafe
     // region red for the erupt window; here we scatter the eruption in it.
+    const doom = c.kind === 'doom';
     audio.collapseErupt();
-    this.shake = 9;
+    this.shake = doom ? 15 : 9;
     const view = this.viewRect(-60);
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < (doom ? 34 : 20); i++) {
       const x = rand(view.left, view.right), y = rand(view.top, view.bottom);
       if (this.collapseSafeAt(c, x, y)) continue;
       this.particles.spawn({ x, y, life: rand(0.35, 0.55), size: rand(60, 120), color: '#ff3d5e', mode: 'ring' });
@@ -2608,18 +2655,33 @@ export class Engine {
       }
     }
     // being caught reads on the DREAMER, not the whole screen: a tight red
-    // wound-flash right on the wizard, plus the usual hurt feedback
+    // wound-flash right on the wizard, plus the usual hurt feedback.
     if (!safe) {
-      this.hurtPlayer(e.dmg * 1.5);
+      // a WIPE: caught outside the calm — or anywhere at all when the doom
+      // blooms — is death, no matter the HP or Ward (melee-flag skips the
+      // i-frame; the huge blow overwhelms any shield). Only Second Wind still
+      // refuses it, once.
+      this.shake = 20;
+      this.hurtPlayer(1e9, 0, true);
       for (let k = 0; k < 20; k++) {
         const a = rand(0, TAU);
         this.particles.spawn({ x: p.x, y: p.y + PLAYER_HURT_DY, vx: Math.cos(a) * rand(80, 260), vy: Math.sin(a) * rand(80, 260), life: rand(0.3, 0.6), size: rand(3, 6), endSize: 0.5, color: '#ff2040', mode: 'glow', drag: 0.88 });
       }
     } else {
-      // safe: a soft gold affirmation on the dreamer, so standing in the calm
-      // is unmistakably rewarded rather than merely "not hit"
-      this.spawnText(p.x, p.y - 54, 'SAFE', '#ffd27a', 0.8, -34, 15);
-      this.particles.spawn({ x: p.x, y: p.y + PLAYER_HURT_DY, life: 0.4, size: 70, color: '#ffd27a', mode: 'ring' });
+      // safe: a bright gold affirmation on the dreamer, so standing in the calm
+      // is unmistakably rewarded rather than merely "not hit" — twin shockwaves,
+      // a warm bloom, and a rising sparkle burst that reads instantly as "kept"
+      const sx = p.x, sy = p.y + PLAYER_HURT_DY;
+      this.spawnText(p.x, p.y - 56, 'SAFE', '#ffe6b0', 0.95, -42, 18);
+      this.particles.spawn({ x: sx, y: sy, life: 0.45, size: 40, endSize: 150, color: '#fff4d6', mode: 'ring' });
+      this.particles.spawn({ x: sx, y: sy, life: 0.7, size: 20, endSize: 230, color: '#ffd27a', mode: 'ring' });
+      this.particles.spawn({ x: sx, y: sy, life: 0.32, size: 96, endSize: 40, color: '#fff4d6', mode: 'glow' });
+      for (let k = 0; k < 18; k++) {
+        const a = rand(0, TAU);
+        const sp = rand(70, 210);
+        this.particles.spawn({ x: sx, y: sy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 55, life: rand(0.45, 0.85), size: rand(2.5, 5.5), endSize: 0.5, color: Math.random() < 0.5 ? '#ffe6b0' : '#ffd27a', mode: Math.random() < 0.35 ? 'star' : 'glow', rotV: rand(-6, 6), drag: 0.9 });
+      }
+      this.shake = Math.max(this.shake, 4);
     }
     c.erupt = FINALE_ERUPT_DUR;
     const hpFrac = e.maxHp > 0 ? e.hp / e.maxHp : 1;
@@ -3756,6 +3818,9 @@ export class Engine {
   killEnemy(e: Enemy) {
     e.dead = true;
     this.kills++;
+    // the Other Dreamer's fall is triumphant, not dimmed with the duel's spells
+    const wasBright = this.particles.keepBright;
+    if (this.finale.boss === e) this.particles.keepBright = true;
     // DISCHARGE: a charged foe dies crackling — its stored storm leaps to
     // nearby kin. Chains cascade on purpose: charged deaths beget charged
     // deaths, and a well-stormed crowd goes up like a string of firecrackers.
@@ -3874,6 +3939,7 @@ export class Engine {
       this.spawnText(p.x, p.y - 66, 'THE HOURGLASS TURNS', '#7dffb0', 1.3, -28, 15);
       audio.bonus();
     }
+    this.particles.keepBright = wasBright;
   }
 
   // A single enemy melee hit. No shared i-frames: pacing comes from each
@@ -4040,7 +4106,12 @@ export class Engine {
       const ct = this.corruptionTarget();
       this.corruption += (ct - this.corruption) * Math.min(1, dt * (ct > this.corruption ? 1.6 : 0.35));
     }
-    if (this.finaleCinematic()) { this.updateFinaleCutscene(dt); return; }
+    if (this.finaleCinematic()) {
+      this.particles.keepBright = true;
+      this.updateFinaleCutscene(dt);
+      this.particles.keepBright = false;
+      return;
+    }
 
     // dream tides: every 8s each awakened surge has a chance to swell
     if (this.meta.surge) {
@@ -4248,15 +4319,19 @@ export class Engine {
           e.y += ((e.y - pcy) / Dp) * k;
         }
       }
-      // boss bullet-hell (the Other Dreamer runs his own playbook)
+      // boss bullet-hell (the Other Dreamer runs his own playbook). His own FX
+      // stay at full glow while the player's spells are dimmed for the duel.
+      const nightmare = e.type === 'nightmare';
+      if (nightmare) this.particles.keepBright = true;
       if (e.boss) {
-        if (e.type === 'nightmare') this.updateNightmare(e, dt);
+        if (nightmare) this.updateNightmare(e, dt);
         else this.updateBossFire(e, dt);
       }
       // ambient wisps off elites & boss
       if ((e.elite || e.boss) && Math.random() < 0.3) {
-        this.particles.spawn({ x: e.x + rand(-e.radius, e.radius), y: e.y + rand(-e.radius, e.radius), vx: rand(-20, 20), vy: rand(-40, -10), life: rand(0.4, 1), size: rand(2, 5), color: e.boss ? (e.type === 'nightmare' ? '#ff3d5e' : '#c48cff') : '#ff5a7a', mode: 'glow', drag: 0.97 });
+        this.particles.spawn({ x: e.x + rand(-e.radius, e.radius), y: e.y + rand(-e.radius, e.radius), vx: rand(-20, 20), vy: rand(-40, -10), life: rand(0.4, 1), size: rand(2, 5), color: e.boss ? (nightmare ? '#ff3d5e' : '#c48cff') : '#ff5a7a', mode: 'glow', drag: 0.97 });
       }
+      if (nightmare) this.particles.keepBright = false;
     }
     // light separation between enemies (cheap, sampled)
     const es = this.enemies;

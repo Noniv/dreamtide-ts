@@ -145,20 +145,30 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
   let lanterns = 0;
   for (const z of eng.zones) if (z.kind === 'lantern') lanterns++;
   const lanternDim = lanterns > 1 ? 1 / (1 + 0.45 * (lanterns - 1)) : 1;
+  // During the Other Dreamer's scene the player's spells recede to a whisper so
+  // the duel reads clean — every offensive/defensive layer fades as one group,
+  // while pickups, the wizard, enemies and the Dreamer's own bolts stay full.
+  const sv = eng.spellVisibility;
+  q.groupAlpha = sv; sh.groupAlpha = sv;
   for (const z of eng.zones) emitZone(sh, q, eng, z, alpha, camX, camY, lanternDim);
   for (const b of eng.beams) emitBeam(sh, eng, b, alpha, camX, camY);
   for (const b of eng.bolts) emitBolt(sh, b, alpha, camX, camY);
+  q.groupAlpha = 1; sh.groupAlpha = 1;
   for (const s of eng.pickups) emitPickup(q, eng, s, camX, camY);
   for (const g of eng.gems) emitGem(q, cam, g, alpha, camX, camY);
+  sh.groupAlpha = sv;
   emitDefenseUnder(sh, eng, ipx - camX, ipy - camY);
+  sh.groupAlpha = 1;
   emitFinale(q, sh, shOver, eng, alpha, camX, camY);
   emitPlayer(q, eng, ipx - camX, ipy - camY);
   for (const e of eng.enemies) emitEnemy(q, shOver, eng, e, alpha, camX, camY);
+  q.groupAlpha = sv;
   emitOrbitals(q, eng, alpha, camX, camY);
   emitFrostOrbs(q, eng, alpha, camX, camY);
   emitWisps(q, eng, alpha, camX, camY);
   emitDefenseOver(q, eng, ipx - camX, ipy - camY);
   for (const pr of eng.projectiles) emitProjectile(q, eng, pr, alpha, camX, camY);
+  q.groupAlpha = 1;
   for (const bp of eng.bossProjectiles) emitBossProjectile(q, sh, eng, bp, alpha, camX, camY);
   emitParticles(q, eng, camX, camY);
 
@@ -519,13 +529,14 @@ function emitFinale(q: QuadList, sh: ShapeList, shOver: ShapeList, eng: Engine, 
     const beaconE = q.uv('pickup:beacon')!;
     const ringE = q.uv('ring')!;
     const urgent = F.moteT < 4 ? 0.5 + 0.5 * Math.sin(vt * 10) : 1;
+    const mS = 1.4; // bigger, easier to grab while sprinting after them
     for (const m of F.motes) {
       if (m.got) continue;
       const x = m.x - camX, y = m.y - camY + Math.sin(m.ph) * 4;
-      q.push(true, beaconE, x, y, beaconE.half, 0, 0.9 * urgent, 1, 0.82, 0.48, 1);
-      q.push(true, ringE, x, y + 6, (12 + Math.sin(vt * 4) * 2) / 30 * ringE.half, 0, 0.6 * urgent, 1, 0.82, 0.48, 1);
-      q.push(true, glowE, x, y - 8, 30, 0, urgent, 1, 0.82, 0.48, 1);
-      q.push(true, starE, x, y - 8, starE.half, m.ph * 0.7, urgent, 1, 0.9, 0.6, 1);
+      q.push(true, beaconE, x, y, beaconE.half * mS, 0, 0.9 * urgent, 1, 0.82, 0.48, 1);
+      q.push(true, ringE, x, y + 6, (12 + Math.sin(vt * 4) * 2) * mS / 30 * ringE.half, 0, 0.6 * urgent, 1, 0.82, 0.48, 1);
+      q.push(true, glowE, x, y - 8, 30 * mS, 0, urgent, 1, 0.82, 0.48, 1);
+      q.push(true, starE, x, y - 8, starE.half * mS, m.ph * 0.7, urgent, 1, 0.9, 0.6, 1);
     }
   }
 
@@ -538,30 +549,40 @@ function emitFinale(q: QuadList, sh: ShapeList, shOver: ShapeList, eng: Engine, 
     const eruptF = col.erupt > 0 ? col.erupt / FINALE_ERUPT_DUR : 0;
     // the gold calm flares bright the instant the doom fires — being safe is a
     // reward you SEE, the opposite pole from the red glare over the doomed ground
-    const gA = (0.55 + 0.45 * pulse) * (1 + eruptF * 1.4);
+    const gA = (0.55 + 0.45 * pulse) * (1 + eruptF * 2.1);
+    const eBloom = eruptF * eruptF; // the interior fills with gold light on the beat
     if (col.kind === 'islands') {
       for (const isl of col.islands) {
         const x = isl.x - camX, y = isl.y - camY;
-        sh.push(SHAPE_RING, x, y, vt * 0.8, isl.r, 2.2, 9, 0, 1, 0.82, 0.48, gA, 0.4, 0.3, 0.12);
-        sh.push(SHAPE_DISC, x, y, 0, isl.r * 0.94, 0.7, 1.4, 0, 1, 0.82, 0.48, 0.08 + 0.08 * pulse, 0.22, 0.16, 0.06);
+        sh.push(SHAPE_RING, x, y, vt * 0.8, isl.r, 2.2 + 3.4 * eruptF, 9, 0, 1, 0.82, 0.48, gA, 0.4, 0.3, 0.12);
+        sh.push(SHAPE_DISC, x, y, 0, isl.r * 0.94, 0.7, 1.4, 0, 1, 0.86, 0.54, 0.08 + 0.08 * pulse + 0.4 * eBloom, 0.22, 0.16, 0.06);
         const beaconE = q.uv('pickup:beacon')!;
         q.push(true, beaconE, x, y, beaconE.half, 0, 0.5 * gA, 1, 0.82, 0.48, 1);
       }
     } else if (col.kind === 'band') {
       const x = col.cx - camX, y = col.cy - camY;
-      sh.push(SHAPE_RING, x, y, vt * 0.5, col.r0, 2.2, 9, 0, 1, 0.82, 0.48, gA, 0.4, 0.3, 0.12);
-      sh.push(SHAPE_RING, x, y, -vt * 0.5, col.r1, 2.2, 9, 0, 1, 0.82, 0.48, gA, 0.4, 0.3, 0.12);
-      sh.push(SHAPE_RING, x, y, 0, (col.r0 + col.r1) / 2, (col.r1 - col.r0) * 0.42, 4, 0, 1, 0.82, 0.48, 0.06 + 0.06 * pulse, 0.14, 0.10, 0.04);
-    } else {
+      sh.push(SHAPE_RING, x, y, vt * 0.5, col.r0, 2.2 + 3.4 * eruptF, 9, 0, 1, 0.82, 0.48, gA, 0.4, 0.3, 0.12);
+      sh.push(SHAPE_RING, x, y, -vt * 0.5, col.r1, 2.2 + 3.4 * eruptF, 9, 0, 1, 0.82, 0.48, gA, 0.4, 0.3, 0.12);
+      sh.push(SHAPE_RING, x, y, 0, (col.r0 + col.r1) / 2, (col.r1 - col.r0) * 0.42, 4, 0, 1, 0.86, 0.54, 0.06 + 0.06 * pulse + 0.32 * eBloom, 0.14, 0.10, 0.04);
+    } else if (col.kind === 'halves') {
       // halves: the boundary seam, with a breath of gold on the safe side
       const ca2 = Math.cos(col.halfA), sa2 = Math.sin(col.halfA);
       const nx = -sa2, ny = ca2; // the safe normal
       const x0 = col.cx - ca2 * 1600 - camX, y0 = col.cy - sa2 * 1600 - camY;
-      shOver.push(SHAPE_CAPSULE, x0, y0, col.halfA, 3200, 2.4, 10, 0, 1, 0.82, 0.48, gA, 0.45, 0.34, 0.14);
+      shOver.push(SHAPE_CAPSULE, x0, y0, col.halfA, 3200, 2.4 + 4 * eruptF, 10, 0, 1, 0.82, 0.48, gA, 0.45, 0.34, 0.14);
       for (let i = -4; i <= 4; i++) {
         const bx2 = col.cx + ca2 * i * 190 + nx * 130 - camX;
         const by2 = col.cy + sa2 * i * 190 + ny * 130 - camY;
-        q.push(true, glowE, bx2, by2, 26 + pulse * 8, 0, 0.16 + 0.12 * pulse, 1, 0.82, 0.48, 1);
+        q.push(true, glowE, bx2, by2, 26 + pulse * 8 + 22 * eBloom, 0, 0.16 + 0.12 * pulse + 0.4 * eBloom, 1, 0.86, 0.54, 1);
+      }
+    } else {
+      // doom: the island telegraph's shape rendered in wrathful red — these are
+      // not havens but wells, and (see drawCollapseDanger) the whole floor burns
+      const dA = (0.6 + 0.4 * pulse) * (1 + eruptF * 2.4);
+      for (const isl of col.islands) {
+        const x = isl.x - camX, y = isl.y - camY;
+        sh.push(SHAPE_RING, x, y, -vt * 1.1, isl.r, 2.6 + 4 * eruptF, 10, 0, 1, 0.18, 0.24, dA, 0.5, 0.04, 0.1);
+        sh.push(SHAPE_DISC, x, y, 0, isl.r * 0.96, 0.7, 1.3, 0, 1, 0.12, 0.18, 0.12 + 0.14 * pulse + 0.5 * eBloom, 0.4, 0.03, 0.08);
       }
     }
   }
@@ -665,13 +686,17 @@ function drawCollapseDanger(eng: Engine, octx: CanvasRenderingContext2D, w: numb
   let base: string;
   if (erupting) {
     const ef = c.erupt / FINALE_ERUPT_DUR; // 1 → 0
-    alpha = 0.72 * ef;
-    base = 'rgb(210,20,44)';
+    // a hard bright glare that snaps in and decays fast — impact you feel
+    alpha = 0.84 * ef;
+    base = ef > 0.7 ? 'rgb(255,60,86)' : 'rgb(214,22,46)';
   } else {
     const f = 1 - Math.max(0, c.t) / c.max;
     const flick = c.t < 0.6 ? 0.7 + 0.3 * Math.sin(vt * 26) : 1;
-    alpha = (0.1 + 0.26 * f) * flick; // a warning, deliberately below "hit" strength
-    base = 'rgb(122,4,26)';
+    // the doom builds hotter and floods the whole floor — there is no reading a
+    // safe pocket out of it, so the warning is meant to feel inescapable
+    const doomB = c.kind === 'doom' ? 1.15 : 1;
+    alpha = (0.1 + 0.26 * f) * flick * doomB;
+    base = c.kind === 'doom' ? 'rgb(150,6,30)' : 'rgb(122,4,26)';
   }
   const S = 4;
   const dw = Math.ceil(w / S), dh = Math.ceil(h / S);
@@ -687,13 +712,17 @@ function drawCollapseDanger(eng: Engine, octx: CanvasRenderingContext2D, w: numb
   const toY = (y: number) => (y - camY) / S;
   g.globalCompositeOperation = 'destination-out';
   if (c.kind === 'islands') {
+    // Erase the whole calm solidly and feather only OUTWARD, past the true safe
+    // radius, so no red bleeds inside the circle where the player stands.
     for (const isl of c.islands) {
       const r = isl.r / S;
-      const gr = g.createRadialGradient(toX(isl.x), toY(isl.y), r * 0.55, toX(isl.x), toY(isl.y), r);
+      const feather = 22 / S;
+      const cx = toX(isl.x), cy = toY(isl.y);
+      const gr = g.createRadialGradient(cx, cy, Math.max(0, r - 3 / S), cx, cy, r + feather);
       gr.addColorStop(0, 'rgba(0,0,0,1)');
       gr.addColorStop(1, 'rgba(0,0,0,0)');
       g.fillStyle = gr;
-      g.beginPath(); g.arc(toX(isl.x), toY(isl.y), r, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(cx, cy, r + feather, 0, Math.PI * 2); g.fill();
     }
   } else if (c.kind === 'band') {
     g.fillStyle = 'rgba(0,0,0,1)';
@@ -701,19 +730,21 @@ function drawCollapseDanger(eng: Engine, octx: CanvasRenderingContext2D, w: numb
     g.arc(toX(c.cx), toY(c.cy), c.r1 / S, 0, Math.PI * 2);
     g.arc(toX(c.cx), toY(c.cy), c.r0 / S, 0, Math.PI * 2, true);
     g.fill();
-  } else {
-    // halves: erase the safe side (local +y after rotating by halfA)
+  } else if (c.kind === 'halves') {
+    // halves: erase everything past the true safe boundary (local +y > 30)
+    // solidly, feathering only back into the DOOMED side so the calm stays clear
     g.save();
     g.translate(toX(c.cx), toY(c.cy));
     g.rotate(c.halfA);
-    const edge = 90 / S;
-    const gr = g.createLinearGradient(0, 0, 0, edge);
+    const bound = 30 / S;
+    const feather = 24 / S;
+    const gr = g.createLinearGradient(0, bound - feather, 0, bound);
     gr.addColorStop(0, 'rgba(0,0,0,0)');
     gr.addColorStop(1, 'rgba(0,0,0,1)');
     g.fillStyle = gr;
-    g.fillRect(-3000, 0, 6000, edge);
+    g.fillRect(-3000, bound - feather, 6000, feather);
     g.fillStyle = 'rgba(0,0,0,1)';
-    g.fillRect(-3000, edge, 6000, 3000);
+    g.fillRect(-3000, bound, 6000, 3000);
     g.restore();
   }
   octx.save();
@@ -724,7 +755,7 @@ function drawCollapseDanger(eng: Engine, octx: CanvasRenderingContext2D, w: numb
   // one gold chevron from the dreamer toward the nearest calm, while unsafe
   // (never during the eruption itself — the moment to move has already passed)
   const p = eng.player;
-  if (!erupting && !eng.finaleCollapseSafe(p.x, p.y + PLAYER_HURT_DY)) {
+  if (!erupting && c.kind !== 'doom' && !eng.finaleCollapseSafe(p.x, p.y + PLAYER_HURT_DY)) {
     let tx = p.x, ty = p.y;
     if (c.kind === 'islands') {
       let bd = Infinity;
@@ -1601,6 +1632,8 @@ function emitParticles(q: QuadList, eng: Engine, camX: number, camY: number) {
   if (!_runeE) _runeE = [q.uv('p:rune0')!, q.uv('p:rune1')!, q.uv('p:rune2')!, q.uv('p:rune3')!];
   const runeE = _runeE;
   const cw = cam.w, ch = cam.h;
+  // player-spell particles fade with the duel; the Dreamer's own (noDim) don't
+  const sv = eng.spellVisibility;
   for (let i = 0; i < count; i++) {
     const pt = pool[i];
     const t = pt.life / pt.maxLife;
@@ -1610,6 +1643,7 @@ function emitParticles(q: QuadList, eng: Engine, camX: number, camY: number) {
     if (size < 1.2) continue;
     let a = t < 0.35 ? t / 0.35 : 1;
     if (a > 1) a = 1;
+    if (!pt.noDim && sv < 1) a *= sv;
     const [r, g, b, ca] = rgb(pt.color);
     a *= ca; // rgba() colours carry their intended strength in the alpha
     switch (pt.mode) {
