@@ -237,7 +237,15 @@ const FINALE_RIFT_LEAD = 1.6;
 export const FINALE_DASH_WINDUP = 0.62; // lunge telegraph duration (chained lunges re-aim faster)
 const FINALE_DASH_REAIM = 0.32;
 
-export type FinalePhase = 'none' | 'sweep' | 'approach' | 'line1' | 'line2' | 'dread' | 'anger' | 'boss' | 'done';
+// …'boss' is the fight; 'fall' is his unmaking (a directed death), 'dawn' the
+// dream returning; 'done' is ordinary endless play resumed with the dream won.
+export type FinalePhase = 'none' | 'sweep' | 'approach' | 'line1' | 'line2' | 'dread' | 'anger' | 'boss' | 'fall' | 'dawn' | 'done';
+
+// the death cinematic's two acts, in seconds. The fall is paced by the shatter
+// itself: ~1s cracking, the pieces breaking away over ~1.2s, the last of them
+// gone by ~4s (see the 'fall' block in render.ts, which owns the choreography).
+export const FINALE_FALL_DUR = 4.6;   // he comes apart
+export const FINALE_DAWN_DUR = 5.2;   // the dream is given back before the coda
 
 export interface FinaleMote { x: number; y: number; ph: number; got: boolean }
 export interface FinaleHazard { x: number; y: number; r: number; t: number; max: number }
@@ -279,6 +287,13 @@ export interface FinaleState {
   dashChain: number; dashMax: number;
   collapse: FinaleCollapse | null;
   collapseT: number; collapseN: number;
+  // the death cinematic: rupture beats already fired, and whether the victory
+  // screen has been raised (so the frozen 'dawn' resumes into 'done' on resume)
+  ruptures: number;
+  victoryFired: boolean;
+  // his health bar's chip trail — lags the real HP so big hits land as a
+  // visible bite taken out of him rather than a silent nudge
+  hpLag: number;
 }
 
 function makeFinale(): FinaleState {
@@ -291,6 +306,7 @@ function makeFinale(): FinaleState {
     dash: 0, dashT: 0, dashA: 0, dashCd: 7,
     dashChain: 0, dashMax: FINALE_DASH_WINDUP,
     collapse: null, collapseT: 6, collapseN: 0,
+    ruptures: 0, victoryFired: false, hpLag: 0,
   };
 }
 
@@ -383,7 +399,10 @@ export interface EngineHooks {
   onRelic: (choices: string[]) => void;
   // a Whispering Altar was touched: accept the pact or refuse for a small mercy
   onPact: (pact: PactDef) => void;
-  onGameOver: (r: { time: number; kills: number; level: number; bonusDust: number; shards: number; relics: string[] }) => void;
+  onGameOver: (r: { time: number; kills: number; level: number; bonusDust: number; shards: number; relics: string[]; cleared?: boolean }) => void;
+  // the Other Dreamer has fallen and the dream is given back — raise the victory
+  // rite (the run then continues, endless, once the player chooses to dream on)
+  onVictory: (r: { time: number; kills: number; level: number; relics: string[] }) => void;
   getMeta?: () => Bonuses;
 }
 
@@ -468,6 +487,8 @@ export class Engine {
   // sky corruption in the background shader. Eased so it seeps in with him
   // and, when he falls, drains away slowly like waking from the wrong dream.
   corruption = 0;
+  // the Other Dreamer has been beaten this run (drives the wake-screen's framing)
+  finaleWon = false;
 
   private surgeT = 8;
   private mergeT = 0;
@@ -659,6 +680,7 @@ export class Engine {
     this.lucidTimer = rand(150, 210);
     this.finale = makeFinale();
     this.corruption = 0;
+    this.finaleWon = false;
     this.relicQueue = 0;
     this.relicChoiceActive = false;
     this.pactActive = false;
@@ -826,7 +848,9 @@ export class Engine {
   private onKeyDown = (e: KeyboardEvent) => {
     this.keys[e.key.toLowerCase()] = true;
     if (e.key === ' ' && !(e.target instanceof HTMLElement && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable))) e.preventDefault();
-    if (e.key === 'Escape' && this.inRun && !this.player.dead && !this.levelUpActive && !this.relicChoiceActive && !this.pactActive) {
+    // the wake-rite holds the floor like any other overlay: Escape must not
+    // unpause the sim out from under it (the dawn would finish unseen)
+    if (e.key === 'Escape' && this.inRun && !this.player.dead && !this.levelUpActive && !this.relicChoiceActive && !this.pactActive && !this.victoryOpen()) {
       this.paused = !this.paused;
       this.pushHud(true);
     }
@@ -2091,7 +2115,12 @@ export class Engine {
   // hurt the dreamer, and simStep runs only the minimal frame (see simStep).
   finaleCinematic(): boolean {
     const ph = this.finale.phase;
-    return ph === 'sweep' || ph === 'approach' || ph === 'line1' || ph === 'line2' || ph === 'dread' || ph === 'anger';
+    return ph === 'sweep' || ph === 'approach' || ph === 'line1' || ph === 'line2' || ph === 'dread' || ph === 'anger' || ph === 'fall' || ph === 'dawn';
+  }
+
+  // the wake-rite is up and holding the paused floor, waiting on "Dream on"
+  victoryOpen(): boolean {
+    return this.finale.phase === 'dawn' && this.finale.victoryFired;
   }
 
   // how corrupted the sky should be for the current finale beat: a creep while
@@ -2104,6 +2133,12 @@ export class Engine {
       case 'dread': return 0.75;
       case 'anger': return 0.95;
       case 'boss': return 1;
+      // his grip holds until the glass cracks, then drains away as he breaks
+      // apart into light — so the dark sky recedes with him and his shards read
+      case 'fall': {
+        const t = this.finale.t;
+        return t < 1 ? 1 : Math.max(0, 1 - (t - 1) / 2.4) * 0.7;
+      }
       default: return 0;
     }
   }
@@ -2215,10 +2250,61 @@ export class Engine {
         F.phase = 'boss'; F.t = 0;
         this.spawnNightmareBoss(F.wx, F.wy);
       }
+    } else if (F.phase === 'fall') {
+      // he comes apart: gold light bleeds from the seams, faster as he goes
+      const f = Math.min(1, F.t / FINALE_FALL_DUR);
+      if (Math.random() < 0.4 + f * 0.5) {
+        const a = rand(0, TAU);
+        const r = rand(4, 26);
+        this.particles.spawn({ x: F.wx + Math.cos(a) * r, y: F.wy - rand(6, 52) + Math.sin(a) * r * 0.5, vx: Math.cos(a) * rand(10, 60), vy: -rand(20, 90) - f * 60, life: rand(0.5, 1.2), size: rand(1.5, 4 + f * 3), endSize: 0.5, color: Math.random() < 0.5 ? '#ffe6b0' : '#fff4d6', color2: '#ffd27a', mode: Math.random() < 0.3 ? 'star' : 'glow', rotV: rand(-5, 5), drag: 0.94 });
+      }
+      // a smaller red ember still tears off now and then, dwindling
+      if (Math.random() < (1 - f) * 0.25) {
+        this.particles.spawn({ x: F.wx + rand(-14, 14), y: F.wy - rand(0, 44), vx: rand(-40, 40), vy: rand(-60, -10), life: rand(0.3, 0.6), size: rand(1.5, 3), color: '#ff3d5e', mode: 'spark', drag: 0.9 });
+      }
+      // the fracturing punctuated: a shock as the glass gives, two as it runs
+      const beats = [1.0, 1.7, 2.4];
+      if (F.ruptures < beats.length && F.t >= beats[F.ruptures]) { F.ruptures++; this.finaleRupture(false); }
+      // and, once every piece of him is gone, the light he was holding lets go
+      if (F.ruptures === beats.length && F.t >= FINALE_FALL_DUR * 0.9) { F.ruptures++; this.finaleRupture(true); }
+      if (F.t >= FINALE_FALL_DUR) {
+        F.phase = 'dawn'; F.t = 0;
+        audio.finaleDawn();
+        audio.gameState(0.4, 0, false);
+        this.setBanner('THE DREAM IS YOURS AGAIN', '#ffe6b0', FINALE_DAWN_DUR + 3, 34);
+      }
+    } else if (F.phase === 'dawn') {
+      // the dream lightens: warm motes drift up across the whole calm
+      const cam = this.cam;
+      const rise = Math.min(1, F.t / 1.5);
+      for (let k = 0; k < 2; k++) {
+        if (Math.random() < 0.4 + rise * 0.5) {
+          const x = cam.x + Math.random() * cam.w;
+          const y = cam.y + cam.h * (0.5 + Math.random() * 0.6);
+          this.particles.spawn({ x, y, vx: rand(-10, 10), vy: -rand(24, 70), life: rand(1.4, 2.8), size: rand(1.5, 3.5), endSize: 0.5, color: pick(['#ffe6b0', '#fff4d6', '#ffd6ec', '#cfe4ff']), mode: 'glow', drag: 0.98 });
+        }
+      }
+      if (Math.random() < 0.12) {
+        const x = cam.x + Math.random() * cam.w;
+        const y = cam.y + cam.h * (0.4 + Math.random() * 0.6);
+        this.particles.spawn({ x, y, vx: rand(-8, 8), vy: -rand(20, 50), life: rand(1.2, 2.2), size: rand(2, 4), color: '#fff4d6', mode: 'star', rotV: rand(-3, 3), drag: 0.98 });
+      }
+      if (!F.victoryFired) {
+        if (F.t >= FINALE_DAWN_DUR) {
+          F.victoryFired = true;
+          this.paused = true;
+          this.pushHud();
+          this.hooks.onVictory({ time: this.t, kills: this.kills, level: p.level, relics: [...this.relics] });
+        }
+      } else {
+        // returned from the wake-rite — his hoard settles, and the dream goes on
+        this.finaleResolve();
+      }
     }
 
-    // his presence: facing, cold smoke, ember motes, the glitch, the whispers
-    if (F.phase !== 'sweep' && F.phase !== 'boss') {
+    // his presence: facing, cold smoke, ember motes, the glitch, the whispers.
+    // Only while he still lives and holds the dream — never through his fall.
+    if (F.phase !== 'sweep' && F.phase !== 'boss' && F.phase !== 'fall' && F.phase !== 'dawn') {
       F.facing = p.x >= F.wx ? 1 : -1;
       p.facing = F.wx >= p.x ? 1 : -1;
       if (Math.random() < 0.55) {
@@ -2304,6 +2390,7 @@ export class Engine {
     };
     this.enemies.push(e);
     F.boss = e;
+    F.hpLag = e.maxHp;
     F.veiled = false;
     F.veilT = 14;     // the first veil comes early, to teach the mechanic
     F.stunT = 0;
@@ -2341,6 +2428,12 @@ export class Engine {
     const F = this.finale;
     const p = this.player;
     const bf = e.bossFire!;
+
+    // the bar's chip trail chases his real health down — a heavy burst reads as
+    // a pale wound on the bar that bleeds away over the next moment
+    if (F.hpLag > e.hp) {
+      F.hpLag = Math.max(e.hp, F.hpLag - Math.max(e.maxHp * 0.09, (F.hpLag - e.hp) * 2.4) * dt);
+    } else F.hpLag = e.hp;
 
     // rift eruptions run on their own clock, whatever else he is doing
     for (let i = 0; i < F.hazards.length;) {
@@ -2688,20 +2781,66 @@ export class Engine {
     F.collapseT = rand(8, 11) * (0.6 + 0.4 * hpFrac); // the cadence quickens as he bleeds
   }
 
-  // The Other Dreamer falls: the dream is given back. Called from killEnemy
-  // before the generic boss drops (which still pay out on top of this).
+  // The Other Dreamer falls. Not a burst like the rotation bosses — his end is
+  // a directed scene: the fight halts, time seems to hold, and he comes apart
+  // into gold light ('fall'), then the dream is given back ('dawn') and the
+  // wake-rite is raised. His hoard settles when the dawn resolves.
   private finaleVictory(e: Enemy) {
     const F = this.finale;
-    F.phase = 'done';
+    F.phase = 'fall';
+    F.t = 0;
+    F.ruptures = 0;
+    F.victoryFired = false;
+    F.wx = e.x; F.wy = e.y; F.wpx = e.x; F.wpy = e.y;
     F.boss = null;
     F.veiled = false;
     F.stunT = 0;
+    F.dash = 0;
+    F.collapse = null;
+    F.hpLag = 0;
     F.motes.length = 0;
     F.hazards.length = 0;
+    this.finaleWon = true;
+    // the nightmare score begins its slow fade the instant his grip breaks
     audio.setNightmare(false);
-    this.setBanner('THE DREAM IS YOURS AGAIN', '#ffd27a', 5.5, 32);
-    // his hoard: extra nightmare shards beyond the standard boss drop
-    for (let i = 0; i < 2; i++) this.spawnGem(e.x + rand(-50, 50), e.y + rand(-50, 50), 0, false, false, true, rand(0, TAU));
+    audio.finaleVictory();
+    // the hush of the killing blow: the world stops, a white breath, one hard jolt
+    this.flash = { color: '255,244,224', a: 0.62 };
+    this.shake = 22;
+    this.banner = null;
+    // he freezes where he stands — a single shockwave, no spray: his coming
+    // apart is the SPRITE breaking (render.ts), not a cloud of motes over it
+    this.particles.keepBright = true;
+    this.particles.spawn({ x: e.x, y: e.y, life: 0.6, size: e.radius * 2.4, endSize: e.radius * 5, color: '#fff4d6', mode: 'ring' });
+    this.particles.keepBright = false;
+  }
+
+  // A shock as the glass gives way — a shockwave and a jolt, kept clean so the
+  // breaking sprite stays the thing you watch. The last one, once every piece
+  // of him is gone, is the light he was holding letting go.
+  private finaleRupture(final: boolean) {
+    const F = this.finale;
+    const x = F.wx, y = F.wy;
+    this.particles.keepBright = true;
+    const R = final ? 640 : 120 + F.ruptures * 40;
+    this.particles.spawn({ x, y, life: final ? 0.9 : 0.5, size: final ? 60 : 30, endSize: R, color: '#fff4d6', mode: 'ring' });
+    if (final) this.particles.spawn({ x, y, life: 1.2, size: 120, endSize: 340, color: '#ffd27a', mode: 'ring' });
+    this.particles.keepBright = false;
+    this.shake = Math.max(this.shake, final ? 22 : 6 + F.ruptures * 2);
+    if (final) this.flash = { color: '255,248,232', a: 0.6 };
+    audio.finaleRupture(final);
+  }
+
+  // The dream is whole again: his hoard settles into the calm for the taking,
+  // and ordinary (endless) play resumes.
+  private finaleResolve() {
+    const F = this.finale;
+    F.phase = 'done';
+    const x = F.wx, y = F.wy;
+    for (let i = 0; i < 16; i++) this.spawnGem(x + rand(-80, 80), y + rand(-80, 80), 14, true, false, false, rand(0, TAU));
+    this.spawnGem(x, y, 0, false, true, false, 0);
+    for (let i = 0; i < 3; i++) this.spawnGem(x + rand(-40, 40), y + rand(-40, 40), 0, false, false, true, rand(0, TAU));
+    this.breather = 6;
   }
 
   // -------------------------------------------------------------- targeting
@@ -3818,9 +3957,11 @@ export class Engine {
   killEnemy(e: Enemy) {
     e.dead = true;
     this.kills++;
-    // the Other Dreamer's fall is triumphant, not dimmed with the duel's spells
+    // the Other Dreamer does not die like the rest: his fall is a directed
+    // scene, not a burst. It owns the whole moment — no generic gems, no relic
+    // rite stepping on it (his hoard settles when the dream returns).
+    if (this.finale.boss === e) { this.finaleVictory(e); return; }
     const wasBright = this.particles.keepBright;
-    if (this.finale.boss === e) this.particles.keepBright = true;
     // DISCHARGE: a charged foe dies crackling — its stored storm leaps to
     // nearby kin. Chains cascade on purpose: charged deaths beget charged
     // deaths, and a well-stormed crowd goes up like a string of firecrackers.
@@ -3888,7 +4029,6 @@ export class Engine {
     }
     this.particles.spawn({ x: e.x, y: e.y, life: 0.5, size: e.radius * (e.boss ? 4 : 2.6), color: e.color, mode: 'ring' });
     if (e.boss) {
-      const finaleBoss = this.finale.boss === e;
       audio.bossDown();
       this.shake = 16;
       this.flash = { color: '255,210,122', a: 0.4 };
@@ -3896,9 +4036,8 @@ export class Engine {
       this.spawnGem(e.x, e.y, 0, false, true, false, 0);
       // a nightmare shard — the Dark Bargain's coin, torn only from bosses
       this.spawnGem(e.x + rand(-30, 30), e.y + rand(-30, 30), 0, false, false, true, rand(0, TAU));
-      this.breather = finaleBoss ? 12 : 8;
-      if (finaleBoss) this.finaleVictory(e);
-      else this.setBanner('THE TIDE RECEDES', '#7ff5ff');
+      this.breather = 8;
+      this.setBanner('THE TIDE RECEDES', '#7ff5ff');
       // and the dream offers a relic — opened from simStep once no other
       // overlay holds the floor
       this.relicQueue++;
@@ -4035,7 +4174,7 @@ export class Engine {
       this.pendingLevels = 0;
       this.relicQueue = 0;
       audio.death();
-      this.hooks.onGameOver({ time: this.t, kills: this.kills, level: p.level, bonusDust: this.bonusDust, shards: this.shardsEarned, relics: [...this.relics] });
+      this.hooks.onGameOver({ time: this.t, kills: this.kills, level: p.level, bonusDust: this.bonusDust, shards: this.shardsEarned, relics: [...this.relics], cleared: this.finaleWon });
     }
   }
 

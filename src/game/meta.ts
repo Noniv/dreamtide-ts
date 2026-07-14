@@ -46,11 +46,18 @@ export interface Meta {
   owned: string[];     // allocated constellation stars (always contains 'core')
   darkOwned: string[]; // allocated bargain stars (always contains 'dark-core')
   best: number;
+  // the Other Dreamer has been beaten: how many times, and the swiftest clear
+  // (seconds on the run clock). Any clear unlocks the CLEAR_SKINS vestments.
+  cleared: number;
+  clearBest: number;
   loadout: string[];
-  skin: string;        // chosen wizard skin (a spell id) — '' is the old robe
+  skin: string;        // chosen wizard skin (a spell id, or a CLEAR_SKINS id) — '' is the old robe
   treeRevealed: boolean; // the first-discovery reveal has played
   darkRevealed: boolean;
 }
+
+// the vestments awarded for waking the dream — not tied to any spell
+export const CLEAR_SKINS = ['lucid', 'otherdreamer'];
 
 // spells always available in the loadout regardless of unlocks
 export const LOADOUT_BASE = 'arcane';
@@ -77,6 +84,8 @@ export function unlockedSpells(meta: Meta): string[] {
 // Every awakened spell-evolution star also unlocks that spell's wizard skin.
 export function unlockedSkins(meta: Meta): string[] {
   const out: string[] = [];
+  // waking the dream is the rarest vestment of all — it leads the list
+  if ((meta.cleared || 0) > 0) out.push(...CLEAR_SKINS);
   for (const id of meta.owned) {
     const n = NODE_MAP[id];
     if (n && n.fx.evo && n.fx.spell) out.push(n.fx.spell as string);
@@ -1049,7 +1058,7 @@ function freshMeta(): Meta {
     dust: 0, shards: 0,
     points: 0, pointsBought: 0, darkPoints: 0, darkPointsBought: 0,
     owned: ['core'], darkOwned: ['dark-core'],
-    best: 0, loadout: [LOADOUT_BASE], skin: '',
+    best: 0, cleared: 0, clearBest: 0, loadout: [LOADOUT_BASE], skin: '',
     treeRevealed: false, darkRevealed: false,
   };
 }
@@ -1099,6 +1108,8 @@ export function loadMeta(): Meta {
         darkPointsBought: d.darkPointsBought || 0,
         owned, darkOwned,
         best: d.best || 0,
+        cleared: d.cleared || 0,
+        clearBest: d.clearBest || 0,
         loadout: Array.isArray(d.loadout) ? d.loadout : [LOADOUT_BASE],
         skin: typeof d.skin === 'string' ? d.skin : '',
         treeRevealed: !!d.treeRevealed,
@@ -1305,6 +1316,19 @@ export function resetAllLight(meta: Meta): Meta {
 export function markTreeRevealed(meta: Meta): Meta {
   if (meta.treeRevealed) return meta;
   const next = { ...meta, treeRevealed: true };
+  saveMeta(next);
+  return next;
+}
+
+// the Other Dreamer has fallen: tally the clear and keep the swiftest one.
+// Persisted at once (the run continues, endless, but the deed is done).
+export function recordClear(meta: Meta, time: number): Meta {
+  const t = Math.floor(time);
+  const next: Meta = {
+    ...meta,
+    cleared: (meta.cleared || 0) + 1,
+    clearBest: meta.clearBest ? Math.min(meta.clearBest, t) : t,
+  };
   saveMeta(next);
   return next;
 }

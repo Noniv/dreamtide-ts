@@ -11,19 +11,20 @@ import { isNative, exitApp } from './game/nativeWindow';
 import {
   CONST_NODES, CONST_EDGES, DARK_NODES, DARK_EDGES, NODE_MAP, ADJACENT,
   loadMeta, saveMeta, computeBonuses, dustForRun, setLoadout, loadoutSlots, unlockedSpells,
-  setSkin, unlockedSkins,
+  setSkin, unlockedSkins, recordClear, CLEAR_SKINS,
   markTreeRevealed, markDarkRevealed,
   nextPointCost, nextDarkPointCost, canBuyPoint, buyPoint, canBuyDarkPoint, buyDarkPoint,
   allocateNode, deallocateNode, allocateAllLight, resetAllLight, removableSet, darkDepth,
   type Meta,
 } from './game/meta';
-import { WIZARD_SKINS, skinName, applySkin } from './game/wizardSkins';
+import { WIZARD_SKINS, skinName, skinColor, applySkin } from './game/wizardSkins';
 import { paintWizardPreview, type WizardSkin } from './game/enemySprites';
 import { TreeCanvas, type TreePhase } from './game/treeCanvas';
 
-type Screen = 'menu' | 'playing' | 'levelup' | 'relic' | 'pact' | 'dead' | 'tree' | 'dark' | 'settings' | 'book';
+type Screen = 'menu' | 'playing' | 'levelup' | 'relic' | 'pact' | 'dead' | 'won' | 'tree' | 'dark' | 'settings' | 'book';
 
-interface RunResult { time: number; kills: number; level: number; bonusDust: number; shards: number; relics: string[]; record?: boolean }
+interface RunResult { time: number; kills: number; level: number; bonusDust: number; shards: number; relics: string[]; record?: boolean; cleared?: boolean }
+interface VictoryInfo { time: number; kills: number; level: number; relics: string[]; firstClear: boolean; cleared: number; clearBest: number }
 
 interface GameStore {
   screen: Screen;
@@ -35,6 +36,7 @@ interface GameStore {
   relicChoices: string[];
   pactOffer: PactDef | null;
   result: RunResult | null;
+  victory: VictoryInfo | null;
   dustEarned: number;
   meta: Meta;
   muted: boolean;
@@ -51,6 +53,7 @@ const useGame = create<GameStore>((set) => ({
   relicChoices: [],
   pactOffer: null,
   result: null,
+  victory: null,
   dustEarned: 0,
   meta: loadMeta(),
   muted: false,
@@ -89,6 +92,7 @@ export default function App() {
   const relicChoices = useGame((s) => s.relicChoices);
   const pactOffer = useGame((s) => s.pactOffer);
   const result = useGame((s) => s.result);
+  const victory = useGame((s) => s.victory);
   const dustEarned = useGame((s) => s.dustEarned);
   const meta = useGame((s) => s.meta);
   const set = useGame((s) => s.set);
@@ -119,6 +123,12 @@ export default function App() {
         saveMeta(next);
         engineRef.current!.inRun = false;
         set({ screen: 'dead', result: { ...r, record }, dustEarned: earned, meta: next });
+      },
+      onVictory: (r) => {
+        const st = useGame.getState();
+        const firstClear = (st.meta.cleared || 0) === 0;
+        const next = recordClear(st.meta, r.time);
+        set({ screen: 'won', victory: { ...r, firstClear, cleared: next.cleared, clearBest: next.clearBest }, meta: next });
       },
       getMeta: () => computeBonuses(useGame.getState().meta),
     });
@@ -176,7 +186,7 @@ export default function App() {
     engineRef.current!.inRun = true;
     engineRef.current!.paused = false;
     engineRef.current!.pushHud(true);
-    set({ screen: 'playing', result: null });
+    set({ screen: 'playing', result: null, victory: null });
     // only the main menu dissolves (retry from the death screen cuts straight in)
     if (fromMenu) {
       setMenuFading(true);
@@ -190,13 +200,20 @@ export default function App() {
     engineRef.current!.pushHud(true);
   };
 
+  // dream on: the wake-rite closes and the (now endless) run continues
+  const dreamOn = () => {
+    set({ screen: 'playing', victory: null });
+    engineRef.current!.paused = false;
+    engineRef.current!.pushHud(true);
+  };
+
   // Abandon the current run and return to the main menu. The engine stays paused
   // there; the next "Fall asleep" calls reset() to start a fresh dream.
   const returnToMenu = () => {
     engineRef.current!.paused = true;
     engineRef.current!.inRun = false;
     audio.menuMood();
-    set({ screen: 'menu', result: null });
+    set({ screen: 'menu', result: null, victory: null });
   };
 
   const pickChoice = (c: Choice) => {
@@ -221,6 +238,7 @@ export default function App() {
   const renderOverlay = (s: Screen) => {
     if (s === 'settings') return <Settings key="settings" onClose={() => set({ screen: 'menu' })} />;
     if (s === 'book') return <DreamBook key="book" onClose={() => set({ screen: useGame.getState().result ? 'dead' : 'menu' })} />;
+    if (s === 'won' && victory) return <Victory key="won" victory={victory} onDreamOn={dreamOn} />;
     if (s === 'dead' && result) return <GameOver key="dead" result={result} dustEarned={dustEarned} meta={meta} onRetry={begin} onTree={() => set({ screen: 'tree' })} onDark={() => set({ screen: 'dark' })} onBook={() => set({ screen: 'book' })} onMenu={() => { audio.menuMood(); set({ screen: 'menu', result: null }); }} />;
     if (s === 'tree') return (
       <SkillTree
@@ -1148,6 +1166,55 @@ function PactChoice({ pact, onAnswer }: { pact: PactDef; onAnswer: (accept: bool
   );
 }
 
+// The wake-rite: raised when the Other Dreamer falls. A held, luminous moment
+// (the run continues, endless, once the dreamer chooses to dream on).
+function Victory({ victory, onDreamOn }: { victory: VictoryInfo; onDreamOn: () => void }) {
+  return (
+    <div className="overlay won">
+      <div className="won-rays" aria-hidden="true" />
+      <div className="eyebrow">the other dreamer falls</div>
+      <h2 className="won-title">The Dream Is Yours Again</h2>
+      <div className="orn" aria-hidden="true">✦</div>
+      <div className="result-row">
+        <div className="stat"><span className="num">{fmtTime(victory.time)}</span><span className="lbl">the hour you woke</span></div>
+        <div className="stat"><span className="num">{victory.kills}</span><span className="lbl">banished</span></div>
+        <div className="stat"><span className="num">{victory.level}</span><span className="lbl">reverie</span></div>
+      </div>
+      {victory.firstClear ? (
+        <div className="won-unlock">
+          <div className="won-unlock-eyebrow">two vestments awaken</div>
+          <div className="won-vestments">
+            {CLEAR_SKINS.map((id) => (
+              <div key={id} className="won-vestment">
+                <span className="won-portrait" style={{ '--c': skinColor(id) } as React.CSSProperties}>
+                  <WizardPortrait skin={WIZARD_SKINS[id]} size={58} />
+                </span>
+                <div className="won-unlock-name" style={{ '--c': skinColor(id) } as React.CSSProperties}>{skinName(id)}</div>
+              </div>
+            ))}
+          </div>
+          <div className="won-unlock-hint">worn by one who woke — don them in the Constellation</div>
+        </div>
+      ) : victory.clearBest > 0 ? (
+        <div className="record-tag">✦ dreams woken ×{victory.cleared} · swiftest {fmtTime(victory.clearBest)} ✦</div>
+      ) : null}
+      {victory.relics.length > 0 && (
+        <div className="go-relics" title="Relics carried when the dream broke">
+          {victory.relics.map((id) => (
+            <span key={id} className="go-relic" style={{ '--c': RELICS[id].color } as React.CSSProperties} title={RELICS[id].name}>
+              {RELICS[id].icon}
+            </span>
+          ))}
+        </div>
+      )}
+      <p className="won-coda">The tide is stilled — but the dream runs deeper still.</p>
+      <div className="menu-buttons">
+        <button className="btn-primary" onClick={onDreamOn}>Dream on</button>
+      </div>
+    </div>
+  );
+}
+
 function GameOver({ result, dustEarned, meta, onRetry, onTree, onDark, onBook, onMenu }: {
   result: RunResult; dustEarned: number; meta: Meta;
   onRetry: () => void; onTree: () => void; onDark: () => void; onBook: () => void; onMenu: () => void;
@@ -1158,6 +1225,7 @@ function GameOver({ result, dustEarned, meta, onRetry, onTree, onDark, onBook, o
     <div className="overlay dead">
       <div className="eyebrow">the dream closes over you</div>
       <h2>You wake</h2>
+      {result.cleared && <div className="record-tag cleared-tag">✦ the dream was yours — the Other Dreamer fell ✦</div>}
       {result.record && <div className="record-tag">✦ your deepest dream yet ✦</div>}
       <div className="orn" aria-hidden="true">✦</div>
       <div className="result-row">
@@ -1589,7 +1657,7 @@ function LoadoutBar({ meta, onLoadout, onSkin, veiled }: {
 }) {
   const slots = loadoutSlots(meta);
   const unlocked = unlockedSpells(meta);
-  const skins = useMemo(() => unlockedSkins(meta), [meta.owned]);
+  const skins = useMemo(() => unlockedSkins(meta), [meta.owned, meta.cleared]);
   const loadout = meta.loadout;
   const [open, setOpen] = useState<number | 'skin' | null>(null);
 
@@ -1662,7 +1730,7 @@ function LoadoutBar({ meta, onLoadout, onSkin, veiled }: {
             <div className="loadout-slot-wrap">
               <button
                 className={`loadout-slot skin-slot ${meta.skin ? 'filled' : ''}`}
-                style={meta.skin ? ({ '--c': SPELLS[meta.skin].color } as React.CSSProperties) : undefined}
+                style={meta.skin ? ({ '--c': skinColor(meta.skin) } as React.CSSProperties) : undefined}
                 onClick={() => setOpen(open === 'skin' ? null : 'skin')}
                 title={meta.skin ? `Vestment: ${skinName(meta.skin)}` : 'Your vestment — click to choose'}
               >
@@ -1682,7 +1750,7 @@ function LoadoutBar({ meta, onLoadout, onSkin, veiled }: {
                     <button
                       key={id}
                       className={`lm-item ${meta.skin === id ? 'active' : ''}`}
-                      style={{ '--c': SPELLS[id].color } as React.CSSProperties}
+                      style={{ '--c': skinColor(id) } as React.CSSProperties}
                       onClick={() => { onSkin(id); setOpen(null); }}
                     >
                       <span className="lm-portrait"><WizardPortrait skin={WIZARD_SKINS[id]} size={34} /></span>

@@ -988,6 +988,46 @@ class AudioEngine {
     this.tone({ freq: nt(36), type: 'sine', a: 0.01, d: 2.0, peak: 0.02, at: 1.4, verb: 0.85, pri: 3 });
   }
 
+  // the killing blow lands and his grip breaks: a struck bell of light over a
+  // low impact, a held major chord swelling up out of the horror — relief, not
+  // triumph yet. The nightmare score is already fading under this.
+  finaleVictory() {
+    this.duck(this.duckMusic, 0.35, 0.05, 0.9, 2.4);
+    this.duck(this.duckSfx, 0.5, 0.03, 0.6, 0.8);
+    this.tone({ freq: 90, to: 34, glide: 0.5, type: 'sine', d: 0.7, peak: 0.2, pri: 3 });
+    this.noise({ dur: 0.9, a: 1.0, peak: 0.08, freq: 200, to: 5200, q: 0.6, type: 'bandpass', verb: 0.7, pri: 3 });
+    // an A-major triad blooming, each voice a beat later, ringing long
+    [nt(12), nt(16), nt(19), nt(24)].forEach((f, i) =>
+      this.tone({ freq: f, type: 'triangle', a: 0.08, d: 2.6, peak: 0.06, at: 0.15 + i * 0.06, verb: 0.85, pri: 3 }));
+    this.tone({ freq: nt(31), type: 'sine', a: 0.02, d: 3.0, peak: 0.03, at: 0.5, verb: 0.9, pri: 3 });
+  }
+
+  // one of his fall's rupture beats: a bright shard of light, brightest and
+  // deepest on the last, which takes him wholly
+  finaleRupture(final: boolean) {
+    if (final) {
+      this.tone({ freq: 70, to: 30, glide: 0.6, type: 'sine', d: 0.9, peak: 0.24, pri: 3 });
+      this.noise({ dur: 1.1, a: 1.2, peak: 0.1, freq: 300, to: 6000, q: 0.6, type: 'bandpass', verb: 0.8, pri: 3 });
+      [nt(19), nt(24), nt(28), nt(31), nt(36)].forEach((f, i) =>
+        this.tone({ freq: f, type: 'sine', a: 0.02, d: 2.2, peak: 0.05, at: i * 0.05, pan: rand(-0.4, 0.4), verb: 0.85, pri: 3 }));
+      this.duck(this.duckSfx, 0.5, 0.03, 0.5, 0.7);
+    } else {
+      this.tone({ freq: pent(rand(14, 20) | 0), type: 'triangle', a: 0.02, d: 0.9, peak: 0.045, pan: rand(-0.3, 0.3), verb: 0.7, pri: 2 });
+      this.noise({ dur: 0.4, a: 0.6, peak: 0.05, freq: 800, to: 3600, q: 0.8, type: 'bandpass', verb: 0.5, pri: 2 });
+    }
+  }
+
+  // the dream returns: soft warm chimes rising, the ordinary sky breathing back
+  finaleDawn() {
+    this.setNightmare(false);
+    if (this.dimMusic && this.ctx) this.dimMusic.gain.setTargetAtTime(1, this.ctx.currentTime, 1.2);
+    this.noise({ dur: 1.6, a: 1.0, peak: 0.04, freq: 400, to: 1800, q: 0.5, type: 'lowpass', verb: 0.6, pri: 3 });
+    [10, 12, 14, 17, 19, 21].forEach((deg, i) =>
+      this.tone({ freq: pent(deg), type: 'sine', a: 0.04, d: 1.4, peak: 0.045, at: 0.2 + i * 0.18, pan: rand(-0.35, 0.35), verb: 0.75, pri: 2 }));
+    this.tone({ freq: nt(12), type: 'triangle', a: 0.6, d: 3.4, peak: 0.05, verb: 0.85, pri: 2 });
+    this.tone({ freq: nt(19), type: 'triangle', a: 0.8, d: 3.4, peak: 0.035, verb: 0.85, pri: 2 });
+  }
+
   finaleWhisper(pan = 0) {
     if (this.throttled('whisper', 700)) return;
     // breath through teeth, too close to the ear

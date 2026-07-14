@@ -13,7 +13,7 @@
 //                     hidden behind the body that swings it
 
 import type { Engine } from './engine';
-import { ENEMY_TYPES, MELEE_ANIM_DUR, BLINK_IN, PLAYER_HURT_DY, PLAYER_HURT_R, STEP, BOSS_RAGE_START, BOSS_RAGE_FULL, LUCID_DUR, FINALE_ERUPT_DUR } from './engine';
+import { ENEMY_TYPES, MELEE_ANIM_DUR, BLINK_IN, PLAYER_HURT_DY, PLAYER_HURT_R, STEP, BOSS_RAGE_START, BOSS_RAGE_FULL, LUCID_DUR, FINALE_ERUPT_DUR, FINALE_FALL_DUR, FINALE_DAWN_DUR } from './engine';
 import { TAU, clamp, serpentPoint, type Enemy, type Zone, type Projectile, type BossProjectile, type Beam, type Bolt, type Gem, type Pickup } from './world';
 import { ENEMY_SPRITES, enemyFrameId, wizardFrameId, darkWizardFrameId, WIZARD_FRAMES, WIZARD_CY, getWizardSkin, type AtlasEntry } from './enemySprites';
 import { SHAPE_RING, SHAPE_DISC, SHAPE_SPIRAL, SHAPE_CAPSULE, type QuadList, type ShapeList } from './worldGPU';
@@ -379,7 +379,10 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
     octx.fillStyle = b.color;
     octx.shadowColor = b.color;
     octx.shadowBlur = (18 + (b.size > 24 ? 14 : 0)) * uiS;
-    octx.fillText(b.str, eng.perf.viewW / 2, (176 + ((b.size || 24) - 24) * 0.6) * uiS);
+    // the Other Dreamer's plate owns the band under the clock — banners drop
+    // below it while he lives, so his name/state never collide with an event
+    const plated = eng.finale.phase === 'boss' ? 62 : 0;
+    octx.fillText(b.str, eng.perf.viewW / 2, (176 + plated + ((b.size || 24) - 24) * 0.6) * uiS);
     octx.restore();
   }
 
@@ -485,6 +488,88 @@ function emitFinale(q: QuadList, sh: ShapeList, shOver: ShapeList, eng: Engine, 
     const oy = jy - 48 * grow;
     q.push(true, glowE, ox, oy, (10 + Math.sin(vt * 3.2) * 2 + angerF * 8) * grow, 0, 0.75 * a, 1, 0.13, 0.25, 1);
     q.push(true, glowE, ox, oy, 4 * grow, 0, a, 1, 0.84, 0.87, 1);
+  }
+
+  // ---- his unmaking: the dream-glass he is made of cracks, then shatters ----
+  // His frozen form is sliced into a grid of sub-UV quads; a crack wave spreads
+  // from the wound in his chest, and each fragment breaks free in turn — flung
+  // out, tumbling, falling, flushing to gold, catching the light like glass.
+  if (F.phase === 'fall') {
+    const wx = F.wx - camX, wy = F.wy - camY;
+    const f = Math.min(1, F.t / FINALE_FALL_DUR);
+    const sc = 2; // his boss scale (radius 66 / base 33)
+    const SHATTER_T0 = 1.0;   // the figure holds, cracking, until here
+    const CRACK_SPREAD = 1.2; // seconds for the crack to reach the far edges
+    const FLIGHT_FADE = 1.8;  // a freed piece's life once it breaks away
+
+    const nf = ENEMY_SPRITES.nightmare.frames;
+    const fi = (nf * 0.5) | 0; // one frozen pose — the pieces are slices of it
+    const nmE = q.uv(enemyFrameId('nightmare', fi));
+    if (nmE) {
+      const half = nmE.half * sc;
+      const ox = 0, oy = -0.28 * half;          // crack origin: the chest wound
+      const maxD = Math.hypot(half * 1.05, half * 1.3);
+
+      if (F.t < SHATTER_T0) {
+        // whole, and cracking: a rising tremor and jagged seams of light crawling
+        // out from the wound. He stays himself — no gold wash — until he breaks.
+        const cf = F.t / SHATTER_T0;
+        const jit = cf * cf * 3;
+        const jx = wx + (Math.random() * 2 - 1) * jit;
+        const jy = wy + (Math.random() * 2 - 1) * jit * 0.5;
+        q.push(false, nmE, jx, jy, half, Math.sin(vt * 5) * 0.02 * cf, 1, 1, 0.95, 0.7, cf * 0.12);
+        for (let k = 0; k < 6; k++) {
+          const a = (k / 6) * TAU + fhash(k) * 1.2;
+          const len = (0.25 + cf * 1.0) * half;
+          shOver.push(SHAPE_CAPSULE, wx + ox, wy + oy, a, len, 0.8 + cf * 1.6, 5, 0, 1, 0.97, 0.8, 0.4 + 0.45 * cf, 1, 0.88, 0.5);
+        }
+        q.push(true, glowE, wx + ox, wy + oy, (7 + cf * 22), 0, 0.3 + 0.45 * cf, 1, 0.9, 0.62, 1);
+      } else {
+        // shattered: every slice of his ACTUAL sprite as its own tumbling piece —
+        // real pixels, only a touch of warm light so they read against the (now
+        // draining) dark sky, plus a faint lift in each piece's own shape
+        const COLS = 5, ROWS = 6;
+        const cellHalf = half / COLS;
+        const asp = COLS / ROWS;
+        const du = (nmE.u1 - nmE.u0) / COLS, dv = (nmE.v1 - nmE.v0) / ROWS;
+        for (let cyi = 0; cyi < ROWS; cyi++) {
+          for (let cxi = 0; cxi < COLS; cxi++) {
+            const lx = ((cxi + 0.5) / COLS - 0.5) * 2 * half;
+            const ly = ((cyi + 0.5) / ROWS - 0.5) * 2 * half;
+            const tb = SHATTER_T0 + (Math.hypot(lx - ox, ly - oy) / maxD) * CRACK_SPREAD;
+            const ent: AtlasEntry = { u0: nmE.u0 + cxi * du, v0: nmE.v0 + cyi * dv, u1: nmE.u0 + (cxi + 1) * du, v1: nmE.v0 + (cyi + 1) * dv, half: cellHalf };
+            if (F.t < tb) {
+              // still assembled (reconstructing the whole figure), the fracture
+              // about to reach it kindling along its edge
+              const near = Math.max(0, 1 - (tb - F.t) / 0.2);
+              q.push(false, ent, wx + lx, wy + ly, cellHalf, 0, 1, 1, 0.95, 0.7, near * 0.35, asp);
+              if (near > 0) q.push(true, ent, wx + lx, wy + ly, cellHalf, 0, near * 0.5, 1, 0.9, 0.6, 1, asp);
+            } else {
+              const dt2 = F.t - tb;
+              const a = Math.min(1, 1 - dt2 / FLIGHT_FADE);
+              if (a <= 0.02) continue;
+              const h1 = fhash(cyi * COLS + cxi), h2 = fhash(cyi * COLS + cxi + 131);
+              const dir = Math.atan2(ly - oy, lx - ox) + (h1 - 0.5) * 0.8;
+              const sp = 55 + h2 * 150;
+              const gx = wx + lx + Math.cos(dir) * sp * dt2;
+              const gy = wy + ly + Math.sin(dir) * sp * dt2 + 120 * dt2 * dt2;
+              const rot = (h1 - 0.5) * 10 * dt2;
+              // the real piece, warm-lit and tumbling
+              q.push(false, ent, gx, gy, cellHalf, rot, a, 1, 0.85, 0.62, 0.26, asp);
+              // a faint gold lift in the piece's OWN shape (not a round glow), so
+              // it separates from the dark without becoming a blob
+              q.push(true, ent, gx, gy, cellHalf, rot, a * 0.3, 1, 0.86, 0.55, 1, asp);
+            }
+          }
+        }
+      }
+
+      // a soft warm afterglow where he stood, rising once the pieces are gone
+      if (f > 0.55) {
+        const rf = (f - 0.55) / 0.45;
+        q.push(true, glowE, wx, wy - 8 - rf * 40, 20 + rf * 40, 0, rf * (1 - rf) * 2.2, 1, 0.9, 0.62, 1);
+      }
+    }
   }
 
   // ---- rift telegraphs: red wounds tearing open, tightening to the eruption ----
@@ -595,7 +680,6 @@ function drawFinaleOverlay(eng: Engine, octx: CanvasRenderingContext2D, w: numbe
   const F = eng.finale;
   const ph = F.phase;
   if (ph === 'none' || ph === 'done') return;
-  const uiS = uiScale();
 
   // creeping vignette — the dream going wrong at its edges
   let dark = 0;
@@ -614,17 +698,35 @@ function drawFinaleOverlay(eng: Engine, octx: CanvasRenderingContext2D, w: numbe
 
   if (ph === 'boss') {
     drawCollapseDanger(eng, octx, w, h, vt, camX, camY);
-    if (F.veiled) {
-      octx.save();
-      octx.globalAlpha = 0.92;
-      octx.textAlign = 'center';
-      octx.font = `600 ${13 * uiS}px Cinzel, 'Palatino Linotype', serif`;
-      try { (octx as unknown as { letterSpacing: string }).letterSpacing = '0.16em'; } catch { /* older engines */ }
-      octx.fillStyle = '#ffd27a';
-      octx.shadowColor = '#ffd27a';
-      octx.shadowBlur = 12 * uiS;
-      octx.fillText(`GATHER THE LIGHT — ${Math.max(0, F.moteT).toFixed(1)}`, w / 2, 206 * uiS);
-      octx.restore();
+    // above the doom wash, always readable. The gather countdown lives on the
+    // plate now — one place to look, instead of two saying the same thing.
+    drawFinaleBossBar(eng, octx, vt, 1);
+    return;
+  }
+
+  // his fall and the dawn: a warm wash blooms over everything as the dream is
+  // handed back, then eases; the letterbox holds through the fall and retracts
+  // as ordinary daylight returns
+  if (ph === 'fall' || ph === 'dawn') {
+    // his plate holds a beat at empty, then fades with him
+    if (ph === 'fall' && F.t < 1.2) drawFinaleBossBar(eng, octx, vt, Math.max(0, 1 - F.t / 1.2));
+    const bloom = ph === 'fall'
+      ? Math.max(0, F.t / FINALE_FALL_DUR - 0.5) * 0.5
+      : Math.max(0, 1 - F.t / (FINALE_DAWN_DUR * 0.7)) * 0.6 + 0.1;
+    if (bloom > 0.01) {
+      const g = octx.createRadialGradient(w / 2, h * 0.42, 0, w / 2, h * 0.42, Math.max(w, h) * 0.8);
+      g.addColorStop(0, `rgba(255,244,214,${Math.min(0.85, bloom)})`);
+      g.addColorStop(0.5, `rgba(255,226,180,${Math.min(0.5, bloom * 0.6)})`);
+      g.addColorStop(1, 'rgba(255,214,160,0)');
+      octx.fillStyle = g;
+      octx.fillRect(0, 0, w, h);
+    }
+    const bar = ph === 'fall' ? 1 : Math.max(0, 1 - F.t / FINALE_DAWN_DUR);
+    const barH = h * 0.11 * bar;
+    if (barH > 0.5) {
+      octx.fillStyle = `rgba(4,2,8,${0.92 * (ph === 'fall' ? 1 : bar)})`;
+      octx.fillRect(0, 0, w, barH);
+      octx.fillRect(0, h - barH, w, barH);
     }
     return;
   }
@@ -665,6 +767,245 @@ function drawFinaleOverlay(eng: Engine, octx: CanvasRenderingContext2D, w: numbe
     octx.fillStyle = `rgba(255,20,50,${0.08 + 0.12 * f * (0.5 + 0.5 * Math.sin(vt * 20))})`;
     octx.fillRect(0, 0, w, h);
   }
+}
+
+// A chamfered slab — his bar is a cut plate of dream-glass, not a rectangle.
+function platePath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, cut: number) {
+  ctx.beginPath();
+  ctx.moveTo(x - cut, y + h / 2);
+  ctx.lineTo(x, y);
+  ctx.lineTo(x + w, y);
+  ctx.lineTo(x + w + cut, y + h / 2);
+  ctx.lineTo(x + w, y + h);
+  ctx.lineTo(x, y + h);
+  ctx.closePath();
+}
+
+// The Other Dreamer's plate: the only boss in the game with a bar of his own.
+// Drawn in SCREEN (css-px) space, exactly like the event banner — the world-space
+// version drifted down into the banner as viewScale grew.
+//
+// Everything about it is his: a chamfered slab bleeding ichor, veined with cracks
+// that deepen as he's broken down, tearing sideways in glitch-bands (the same
+// wrongness his silhouette has), scanlined like a corrupted signal, with his three
+// red eyes set into each end-cap. The fill's leading edge is torn and boiling, and
+// a pale chip trail bleeds behind it so heavy bursts read as a bite taken out of
+// him. His two states are written into the bar itself: SEALED (with the gather
+// countdown) while the veil holds damage off, and a gold, blazing STRIKE window
+// the instant it shatters.
+function drawFinaleBossBar(eng: Engine, octx: CanvasRenderingContext2D, vt: number, fade: number) {
+  const F = eng.finale;
+  const e = F.boss;
+  const uiS = uiScale();
+  const frac = e ? Math.max(0, e.hp) / e.maxHp : 0;
+  const lag = e ? Math.max(frac, Math.min(1, F.hpLag / e.maxHp)) : 0;
+  const veiled = F.veiled;
+  const stun = F.stunT > 0;
+  const rot = 1 - frac; // how far gone he is — the plate corrupts along with him
+
+  octx.save();
+  octx.scale(1 / eng.viewScale, 1 / eng.viewScale);
+  const W = eng.perf.viewW;
+  const bw = Math.min(W * 0.62, 740 * uiS);
+  const bh = 28 * uiS;
+  const bx = (W - bw) / 2;
+  const by = 110 * uiS;
+  const cut = bh * 0.55;
+  const ls = (v: string) => { try { (octx as unknown as { letterSpacing: string }).letterSpacing = v; } catch { /* older engines */ } };
+  const beat = 0.5 + 0.5 * Math.sin(vt * (stun ? 9 : 2.4));
+  const hue = stun ? '255,210,122' : veiled ? '150,110,220' : '255,32,64';
+
+  octx.globalAlpha = fade;
+
+  // a sick bloom breathing behind the slab. Drawn as an ellipse in a squashed
+  // frame and filled with its own arc — a radial gradient dropped into a short
+  // fillRect gets clipped mid-falloff and leaves a hard rectangular seam.
+  {
+    const R = bw * 0.58;
+    const sy = (bh * 2.1) / R; // a low, wide haze rather than a circle
+    octx.save();
+    octx.translate(W / 2, by + bh / 2);
+    octx.scale(1, sy);
+    const bloom = octx.createRadialGradient(0, 0, 0, 0, 0, R);
+    bloom.addColorStop(0, `rgba(${hue},${0.15 + 0.07 * beat})`);
+    bloom.addColorStop(0.45, `rgba(${hue},${0.05 + 0.03 * beat})`);
+    bloom.addColorStop(1, `rgba(${hue},0)`);
+    octx.fillStyle = bloom;
+    octx.beginPath();
+    octx.arc(0, 0, R, 0, TAU);
+    octx.fill();
+    octx.restore();
+  }
+
+  platePath(octx, bx, by, bw, bh, cut);
+  octx.fillStyle = 'rgba(6,2,8,0.9)';
+  octx.fill();
+
+  // ---- everything that lives inside the slab
+  octx.save();
+  platePath(octx, bx, by, bw, bh, cut);
+  octx.clip();
+
+  if (lag > frac) {
+    octx.fillStyle = 'rgba(255,160,180,0.45)';
+    octx.fillRect(bx + bw * frac, by, bw * (lag - frac), bh);
+  }
+
+  // the fill, ending in a torn, boiling seam rather than a clean edge
+  const fx = bx + bw * frac;
+  const STEPS = 7;
+  const seam = (i: number) => Math.sin(vt * 7 + i * 1.9) * 2.2 * uiS + (fhash(i) - 0.5) * 3 * uiS;
+  const g = octx.createLinearGradient(bx, by, bx, by + bh);
+  if (stun) { g.addColorStop(0, '#fff2cc'); g.addColorStop(0.45, '#ffb347'); g.addColorStop(1, '#8f5210'); }
+  else if (veiled) { g.addColorStop(0, '#7a5884'); g.addColorStop(0.45, '#452c4d'); g.addColorStop(1, '#1c0f22'); }
+  else { g.addColorStop(0, '#ff7090'); g.addColorStop(0.45, '#ff2040'); g.addColorStop(1, '#6e0a22'); }
+  octx.fillStyle = g;
+  octx.beginPath();
+  octx.moveTo(bx - cut, by);
+  octx.lineTo(fx, by);
+  for (let i = 0; i <= STEPS; i++) octx.lineTo(fx + (frac > 0.002 ? seam(i) : 0), by + (bh * i) / STEPS);
+  octx.lineTo(bx - cut, by + bh);
+  octx.closePath();
+  octx.fill();
+  if (frac > 0.002) {
+    octx.strokeStyle = stun ? 'rgba(255,250,235,0.95)' : 'rgba(255,220,232,0.85)';
+    octx.lineWidth = 2 * uiS;
+    octx.beginPath();
+    for (let i = 0; i <= STEPS; i++) {
+      const yy = by + (bh * i) / STEPS;
+      if (i === 0) octx.moveTo(fx + seam(i), yy); else octx.lineTo(fx + seam(i), yy);
+    }
+    octx.stroke();
+  }
+
+  // a corrupted signal: scanlines, then veins cracking through him
+  octx.fillStyle = 'rgba(0,0,0,0.16)';
+  for (let yy = by; yy < by + bh; yy += 3 * uiS) octx.fillRect(bx - cut, yy, bw + cut * 2, 1 * uiS);
+  octx.strokeStyle = `rgba(18,0,6,${0.24 + rot * 0.4})`;
+  octx.lineWidth = 1.2 * uiS;
+  for (let k = 0; k < 7; k++) {
+    let cxx = bx + bw * (0.08 + fhash(k * 3) * 0.86);
+    octx.beginPath();
+    octx.moveTo(cxx, by);
+    for (let s = 1; s <= 4; s++) {
+      cxx += (fhash(k * 7 + s) - 0.5) * 9 * uiS;
+      octx.lineTo(cxx, by + (bh * s) / 4);
+    }
+    octx.stroke();
+  }
+
+  if (veiled) {
+    octx.strokeStyle = 'rgba(206,170,255,0.22)';
+    octx.lineWidth = 2 * uiS;
+    for (let x = -bh; x < bw + bh; x += 11 * uiS) {
+      octx.beginPath();
+      octx.moveTo(bx + x, by + bh);
+      octx.lineTo(bx + x + bh, by);
+      octx.stroke();
+    }
+  }
+
+  // the glitch: bands of him tear sideways, worse the more broken he is
+  if (Math.random() < 0.06 + rot * 0.13) {
+    const bands = 1 + ((Math.random() * 2) | 0);
+    for (let b = 0; b < bands; b++) {
+      const gy = by + Math.random() * bh;
+      const gh = (2 + Math.random() * 5) * uiS;
+      const dx = (Math.random() - 0.5) * 16 * uiS;
+      octx.save();
+      octx.beginPath();
+      octx.rect(bx - cut, gy, bw + cut * 2, gh);
+      octx.clip();
+      octx.fillStyle = stun ? 'rgba(255,214,150,0.85)' : veiled ? 'rgba(150,110,190,0.8)' : 'rgba(255,60,90,0.85)';
+      octx.fillRect(bx + dx, gy, bw * frac, gh);
+      octx.restore();
+    }
+  }
+
+  const sheen = octx.createLinearGradient(bx, by, bx, by + bh * 0.5);
+  sheen.addColorStop(0, 'rgba(255,255,255,0.13)');
+  sheen.addColorStop(1, 'rgba(255,255,255,0)');
+  octx.fillStyle = sheen;
+  octx.fillRect(bx - cut, by, bw + cut * 2, bh * 0.5);
+  octx.restore();
+
+  // ---- notches, and the heavy rail around it
+  octx.fillStyle = 'rgba(0,0,0,0.5)';
+  for (let i = 1; i < 10; i++) octx.fillRect(bx + (bw * i) / 10, by, 1 * uiS, bh);
+  platePath(octx, bx, by, bw, bh, cut);
+  octx.lineWidth = 3.5 * uiS;
+  octx.strokeStyle = 'rgba(8,2,10,0.95)';
+  octx.stroke();
+  octx.lineWidth = 1.4 * uiS;
+  octx.strokeStyle = stun ? `rgba(255,214,140,${0.85 + 0.15 * beat})` : veiled ? `rgba(190,150,255,${0.6 + 0.2 * beat})` : `rgba(255,70,104,${0.7 + 0.25 * beat})`;
+  octx.shadowColor = stun ? '#ffd27a' : veiled ? '#b48cff' : '#ff2040';
+  octx.shadowBlur = (10 + 8 * beat + (stun ? 12 : 0)) * uiS;
+  octx.stroke();
+  octx.shadowBlur = 0;
+
+  // ---- his three eyes, set into each end-cap, blinking with the rail
+  const eyeC = stun ? '#ffe6b0' : veiled ? '#c9a4ff' : '#ff2040';
+  octx.fillStyle = eyeC;
+  octx.shadowColor = eyeC;
+  octx.shadowBlur = 8 * uiS;
+  for (const side of [-1, 1]) {
+    const ex = side < 0 ? bx - cut * 0.5 : bx + bw + cut * 0.5;
+    const ey = by + bh / 2;
+    for (const [ox2, oy2] of [[0, -5 * uiS], [-2.7 * uiS, 1 * uiS], [2.7 * uiS, 1 * uiS]]) {
+      octx.beginPath();
+      octx.arc(ex + ox2, ey + oy2, 1.7 * uiS * (0.85 + 0.3 * beat), 0, TAU);
+      octx.fill();
+    }
+  }
+  octx.shadowBlur = 0;
+
+  // ---- ichor, bleeding from the underside — more of it as he comes apart
+  octx.fillStyle = `rgba(120,10,32,${0.35 + rot * 0.3})`;
+  const drips = 4 + ((rot * 6) | 0);
+  for (let k = 0; k < drips; k++) {
+    const dx = bx + bw * (0.06 + fhash(k * 11) * 0.88);
+    const len = (4 + fhash(k * 5) * 10 + Math.sin(vt * 0.9 + k) * 3) * uiS * (0.55 + rot);
+    if (len <= 0) continue;
+    octx.fillRect(dx, by + bh, 1.6 * uiS, len);
+    octx.beginPath();
+    octx.arc(dx + 0.8 * uiS, by + bh + len, 1.7 * uiS, 0, TAU);
+    octx.fill();
+  }
+
+  // ---- his name at the plate's left shoulder, his remains at its right
+  // (both off-centre, so they never stack with the centred clock above)
+  octx.textAlign = 'left';
+  octx.font = `700 ${13 * uiS}px Cinzel, 'Palatino Linotype', serif`;
+  ls('0.26em');
+  octx.fillStyle = '#ffd3dc';
+  octx.shadowColor = '#ff2040';
+  octx.shadowBlur = 12 * uiS;
+  octx.fillText('THE OTHER DREAMER', bx, by - 9 * uiS);
+  octx.shadowBlur = 0;
+  ls('0px');
+  octx.textAlign = 'right';
+  octx.font = `700 ${14 * uiS}px Cinzel, 'Palatino Linotype', serif`;
+  octx.fillStyle = 'rgba(255,206,216,0.9)';
+  octx.fillText(`${Math.ceil(frac * 100)}%`, bx + bw, by - 9 * uiS);
+
+  // ---- and what the bar is telling you to DO, said inside the bar
+  const urgent = veiled && F.moteT < 4;
+  const label = stun ? 'THE VEIL BREAKS — STRIKE'
+    : veiled ? `SEALED — GATHER THE LIGHT · ${Math.max(0, F.moteT).toFixed(1)}`
+      : '';
+  if (label) {
+    const pulse = 0.7 + 0.3 * Math.sin(vt * (stun ? 12 : urgent ? 10 : 4));
+    const col = stun ? '#fff6e0' : urgent ? '#ffd27a' : '#e6d1ff';
+    octx.globalAlpha = fade * pulse;
+    octx.textAlign = 'center';
+    octx.font = `700 ${12 * uiS}px Cinzel, 'Palatino Linotype', serif`;
+    ls('0.2em');
+    octx.fillStyle = col;
+    octx.shadowColor = col;
+    octx.shadowBlur = 12 * uiS;
+    octx.fillText(label, W / 2, by + bh / 2 + 4.5 * uiS);
+  }
+  octx.restore();
 }
 
 // The collapse's doom shading: everything unsafe reddens toward the eruption,
@@ -1065,10 +1406,17 @@ function emitBolt(sh: ShapeList, b: Bolt, alpha: number, camX: number, camY: num
 // are per-instance params.
 
 const FROZEN_TINT: [number, number, number] = [0.72, 0.89, 1];
+// deterministic per-shard jitter for the Other Dreamer's glass-shatter death
+const fhash = (n: number) => { const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
 // nebula lobe hues (violet / pink / indigo)
 const NEBULA_LOBES: [number, number, number][] = [[0.77, 0.55, 1], [1, 0.60, 0.84], [0.54, 0.48, 1]];
 
 function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha: number, camX: number, camY: number) {
+  // The fallen are never drawn. Ordinarily a corpse is compacted out of the list
+  // inside the same sim step, so this never came up — but the finale cinematic
+  // owns the step and returns before the compaction runs, which left the Other
+  // Dreamer standing whole (corona and all) right through his own shattering.
+  if (e.dead) return;
   const cam = eng.cam;
   const vt = eng.vt;
   const ix = lerp(e.px, e.x, alpha), iy = lerp(e.py, e.y, alpha);
@@ -1080,7 +1428,7 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
   // exit. Unfold: the same seam opens back into the body at the far end.
   // Emitted BEFORE the cull so the exit telegraph draws even when the body
   // waits offscreen. All of it reads bossFire countdowns — no render state.
-  let bodyA = 1, bodyS = 1, bodyAsp = 1;
+  let bodyA = 1, bodyS = 1, bodyAsp = 1, bodyRot = 0;
   const bfb = e.boss ? e.bossFire : null;
   if (bfb && (bfb.blinkT > 0 || bfb.blinkIn > 0)) {
     const [br, bg, bb] = rgb(e.color);
@@ -1160,7 +1508,27 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
       drawStats.enemyLiveOps++;
     }
   }
-  q.push(false, entry, x, y + bob * sc, half * bodyS, 0, bodyA, tr, tg, tb, mix, bodyAsp);
+  // the Other Dreamer is alive on the smooth clock and never whites out under
+  // fire — at this hour the player strikes so often a flash tint would leave him
+  // permanently blanched. He sways and breathes, squares up to loose a volley,
+  // and drinks a hit as a recoil rather than a bright flash.
+  let bodyMix = mix;
+  if (type === 'nightmare') {
+    bodyMix = 0;
+    const at = e.animT;
+    bodyRot += Math.sin(at * 1.3) * 0.05;
+    const breath = Math.sin(at * 2.2);
+    bodyAsp *= 1 + breath * 0.05;
+    bodyS *= 1 - breath * 0.02;
+    const bf = e.bossFire;
+    if (bf) {
+      const charge = clamp(1 - bf.cd / 0.4, 0, 1);
+      bodyS *= 1 + charge * 0.07;
+      bodyRot *= 1 - charge * 0.75;
+    }
+    if (e.hitFlash > 0) bodyS *= 1 - Math.min(1, e.hitFlash / 0.12) * 0.035;
+  }
+  q.push(false, entry, x, y + bob * sc, half * bodyS, bodyRot, bodyA, tr, tg, tb, bodyMix, bodyAsp);
   drawStats.enemyBlits++;
 
   // ---- live overlays as extra quads (smooth, on the global clock) ----
@@ -1335,6 +1703,12 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
     }
     const beat = 0.5 + 0.5 * Math.sin(vt * 3.1);
     q.push(true, glowE, x, y + bob * sc - 4 * sc, (10 + beat * 5) * sc, 0, 0.5 + 0.3 * beat, 1, 0.13, 0.25, 1);
+    // a struck note: the wound flares deeper red where a white flash would have
+    // washed him out — the hit reads without blanching his whole form
+    if (e.hitFlash > 0) {
+      const hf = Math.min(1, e.hitFlash / 0.12);
+      q.push(true, glowE, x, y + bob * sc - 4 * sc, e.radius * 0.95, 0, 0.3 * hf, 1, 0.13, 0.22, 1);
+    }
     drawStats.enemyLiveOps++;
   }
 
@@ -1690,6 +2064,7 @@ function drawHealthBars(eng: Engine, octx: CanvasRenderingContext2D, camX: numbe
   elig.length = 0;
   for (const e of eng.enemies) {
     if (e.dead || e.hp >= e.maxHp || !(e.elite || e.boss || e.maxHp > 40)) continue;
+    if (e.type === 'nightmare') continue; // the Other Dreamer wears his own plate
     const x = (lerp(e.px, e.x, alpha)) - camX, y = (lerp(e.py, e.y, alpha)) - camY;
     if (x < -100 || y < -100 || x > cam.w + 100 || y > cam.h + 100) continue;
     elig.push(e);

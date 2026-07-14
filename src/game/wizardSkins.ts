@@ -3,10 +3,13 @@
 // hat and trims in the spell's palette plus a bespoke staff head, so the
 // dreamer visibly carries the school they mastered. Named after the evolution.
 //
+// Two are not spells at all (see CLEAR_SKINS in meta.ts): the Lucid Dreamer and
+// The Other Dreamer, worn only by one who has beaten the fifteenth minute.
+//
 // Only the ACTIVE skin is ever baked (see setWizardSkin): the atlas holds the
 // wizard sheet once, whatever this file grows to.
 
-import { setWizardSkin, type WizardSkin } from './enemySprites';
+import { setWizardSkin, DARK_WIZARD_SKIN, type WizardSkin } from './enemySprites';
 import { SPELLS, EVOLVE } from './spells';
 import { ICON_PARTS } from './spellIcons';
 
@@ -511,8 +514,112 @@ export const WIZARD_SKINS: Record<string, Partial<WizardSkin>> = {
   }),
 };
 
+// The Lucid Dreamer — the vestment of one who woke and took the dream back.
+// Not a spell's re-dye but its own thing: robes of amber dawn with real depth
+// (a deep sunrise, not a whiteout), a small sun cradled at the staff and heart.
+WIZARD_SKINS.lucid = {
+  robeOuter: ['#c2913f', '#77531f'],
+  robeInner: ['#dcb166', '#a2763a'],
+  hatBrim: '#6f4d1f',
+  hatBrimTop: '#a2763a',
+  hatCone: ['#b98a3c', '#815d29'],
+  specks: ['#ffe6b0', '#ffcf7a', '#ffd6ec', '#fff2cc'],
+  rim: '#ffd79a',
+  trim: '#ffc978',
+  buckle: '#ffe6b0',
+  sigil: '#ffe6b0',
+  sigilGlow: '#ffb347',
+  chest(ctx) {
+    // a small radiant sun where the old robe wore its moon
+    ctx.save();
+    ctx.translate(0, -3);
+    glow(ctx, 0, 0, 6.5, '#ffcf7a', 0.45);
+    ctx.fillStyle = '#fff2cc';
+    ctx.beginPath(); ctx.arc(0, 0, 2.2, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#ffdca0';
+    ctx.lineWidth = 0.9; ctx.lineCap = 'round';
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * TAU;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * 3.2, Math.sin(a) * 3.2);
+      ctx.lineTo(Math.cos(a) * 4.9, Math.sin(a) * 4.9);
+      ctx.stroke();
+    }
+    ctx.restore();
+  },
+  orb: '#ffdca0',
+  orbGlow: '#ffb347',
+  orbCore: '#fff2cc',
+  staffHead(ctx) {
+    // a dawn-sun, rising: a warm core wearing a halo, a few long rays
+    glow(ctx, HX, HY, 10, '#ffcf7a', 0.5);
+    ctx.strokeStyle = '#ffdca0';
+    ctx.lineWidth = 1.1; ctx.lineCap = 'round';
+    for (let k = 0; k < 8; k++) {
+      const a = -Math.PI / 2 + (k / 8) * TAU;
+      const r0 = k % 2 ? 5.4 : 6.6;
+      ctx.beginPath();
+      ctx.moveTo(HX + Math.cos(a) * 4.4, HY + Math.sin(a) * 4.4);
+      ctx.lineTo(HX + Math.cos(a) * (r0 + 2.2), HY + Math.sin(a) * (r0 + 2.2));
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#ffb347';
+    ctx.beginPath(); ctx.arc(HX, HY, 3.6, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#fff2cc';
+    ctx.beginPath(); ctx.arc(HX, HY, 1.6, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#ffe6b0';
+    starPath(ctx, HX + 3.2, HY - 3.6, 4, 1.5, 0.6);
+    ctx.fill();
+  },
+};
+
+// The Other Dreamer — his own drained, grave-dark cloth worn by the one who
+// beat him. Reuses the nightmare actor's palette; the staff answers in red.
+WIZARD_SKINS.otherdreamer = {
+  ...DARK_WIZARD_SKIN,
+  chest(ctx) {
+    // the wound: three red eyes over a cracked heart of light
+    glow(ctx, 0, -3, 6, '#ff2040', 0.55);
+    ctx.fillStyle = '#ff2040';
+    for (const [dx, dy, r] of [[-2.3, -4, 1.1], [2.3, -4, 1.1], [0, -6.6, 0.9]] as [number, number, number][]) {
+      ctx.beginPath(); ctx.arc(dx, dy, r, 0, TAU); ctx.fill();
+    }
+    ctx.strokeStyle = '#ff3d5e';
+    ctx.lineWidth = 1.1; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-2.4, 0); ctx.lineTo(0, 3); ctx.lineTo(-1.2, 5.2);
+    ctx.moveTo(0, 3); ctx.lineTo(2.4, 4.4);
+    ctx.stroke();
+  },
+  staffHead(ctx) {
+    // a torn crown of thorns cradling a bleeding ember
+    glow(ctx, HX, HY, 10, '#ff2040', 0.6);
+    ctx.strokeStyle = '#2a0f1c';
+    ctx.lineWidth = 1.4; ctx.lineCap = 'round';
+    for (let k = 0; k < 5; k++) {
+      const a = -Math.PI / 2 + (k / 5) * TAU;
+      ctx.beginPath();
+      ctx.moveTo(HX + Math.cos(a) * 3.2, HY + Math.sin(a) * 3.2);
+      ctx.lineTo(HX + Math.cos(a) * 6.4, HY + Math.sin(a) * 6.4);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#ff2040';
+    ctx.beginPath(); ctx.arc(HX, HY, 3.4, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#ffd7dd';
+    ctx.beginPath(); ctx.arc(HX - 0.8, HY - 0.9, 1.2, 0, TAU); ctx.fill();
+  },
+};
+
+const SPECIAL_SKIN_NAMES: Record<string, string> = { lucid: 'Lucid Dreamer', otherdreamer: 'The Other Dreamer' };
+const SPECIAL_SKIN_COLORS: Record<string, string> = { lucid: '#ffb347', otherdreamer: '#ff2040' };
+
 export function skinName(id: string): string {
-  return EVOLVE[id]?.name ?? id;
+  return SPECIAL_SKIN_NAMES[id] ?? EVOLVE[id]?.name ?? id;
+}
+
+// the accent colour a skin flies in the UI (a spell's hue, or a special's own)
+export function skinColor(id: string): string {
+  return SPECIAL_SKIN_COLORS[id] ?? SPELLS[id]?.color ?? '#b48cff';
 }
 
 // Apply the chosen skin ('' = the old robe) to the live sprite atlas.
