@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { Engine, type HudState, type Choice } from './game/engine';
 import { SPELLS, BOONS, GENERIC, EVOLVE } from './game/spells';
-import { RELICS, PACTS, type PactDef } from './game/relics';
+import { RELICS, PACTS, ELEMENTS, type PactDef } from './game/relics';
 import { SpellIcon, HAS_ICON } from './game/spellIcons';
-import { codex, REACTIONS } from './game/codex';
+import { codex, REACTIONS, type Discovery, type DiscoveryKind } from './game/codex';
 import { audio } from './game/audio';
 import { settings, RESOLUTION_OPTIONS, hdrSupported, watchHdrSupport, type Preset, type PerfPresets, type ResolutionScale } from './game/settings';
 import { isNative, exitApp } from './game/nativeWindow';
@@ -207,13 +207,10 @@ export default function App() {
     engineRef.current!.pushHud(true);
   };
 
-  // Abandon the current run and return to the main menu. The engine stays paused
-  // there; the next "Fall asleep" calls reset() to start a fresh dream.
-  const returnToMenu = () => {
-    engineRef.current!.paused = true;
-    engineRef.current!.inRun = false;
-    audio.menuMood();
-    set({ screen: 'menu', result: null, victory: null });
+  // Surrender mid-run: the dream ends where it stands and the wake screen
+  // rises with the run's full tally (stardust and shards included).
+  const abandon = () => {
+    engineRef.current!.abandonRun();
   };
 
   const pickChoice = (c: Choice) => {
@@ -269,7 +266,7 @@ export default function App() {
     <div className="stage">
       <canvas ref={canvasRef} className="game-canvas" />
 
-      {screen === 'playing' && <HudLayer onResume={resume} onReturnToMenu={returnToMenu} />}
+      {screen === 'playing' && <HudLayer onResume={resume} onAbandon={abandon} />}
 
       {screen === 'levelup' && (() => {
         const bon = computeBonuses(meta);
@@ -309,6 +306,7 @@ export default function App() {
         />
       )}
       {renderOverlay(screen)}
+      <DiscoveryToasts />
     </div>
   );
 }
@@ -316,7 +314,7 @@ export default function App() {
 // The only component subscribed to `hud`: engine pushes land here and re-render
 // just this subtree. The engine also skips pushes whose displayed values are
 // unchanged (see pushHud), so during quiet play this renders ~1×/s, not 10×.
-function HudLayer({ onResume, onReturnToMenu }: { onResume: () => void; onReturnToMenu: () => void }) {
+function HudLayer({ onResume, onAbandon }: { onResume: () => void; onAbandon: () => void }) {
   const hud = useGame((s) => s.hud);
   // Settings can be opened from within the pause menu without leaving the dream.
   // Unpausing (or abandoning) always drops it, so a later pause opens clean.
@@ -328,10 +326,82 @@ function HudLayer({ onResume, onReturnToMenu }: { onResume: () => void; onReturn
     <>
       <Hud hud={hud} />
       {hud.paused && !settingsOpen && (
-        <PauseMenu onResume={onResume} onReturnToMenu={onReturnToMenu} onSettings={() => setSettingsOpen(true)} />
+        <PauseMenu onResume={onResume} onAbandon={onAbandon} onSettings={() => setSettingsOpen(true)} />
       )}
       {hud.paused && settingsOpen && <Settings onClose={() => setSettingsOpen(false)} extraClass="pause-settings" />}
     </>
+  );
+}
+
+// ------------------------------------------------------------ discoveries
+// Achievement-style toasts: the moment something is written into the Dream
+// Book for the first time, a small plaque slides in at the top-right (under
+// the stardust counters) — glyph, name, and what kind of secret it was.
+interface ToastEntry { key: number; icon: React.ReactNode; name: string; tag: string; color: string }
+
+function discoveryLook(d: Discovery): Omit<ToastEntry, 'key'> | null {
+  switch (d.kind) {
+    case 'spell': {
+      const s = SPELLS[d.id];
+      if (!s) return null;
+      // level 1 is the spell itself; deeper levels are new book pages too
+      const tag = (d.level || 1) > 1 ? `Seen to level ${Math.min(d.level!, s.maxLevel)}` : 'Spell discovered';
+      return { icon: HAS_ICON(d.id) ? <SpellIcon id={d.id} size={26} /> : s.icon, name: s.name, tag, color: s.color };
+    }
+    case 'evolution': {
+      const s = SPELLS[d.id];
+      return s ? { icon: '❂', name: EVOLVE[d.id].name, tag: 'Evolution discovered', color: s.color } : null;
+    }
+    case 'boon': {
+      const b = BOONS[d.id];
+      return b ? { icon: b.icon, name: b.name, tag: 'Boon discovered', color: '#ffd27a' } : null;
+    }
+    case 'generic': {
+      const g = GENERIC[d.id];
+      return g ? { icon: g.icon, name: g.name, tag: 'Amplification discovered', color: '#ffd27a' } : null;
+    }
+    case 'relic': {
+      const r = RELICS[d.id];
+      return r ? { icon: r.icon, name: r.name, tag: 'Relic discovered', color: r.color } : null;
+    }
+    case 'pact': {
+      const p = PACTS.find((x) => x.id === d.id);
+      return p ? { icon: p.icon, name: p.name, tag: 'Altar pact discovered', color: '#c48cff' } : null;
+    }
+    case 'reaction': {
+      const rx = REACTIONS[d.id];
+      return rx ? { icon: rx.icon, name: rx.name, tag: 'Resonance discovered', color: rx.color } : null;
+    }
+  }
+  return null;
+}
+
+let _toastKey = 0;
+
+function DiscoveryToasts() {
+  const [toasts, setToasts] = useState<ToastEntry[]>([]);
+  useEffect(() => codex.onDiscover((d) => {
+    const look = discoveryLook(d);
+    if (!look) return;
+    const entry: ToastEntry = { ...look, key: ++_toastKey };
+    audio.bonus();
+    setToasts((cur) => [...cur.slice(-3), entry]);
+    window.setTimeout(() => setToasts((cur) => cur.filter((t) => t !== entry)), 4800);
+  }), []);
+  if (!toasts.length) return null;
+  return (
+    <div className="discovery-stack" aria-live="polite">
+      {toasts.map((t) => (
+        <div key={t.key} className="discovery-toast" style={{ '--c': t.color } as React.CSSProperties}>
+          <span className="dt-glyph">{t.icon}</span>
+          <span className="dt-body">
+            <span className="dt-eyebrow">✶ written into the dream book</span>
+            <span className="dt-name">{t.name}</span>
+            <span className="dt-tag">{t.tag}</span>
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -345,6 +415,18 @@ function ChipTip({ name, kind, desc }: { name: string; kind?: string; desc?: str
       {desc && <span className="chip-tip-desc">{desc}</span>}
     </span>
   );
+}
+
+// A boon's tooltip states what the player HOLDS, not what one rank grants: the
+// percentages (and Moonmilk's life) scale with the rank, exactly matching the
+// running totals the level-up cards show.
+function boonTip(id: string, rank: number): string {
+  const b = BOONS[id];
+  if (rank <= 1) return b.desc;
+  if (id === 'regen') return `Regenerate ${rank} life every 2 seconds.`;
+  const per = b.per ?? (id === 'swift' ? 8 : undefined);
+  if (per == null) return b.desc;
+  return b.desc.replace(/\d+(\.\d+)?%/, `${per * rank}%`);
 }
 
 function Hud({ hud }: { hud: HudState }) {
@@ -384,10 +466,12 @@ function Hud({ hud }: { hud: HudState }) {
           </div>
         </div>
         <div className="hud-center">
-          <div className="clock">{fmtTime(hud.time)}</div>
-          {hud.ahead > 0 && (
-            <div className="clock-deep" title="The Dark Bargain — this dream began that deep">⇣ began {fmtTime(hud.ahead)} deep</div>
-          )}
+          <div className="clock-row">
+            <div className="clock">{fmtTime(hud.time)}</div>
+            {hud.ahead > 0 && (
+              <div className="clock-deep" title="The Dark Bargain — this dream began that deep">⇣ began {fmtTime(hud.ahead)} deep</div>
+            )}
+          </div>
           <div className="kills">{hud.kills} banished</div>
         </div>
         <div className="hud-right">
@@ -406,7 +490,7 @@ function Hud({ hud }: { hud: HudState }) {
               </div>
               <ChipTip
                 name={s.evolved ? EVOLVE[s.id].name : def.name}
-                kind={s.evolved ? 'Evolved' : `Level ${s.level}`}
+                kind={(s.evolved ? 'Evolved' : `Level ${s.level}`) + (def.kind === 'defense' ? '' : ` · ${ELEMENTS[def.element].name}`)}
                 desc={s.evolved ? EVOLVE[s.id].desc : def.desc}
               />
             </div>
@@ -425,7 +509,7 @@ function Hud({ hud }: { hud: HudState }) {
               <span className="glyph">{BOONS[id].icon}</span>
               <span className="lv">{lv}</span>
             </div>
-            <ChipTip name={BOONS[id].name} kind={`Rank ${lv}`} desc={BOONS[id].desc} />
+            <ChipTip name={BOONS[id].name} kind={`Rank ${lv}`} desc={boonTip(id, lv)} />
           </div>
         ))}
         {hud.relics.length > 0 && <div className="dock-divider" />}
@@ -445,7 +529,7 @@ function Hud({ hud }: { hud: HudState }) {
   );
 }
 
-function PauseMenu({ onResume, onReturnToMenu, onSettings }: { onResume: () => void; onReturnToMenu: () => void; onSettings: () => void }) {
+function PauseMenu({ onResume, onAbandon, onSettings }: { onResume: () => void; onAbandon: () => void; onSettings: () => void }) {
   return (
     <div className="overlay pause-overlay">
       <div className="pause-panel panel">
@@ -455,9 +539,9 @@ function PauseMenu({ onResume, onReturnToMenu, onSettings }: { onResume: () => v
         <div className="menu-buttons">
           <button className="btn-primary" onClick={onResume}>Return to the dream</button>
           <button className="btn-secondary" onClick={onSettings}>Tune the dream</button>
-          <button className="btn-secondary" onClick={onReturnToMenu}>Abandon this dream</button>
+          <button className="btn-secondary" onClick={onAbandon}>Abandon this dream</button>
         </div>
-        <div className="controls-hint">Esc resumes · an abandoned dream yields no stardust</div>
+        <div className="controls-hint">Esc resumes · abandoning ends the dream where it stands</div>
       </div>
     </div>
   );
@@ -704,7 +788,7 @@ const FUNDAMENTALS: { icon: string; title: string; body: string }[] = [
   { icon: '★', title: 'Mastery', body: 'Past its max level, a spell keeps gaining +8% damage per pick — forever. A maxed spell is never a wasted choice.' },
   { icon: '❂', title: 'Evolution', body: 'Max a spell whose evolution you’ve unlocked in the Constellation, and its final form is offered — a whole new behaviour.' },
   { icon: '≈', title: 'Surges', body: 'Short bursts of power — swiftness, damage, haste, area or pickup — that trigger every few seconds.' },
-  { icon: '❆', title: 'Resonance', body: 'Elements leave marks: cold chills, storm charges, light brands. Hit a marked foe with the right element to set off a reaction.' },
+  { icon: '❆', title: 'Resonance', body: 'Every spell carries an element, and elements leave marks: cold chills, storm charges, light brands, nature spores. Hit a marked foe with the right element — or with raw arcane — to set off a reaction.' },
 ];
 
 function BookGlyph({ icon, id, size = 30 }: { icon: string; id?: string; size?: number }) {
@@ -738,7 +822,13 @@ function SpellEntry({ id }: { id: string }) {
         <BookGlyph icon={def.icon} id={id} />
         <div className="be-title">
           <div className="be-name">{def.name}</div>
-          <div className="be-tag">{def.school}<em> · seen to lv {Math.min(lvl, def.maxLevel)}</em></div>
+          <div className="be-tag">
+            {def.school}
+            {def.kind !== 'defense' && (
+              <span className="be-element" style={{ color: ELEMENTS[def.element].color }}> · {ELEMENTS[def.element].icon} {ELEMENTS[def.element].name}</span>
+            )}
+            <em> · seen to lv {Math.min(lvl, def.maxLevel)}</em>
+          </div>
         </div>
       </div>
       <div className="be-desc">{def.desc}</div>
@@ -762,16 +852,70 @@ function SpellEntry({ id }: { id: string }) {
   );
 }
 
+// Watches one discovered book entry: while it carries an unread NEW mark and
+// stays in view for a beat, it is counted as read — the badge dims in place
+// and the tab / menu tallies fall. `dkeys` are the codex unseen-keys this
+// entry represents (a spell entry also owns its evolution's key).
+function Discoverable({ dkeys, unseenSet, readSet, onSeen, children }: {
+  dkeys: string[]; unseenSet: Set<string>; readSet: Set<string>;
+  onSeen: (keys: string[]) => void; children: React.ReactNode;
+}) {
+  const live = dkeys.filter((k) => unseenSet.has(k));
+  const isNew = live.length > 0;
+  const read = isNew && live.every((k) => readSet.has(k));
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isNew || read) return;
+    const el = ref.current;
+    if (!el) return;
+    let timer = 0;
+    const io = new IntersectionObserver(([en]) => {
+      window.clearTimeout(timer);
+      if (en.isIntersecting) timer = window.setTimeout(() => onSeen(live), 1000);
+    }, { threshold: 0.55 });
+    io.observe(el);
+    return () => { io.disconnect(); window.clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNew, read, dkeys.join(','), onSeen]);
+  return (
+    <div ref={ref} className="disc-wrap">
+      {children}
+      {isNew && <span className={`be-new${read ? ' read' : ''}`}>new</span>}
+    </div>
+  );
+}
+
 function DreamBook({ onClose }: { onClose: () => void }) {
   const sky = useSkyState();
   const [tab, setTab] = useState<BookTab>('basics');
-  // opening the book clears the "new" glow on the menu button
-  useEffect(() => { codex.markSeen(); }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  // the unread marks, frozen at open; entries scrolled into view are marked
+  // read in the codex and join readSet so badges fade and counts fall live
+  const [unseenSet] = useState(() => new Set(codex.unseenKeys()));
+  const [readSet, setReadSet] = useState<Set<string>>(() => new Set());
+  const markRead = useCallback((keys: string[]) => {
+    for (const key of keys) {
+      const i = key.indexOf(':');
+      codex.markEntrySeen(key.slice(0, i) as DiscoveryKind, key.slice(i + 1));
+    }
+    setReadSet((prev) => {
+      const next = new Set(prev);
+      for (const key of keys) next.add(key);
+      return next;
+    });
+  }, []);
+  const freshIn = (kinds: DiscoveryKind[], ignoreRead = false) => {
+    let n = 0;
+    for (const key of unseenSet) {
+      if ((ignoreRead || !readSet.has(key)) && kinds.includes(key.slice(0, key.indexOf(':')) as DiscoveryKind)) n++;
+    }
+    return n;
+  };
 
   const spellIds = Object.keys(SPELLS);
   const boonIds = Object.keys(BOONS);
@@ -780,14 +924,19 @@ function DreamBook({ onClose }: { onClose: () => void }) {
   const reactionIds = Object.keys(REACTIONS);
 
   const count = (ids: string[], known: (id: string) => boolean) => ids.filter(known).length;
-  const tabs: { id: BookTab; label: string; found: number; total: number }[] = [
-    { id: 'basics', label: 'The Craft', found: FUNDAMENTALS.length, total: FUNDAMENTALS.length },
-    { id: 'spells', label: 'Spells', found: count(spellIds, codex.knowsSpell.bind(codex)), total: spellIds.length },
-    { id: 'boons', label: 'Boons', found: count(boonIds, codex.knowsBoon.bind(codex)) + count(genericIds, codex.knowsGeneric.bind(codex)), total: boonIds.length + genericIds.length },
-    { id: 'relics', label: 'Relics', found: count(relicIds, codex.knowsRelic.bind(codex)), total: relicIds.length },
-    { id: 'pacts', label: 'Pacts', found: count(PACTS.map((p) => p.id), codex.knowsPact.bind(codex)), total: PACTS.length },
-    { id: 'reactions', label: 'Interactions', found: count(reactionIds, codex.knowsReaction.bind(codex)), total: reactionIds.length },
+  // `had` is frozen at open: a badge slot that emptied mid-session dims in
+  // place instead of unmounting, so the tab row never shifts under the cursor
+  const mk = (id: BookTab, label: string, found: number, total: number, kinds: DiscoveryKind[]) =>
+    ({ id, label, found, total, fresh: freshIn(kinds), had: freshIn(kinds, true) });
+  const tabs: { id: BookTab; label: string; found: number; total: number; fresh: number; had: number }[] = [
+    { id: 'basics', label: 'The Craft', found: FUNDAMENTALS.length, total: FUNDAMENTALS.length, fresh: 0, had: 0 },
+    mk('spells', 'Spells', count(spellIds, codex.knowsSpell.bind(codex)), spellIds.length, ['spell', 'evolution']),
+    mk('boons', 'Boons', count(boonIds, codex.knowsBoon.bind(codex)) + count(genericIds, codex.knowsGeneric.bind(codex)), boonIds.length + genericIds.length, ['boon', 'generic']),
+    mk('relics', 'Relics', count(relicIds, codex.knowsRelic.bind(codex)), relicIds.length, ['relic']),
+    mk('pacts', 'Pacts', count(PACTS.map((p) => p.id), codex.knowsPact.bind(codex)), PACTS.length, ['pact']),
+    mk('reactions', 'Interactions', count(reactionIds, codex.knowsReaction.bind(codex)), reactionIds.length, ['reaction']),
   ];
+  const disc = { unseenSet, readSet, onSeen: markRead };
 
   return (
     <div className="overlay settings-overlay book-overlay">
@@ -812,6 +961,7 @@ function DreamBook({ onClose }: { onClose: () => void }) {
             >
               <span className="bt-label">{t.label}</span>
               {t.id !== 'basics' && <span className="bt-count">{t.found}/{t.total}</span>}
+              {t.had > 0 && <span className={`bt-new${t.fresh === 0 ? ' done' : ''}`}>{t.fresh > 0 ? t.fresh : '✓'}</span>}
             </button>
           ))}
         </div>
@@ -834,7 +984,7 @@ function DreamBook({ onClose }: { onClose: () => void }) {
           {tab === 'spells' && (
             <div className="book-grid">
               {spellIds.map((id) => codex.knowsSpell(id)
-                ? <SpellEntry key={id} id={id} />
+                ? <Discoverable key={id} dkeys={[`spell:${id}`, `evolution:${id}`]} {...disc}><SpellEntry id={id} /></Discoverable>
                 : <LockedEntry key={id} hint="A spell you have yet to weave into a dream." />)}
             </div>
           )}
@@ -847,13 +997,15 @@ function DreamBook({ onClose }: { onClose: () => void }) {
                   const b = BOONS[id];
                   if (!codex.knowsBoon(id)) return <LockedEntry key={id} hint="A blessing you have yet to accept." />;
                   return (
-                    <div className="book-entry boon" key={id}>
-                      <div className="be-head">
-                        <BookGlyph icon={b.icon} />
-                        <div className="be-title"><div className="be-name">{b.name}</div><div className="be-tag">up to rank {b.max}</div></div>
+                    <Discoverable key={id} dkeys={[`boon:${id}`]} {...disc}>
+                      <div className="book-entry boon">
+                        <div className="be-head">
+                          <BookGlyph icon={b.icon} />
+                          <div className="be-title"><div className="be-name">{b.name}</div><div className="be-tag">up to rank {b.max}</div></div>
+                        </div>
+                        <div className="be-desc">{b.desc}</div>
                       </div>
-                      <div className="be-desc">{b.desc}</div>
-                    </div>
+                    </Discoverable>
                   );
                 })}
               </div>
@@ -863,13 +1015,15 @@ function DreamBook({ onClose }: { onClose: () => void }) {
                   const g = GENERIC[id];
                   if (!codex.knowsGeneric(id)) return <LockedEntry key={id} hint="An amplification you have yet to take." />;
                   return (
-                    <div className="book-entry boon" key={id}>
-                      <div className="be-head">
-                        <BookGlyph icon={g.icon} />
-                        <div className="be-title"><div className="be-name">{g.name}</div><div className="be-tag">endless</div></div>
+                    <Discoverable key={id} dkeys={[`generic:${id}`]} {...disc}>
+                      <div className="book-entry boon">
+                        <div className="be-head">
+                          <BookGlyph icon={g.icon} />
+                          <div className="be-title"><div className="be-name">{g.name}</div><div className="be-tag">endless</div></div>
+                        </div>
+                        <div className="be-desc">{g.desc}</div>
                       </div>
-                      <div className="be-desc">{g.desc}</div>
-                    </div>
+                    </Discoverable>
                   );
                 })}
               </div>
@@ -882,13 +1036,15 @@ function DreamBook({ onClose }: { onClose: () => void }) {
                 const r = RELICS[id];
                 if (!codex.knowsRelic(id)) return <LockedEntry key={id} hint="A relic no fallen nightmare has yet offered you." />;
                 return (
-                  <div className="book-entry relic" key={id} style={{ '--c': r.color } as React.CSSProperties}>
-                    <div className="be-head">
-                      <BookGlyph icon={r.icon} />
-                      <div className="be-title"><div className="be-name">{r.name}</div><div className="be-tag">relic</div></div>
+                  <Discoverable key={id} dkeys={[`relic:${id}`]} {...disc}>
+                    <div className="book-entry relic" style={{ '--c': r.color } as React.CSSProperties}>
+                      <div className="be-head">
+                        <BookGlyph icon={r.icon} />
+                        <div className="be-title"><div className="be-name">{r.name}</div><div className="be-tag">relic</div></div>
+                      </div>
+                      <div className="be-desc">{r.desc}</div>
                     </div>
-                    <div className="be-desc">{r.desc}</div>
-                  </div>
+                  </Discoverable>
                 );
               })}
             </div>
@@ -899,13 +1055,15 @@ function DreamBook({ onClose }: { onClose: () => void }) {
               {PACTS.map((p) => {
                 if (!codex.knowsPact(p.id)) return <LockedEntry key={p.id} hint="A bargain no altar has yet whispered to you." />;
                 return (
-                  <div className="book-entry pact" key={p.id}>
-                    <div className="be-head">
-                      <BookGlyph icon={p.icon} />
-                      <div className="be-title"><div className="be-name">{p.name}</div><div className="be-tag">altar pact</div></div>
+                  <Discoverable key={p.id} dkeys={[`pact:${p.id}`]} {...disc}>
+                    <div className="book-entry pact">
+                      <div className="be-head">
+                        <BookGlyph icon={p.icon} />
+                        <div className="be-title"><div className="be-name">{p.name}</div><div className="be-tag">altar pact</div></div>
+                      </div>
+                      <div className="be-desc"><span className="pact-gift">{p.boon}</span> <span className="pact-cost">…but {p.curse}.</span></div>
                     </div>
-                    <div className="be-desc"><span className="pact-gift">{p.boon}</span> <span className="pact-cost">…but {p.curse}.</span></div>
-                  </div>
+                  </Discoverable>
                 );
               })}
             </div>
@@ -917,13 +1075,15 @@ function DreamBook({ onClose }: { onClose: () => void }) {
                 const rx = REACTIONS[id];
                 if (!codex.knowsReaction(id)) return <LockedEntry key={id} hint="A resonance you have yet to spark between two elements." />;
                 return (
-                  <div className="book-entry reaction" key={id} style={{ '--c': rx.color } as React.CSSProperties}>
-                    <div className="be-head">
-                      <BookGlyph icon={rx.icon} />
-                      <div className="be-title"><div className="be-name">{rx.name}</div><div className="be-tag">{rx.recipe}</div></div>
+                  <Discoverable key={id} dkeys={[`reaction:${id}`]} {...disc}>
+                    <div className="book-entry reaction" style={{ '--c': rx.color } as React.CSSProperties}>
+                      <div className="be-head">
+                        <BookGlyph icon={rx.icon} />
+                        <div className="be-title"><div className="be-name">{rx.name}</div><div className="be-tag">{rx.recipe}</div></div>
+                      </div>
+                      <div className="be-desc">{rx.desc}</div>
                     </div>
-                    <div className="be-desc">{rx.desc}</div>
-                  </div>
+                  </Discoverable>
                 );
               })}
             </div>
@@ -1000,6 +1160,11 @@ function LevelUp({ choices, level, banishes, rerolls, showBanish, showReroll, ma
                 <div className="card-glyph">{isSpell && HAS_ICON(c.id) ? <SpellIcon id={c.id} size={40} /> : def.icon}</div>
                 <div className="card-name">{isEvolve ? EVOLVE[c.id].name : def.name}</div>
                 <div className="card-school">{school}</div>
+                {spellDef && spellDef.kind !== 'defense' && (
+                  <div className="card-element" style={{ color: ELEMENTS[spellDef.element].color }}>
+                    {ELEMENTS[spellDef.element].icon} {ELEMENTS[spellDef.element].name}
+                  </div>
+                )}
                 <div className="card-line" aria-hidden="true" />
                 <div className="card-desc">
                   {isEvolve
@@ -1215,14 +1380,65 @@ function Victory({ victory, onDreamOn }: { victory: VictoryInfo; onDreamOn: () =
   );
 }
 
+// the intro fade should play once per death — remounting after a visit to the
+// book / trees must not replay it (the raw canvas flashed through the fade)
+let _animatedResult: RunResult | null = null;
+
+// Everything the run gathered, worn as the same hoverable chips as the in-run
+// dock: spells (level / evolved), boons (at their held rank) and relics.
+function ObtainedRow() {
+  const hud = useGame((s) => s.hud);
+  if (!hud || (hud.spells.length === 0 && hud.relics.length === 0)) return null;
+  const boons = Object.entries(hud.boons);
+  return (
+    <div className="obtained-row" title="Everything this dream gathered">
+      {hud.spells.map((s) => {
+        const def = SPELLS[s.id];
+        return (
+          <div key={s.id} className="chip-wrap" style={{ '--c': def.color } as React.CSSProperties}>
+            <div className={`spell-chip ${s.evolved ? 'evolved' : ''}`}>
+              <span className="glyph"><SpellIcon id={s.id} size={22} /></span>
+              <span className="lv">{s.evolved ? '★' : s.level}</span>
+            </div>
+            <ChipTip
+              name={s.evolved ? EVOLVE[s.id].name : def.name}
+              kind={(s.evolved ? 'Evolved' : `Level ${s.level}`) + (def.kind === 'defense' ? '' : ` · ${ELEMENTS[def.element].name}`)}
+              desc={s.evolved ? EVOLVE[s.id].desc : def.desc}
+            />
+          </div>
+        );
+      })}
+      {boons.length > 0 && <div className="dock-divider" />}
+      {boons.map(([id, lv]) => (
+        <div key={id} className="chip-wrap">
+          <div className="spell-chip boon">
+            <span className="glyph">{BOONS[id].icon}</span>
+            <span className="lv">{lv}</span>
+          </div>
+          <ChipTip name={BOONS[id].name} kind={`Rank ${lv}`} desc={boonTip(id, lv)} />
+        </div>
+      ))}
+      {hud.relics.length > 0 && <div className="dock-divider" />}
+      {hud.relics.map((id) => (
+        <div key={id} className="chip-wrap" style={{ '--c': RELICS[id].color } as React.CSSProperties}>
+          <div className="spell-chip relic"><span className="glyph">{RELICS[id].icon}</span></div>
+          <ChipTip name={RELICS[id].name} kind="Relic" desc={RELICS[id].desc} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function GameOver({ result, dustEarned, meta, onRetry, onTree, onDark, onBook, onMenu }: {
   result: RunResult; dustEarned: number; meta: Meta;
   onRetry: () => void; onTree: () => void; onDark: () => void; onBook: () => void; onMenu: () => void;
 }) {
   // discoveries made this dream light up the Dream Book button
   const unseen = codex.unseen();
+  const skipIntro = _animatedResult === result;
+  useEffect(() => { _animatedResult = result; }, [result]);
   return (
-    <div className="overlay dead">
+    <div className={`overlay dead${skipIntro ? ' no-in' : ''}`}>
       <div className="eyebrow">the dream closes over you</div>
       <h2>You wake</h2>
       {result.cleared && <div className="record-tag cleared-tag">✦ the dream was yours — the Other Dreamer fell ✦</div>}
@@ -1235,15 +1451,7 @@ function GameOver({ result, dustEarned, meta, onRetry, onTree, onDark, onBook, o
         <div className="stat"><span className="num dust">+{dustEarned}</span><span className="lbl">stardust</span></div>
         {(result.shards || 0) > 0 && <div className="stat"><span className="num shards">+{result.shards}</span><span className="lbl">shards</span></div>}
       </div>
-      {result.relics.length > 0 && (
-        <div className="go-relics" title="Relics claimed this dream">
-          {result.relics.map((id) => (
-            <span key={id} className="go-relic" style={{ '--c': RELICS[id].color } as React.CSSProperties} title={RELICS[id].name}>
-              {RELICS[id].icon}
-            </span>
-          ))}
-        </div>
-      )}
+      <ObtainedRow />
       <div className="menu-buttons">
         <button className="btn-primary" onClick={onRetry}>Sleep again</button>
         {meta.treeRevealed ? (
@@ -1453,7 +1661,7 @@ function SkillTree({ meta, reveal, onRevealed, onMeta, onLoadout, onSkin, onClos
           <input
             className="tree-search"
             type="search"
-            placeholder="Search stars… (move, crit, aoe)"
+            placeholder="Search stars…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             spellCheck={false}

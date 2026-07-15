@@ -56,9 +56,10 @@ export interface Enemy {
   // seconds this boss has been alive-and-onscreen; drives enrage (fire rate ramp)
   rageT: number;
   // Resonance marks: storm hits leave a charge that discharges on death,
-  // light hits leave a brand that amplifies damage and fuels Eclipse.
+  // light hits leave a brand that amplifies damage and fuels Eclipse,
+  // nature hits leave spores that Overgrowth blooms off.
   // reactCd is an absolute sim-time stamp gating reactions per enemy.
-  chargeT: number; chargeDmg: number; brandT: number; reactCd: number;
+  chargeT: number; chargeDmg: number; brandT: number; sporeT: number; reactCd: number;
   // Nightmare Brand: a red name written on the strong. Ticks nbDps (+nbPct of
   // max life) while nbT runs, bursts nbBurst on death, spreads if nbSpread.
   nbT: number; nbDps: number; nbPct: number; nbTick: number; nbAmp: number;
@@ -66,6 +67,9 @@ export interface Enemy {
   hitFlash: number; animT: number; seed: number;
   knbx: number; knby: number;
   goldT: number;
+  // rotation bosses: the plate's name and its chip-trail health (lags real hp
+  // so heavy bursts read as a bite taken out of the bar)
+  bossName: string; hpLag: number;
   shootCd: number;       // ranged: <0 means uninitialised
   dmgTextT: number;
   meleeCd: number;       // time until this enemy can melee again
@@ -113,6 +117,11 @@ export interface BossProjectile {
   // Colossus stones leave the hand slow and gather speed as they travel:
   // accel is px/s² added along the flight path, capped at maxSpd
   accel: number; maxSpd: number;
+  // Moon Moth dust: the shot's heading bends by `curve` rad/s in flight
+  curve: number;
+  // Starved Flock echoes: after reaimT seconds the shot re-aims at the player
+  // and strikes anew (0 = never)
+  reaimT: number;
   // Mirror Waltz: batted back by a petal — now hunts the horde instead
   reflected: boolean;
   // absolute sim-time gate so one petal contact rolls the reflect chance once
@@ -233,10 +242,10 @@ export function makeEnemy(): Enemy {
     uid: 0, slot: 0, type: 'wisp', boss: false, elite: false, golden: false, dead: false,
     x: 0, y: 0, px: 0, py: 0, hp: 1, maxHp: 1, speed: 0, dmg: 0, radius: 10, xp: 1,
     color: '#fff', slow: 0, slowT: 0, ccSat: 0, ccImmT: 0, rageT: 0,
-    chargeT: 0, chargeDmg: 0, brandT: 0, reactCd: 0,
+    chargeT: 0, chargeDmg: 0, brandT: 0, sporeT: 0, reactCd: 0,
     nbT: 0, nbDps: 0, nbPct: 0, nbTick: 0, nbAmp: 0, nbSpread: false, nbBurst: 0,
     hitFlash: 0, animT: 0, seed: 0,
-    knbx: 0, knby: 0, goldT: 0, shootCd: -1, dmgTextT: 0,
+    knbx: 0, knby: 0, goldT: 0, bossName: '', hpLag: 0, shootCd: -1, dmgTextT: 0,
     meleeCd: 0, meleeBaseCd: 1, meleeReach: 6, meleeAnim: 0, ranged: null, bossFire: null,
   };
 }
@@ -256,7 +265,7 @@ export function makeProjectile(): Projectile {
 }
 
 export function makeBossProjectile(): BossProjectile {
-  return { dead: false, x: 0, y: 0, px: 0, py: 0, vx: 0, vy: 0, life: 0, r: 6, dmg: 0, color: null, accel: 0, maxSpd: 0, reflected: false, parryT: 0 };
+  return { dead: false, x: 0, y: 0, px: 0, py: 0, vx: 0, vy: 0, life: 0, r: 6, dmg: 0, color: null, accel: 0, maxSpd: 0, curve: 0, reaimT: 0, reflected: false, parryT: 0 };
 }
 
 export function makeZone(): Zone {

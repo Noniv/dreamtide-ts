@@ -11,6 +11,18 @@ export type Element =
   | 'arcane' | 'fire' | 'frost' | 'storm'
   | 'light' | 'shadow' | 'nature' | 'cosmic';
 
+// how each element presents itself in the UI (cards, tooltips, the Dream Book)
+export const ELEMENTS: Record<Element, { name: string; icon: string; color: string }> = {
+  arcane: { name: 'Arcane', icon: '✦', color: '#b48cff' },
+  fire: { name: 'Fire', icon: '🜂', color: '#ff8c5a' },
+  frost: { name: 'Frost', icon: '❆', color: '#8fe8ff' },
+  storm: { name: 'Storm', icon: 'ϟ', color: '#7ad7ff' },
+  light: { name: 'Light', icon: '✧', color: '#fff3b8' },
+  shadow: { name: 'Shadow', icon: '☽', color: '#9a5cff' },
+  nature: { name: 'Nature', icon: '❀', color: '#7dffb0' },
+  cosmic: { name: 'Cosmic', icon: '✵', color: '#ffb3f2' },
+};
+
 export interface RelicDef {
   id: string;
   name: string;

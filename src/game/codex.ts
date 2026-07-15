@@ -40,6 +40,16 @@ export const REACTIONS: Record<string, ReactionDef> = {
     recipe: 'A storm-charged foe dies',
     desc: 'Lightning leaps to nearby foes; their deaths can chain it onward.',
   },
+  overgrow: {
+    id: 'overgrow', name: 'Overgrowth', icon: '❀', color: '#7dffb0',
+    recipe: 'Frost strikes a spore-marked foe',
+    desc: 'Frozen brambles burst out, damaging and deeply chilling nearby foes.',
+  },
+  unravel: {
+    id: 'unravel', name: 'Unravel', icon: '✦', color: '#b48cff',
+    recipe: 'Arcane strikes a foe bearing any mark',
+    desc: 'The marks resonate — a burst of raw magic, stronger for each mark carried.',
+  },
 };
 
 // ---------------------------------------------------------------- storage
@@ -52,13 +62,15 @@ interface CodexData {
   pacts: Record<string, true>;
   reactions: Record<string, true>;
   found: number; // running tally of distinct discoveries ever made
-  seen: number;  // `found` at the last time the book was opened
+  // entries updated since they were last scrolled into view in the book,
+  // keyed `${kind}:${id}` — drives the menu / tab / entry NEW badges
+  unseen: Record<string, true>;
 }
 
 function fresh(): CodexData {
   return {
     spells: {}, evolved: {}, boons: {}, generics: {}, relics: {}, pacts: {}, reactions: {},
-    found: 0, seen: 0,
+    found: 0, unseen: {},
   };
 }
 
@@ -77,27 +89,48 @@ function load(): CodexData {
         pacts: d.pacts || base.pacts,
         reactions: d.reactions || base.reactions,
         found: d.found || 0,
-        seen: d.seen || 0,
+        unseen: d.unseen || {},
       };
     }
   } catch { /* corrupted store — start fresh */ }
   return fresh();
 }
 
+// something new was written into the book mid-run — the UI raises a toast.
+// `level` rides along on spell discoveries (1 = the spell itself; higher =
+// a new deepest level witnessed).
+export type DiscoveryKind = 'spell' | 'evolution' | 'boon' | 'generic' | 'relic' | 'pact' | 'reaction';
+export interface Discovery { kind: DiscoveryKind; id: string; level?: number }
+type DiscoveryListener = (d: Discovery) => void;
+
 class Codex {
   data: CodexData = load();
+  private listeners = new Set<DiscoveryListener>();
+
+  // subscribe to brand-new discoveries; returns the unsubscribe
+  onDiscover(fn: DiscoveryListener): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  private notify(kind: DiscoveryKind, id: string, level?: number) {
+    for (const fn of this.listeners) fn({ kind, id, level });
+  }
 
   private save() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(this.data)); } catch { /* private mode */ }
   }
 
-  // Each of these records a discovery and returns whether it was brand new, so
-  // callers could sing a note the first time (unused for now — silent).
-  private mark(set: Record<string, true>, id: string): boolean {
+  // Each of these records a discovery and returns whether it was brand new;
+  // brand-new ones are announced to the listeners (the on-screen toast) and
+  // flagged unseen until their book entry is scrolled into view.
+  private mark(set: Record<string, true>, kind: DiscoveryKind, id: string): boolean {
     if (set[id]) return false;
     set[id] = true;
     this.data.found++;
+    this.data.unseen[`${kind}:${id}`] = true;
     this.save();
+    this.notify(kind, id);
     return true;
   }
 
@@ -106,15 +139,17 @@ class Codex {
     if (level <= cur) return false;
     this.data.spells[id] = level;
     this.data.found++;
+    this.data.unseen[`spell:${id}`] = true;
     this.save();
+    this.notify('spell', id, level);
     return true;
   }
-  discoverEvolution(id: string): boolean { return this.mark(this.data.evolved, id); }
-  discoverBoon(id: string): boolean { return this.mark(this.data.boons, id); }
-  discoverGeneric(id: string): boolean { return this.mark(this.data.generics, id); }
-  discoverRelic(id: string): boolean { return this.mark(this.data.relics, id); }
-  discoverPact(id: string): boolean { return this.mark(this.data.pacts, id); }
-  discoverReaction(id: string): boolean { return this.mark(this.data.reactions, id); }
+  discoverEvolution(id: string): boolean { return this.mark(this.data.evolved, 'evolution', id); }
+  discoverBoon(id: string): boolean { return this.mark(this.data.boons, 'boon', id); }
+  discoverGeneric(id: string): boolean { return this.mark(this.data.generics, 'generic', id); }
+  discoverRelic(id: string): boolean { return this.mark(this.data.relics, 'relic', id); }
+  discoverPact(id: string): boolean { return this.mark(this.data.pacts, 'pact', id); }
+  discoverReaction(id: string): boolean { return this.mark(this.data.reactions, 'reaction', id); }
 
   // ---- reads for the book UI
   spellLevel(id: string): number { return this.data.spells[id] || 0; }
@@ -126,11 +161,14 @@ class Codex {
   knowsPact(id: string): boolean { return !!this.data.pacts[id]; }
   knowsReaction(id: string): boolean { return !!this.data.reactions[id]; }
 
-  // undiscovered facts since the book was last opened — drives the menu glow
-  unseen(): number { return Math.max(0, this.data.found - this.data.seen); }
-  markSeen() {
-    if (this.data.seen === this.data.found) return;
-    this.data.seen = this.data.found;
+  // ---- the NEW badges: entries not yet scrolled into view in the book
+  unseen(): number { return Object.keys(this.data.unseen).length; }
+  unseenKeys(): string[] { return Object.keys(this.data.unseen); }
+  unseenEntry(kind: DiscoveryKind, id: string): boolean { return !!this.data.unseen[`${kind}:${id}`]; }
+  markEntrySeen(kind: DiscoveryKind, id: string) {
+    const key = `${kind}:${id}`;
+    if (!this.data.unseen[key]) return;
+    delete this.data.unseen[key];
     this.save();
   }
 }

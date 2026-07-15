@@ -125,6 +125,15 @@ export const ENEMY_TYPES: Record<string, EnemyDef> = {
     weight: (t) => (t > 210 ? 2.5 : 0),
     ranged: { range: 380, cd: 3.4, projSpeed: 160, shots: 3 },
   },
+  // the deep-dream tide (minutes 7+): a swift swarming moth, a drifting
+  // bullet-fanning jelly, and a slow armoured dream-snail that hits like a door
+  moth: { hp: 62, speed: 134, dmg: 16, radius: 16, xp: 4, color: '#ffc9f5', meleeCd: 1.0, meleeReach: 6, weight: (t) => (t > 420 ? 6 : 0) },
+  jelly: {
+    hp: 165, speed: 44, dmg: 20, radius: 22, xp: 7, color: '#9fdcff', meleeCd: 1.0, meleeReach: 8,
+    weight: (t) => (t > 480 ? 4 : 0),
+    ranged: { range: 310, cd: 3.4, projSpeed: 118, shots: 4 },
+  },
+  snail: { hp: 310, speed: 52, dmg: 32, radius: 24, xp: 9, color: '#cbb6ff', meleeCd: 0.7, meleeReach: 12, weight: (t) => (t > 540 ? 3 : 0) },
   // the Other Dreamer's nightmare form — never in the wave tables (weight 0);
   // spawned only by the fifteenth-minute finale. Radius here is the sprite's
   // reference size; the boss wears it at 2× (radius 66).
@@ -147,11 +156,11 @@ const WAVES: WaveDef[] = [
   { t: 240, floor: 46, rate: 0.62, types: { bat: 6, siren: 3, eye: 7, shade: 2 }, hp: 2.9, event: 'ring' },
   { t: 300, floor: 60, rate: 0.54, types: { siren: 3, eye: 6, shade: 6, warlock: 1 }, hp: 3.8, event: 'pack' },
   { t: 360, floor: 76, rate: 0.48, types: { eye: 5, shade: 7, warlock: 2, golem: 3 }, hp: 4.9, event: 'wall' },
-  { t: 430, floor: 92, rate: 0.44, types: { shade: 6, warlock: 3, golem: 6, siren: 2 }, hp: 6.2, event: 'ring' },
-  { t: 500, floor: 110, rate: 0.41, types: { shade: 5, warlock: 4, golem: 7, eye: 3 }, hp: 7.8, event: 'pack' },
-  { t: 580, floor: 130, rate: 0.38, types: { warlock: 4, golem: 8, shade: 5, siren: 2 }, hp: 9.6, event: 'wall' },
-  { t: 660, floor: 150, rate: 0.36, types: { warlock: 4, golem: 8, eye: 6, shade: 6 }, hp: 11.8, event: 'ring' },
-  { t: 740, floor: 170, rate: 0.34, types: { warlock: 5, golem: 9, eye: 5, shade: 6 }, hp: 14.5, event: 'pack' },
+  { t: 420, floor: 92, rate: 0.44, types: { shade: 5, warlock: 3, golem: 5, moth: 6 }, hp: 6.2, event: 'ring' },
+  { t: 480, floor: 110, rate: 0.41, types: { moth: 6, golem: 6, warlock: 3, jelly: 4 }, hp: 7.8, event: 'pack' },
+  { t: 540, floor: 128, rate: 0.38, types: { moth: 5, jelly: 5, golem: 6, snail: 3 }, hp: 9.6, event: 'wall' },
+  { t: 620, floor: 146, rate: 0.36, types: { jelly: 5, snail: 4, warlock: 4, moth: 4 }, hp: 11.8, event: 'ring' },
+  { t: 700, floor: 164, rate: 0.34, types: { snail: 5, jelly: 5, golem: 6, moth: 5 }, hp: 14.5, event: 'pack' },
 ];
 
 // ------------------------------------------------------------- boss archetypes
@@ -161,6 +170,7 @@ const WAVES: WaveDef[] = [
 interface BossArch {
   type: string;            // enemy sprite/anim to wear
   title: string;           // arrival banner
+  name: string;            // the health plate's nameplate
   color: string;           // banner/flash tint
   hp: number;              // base hp (before wave + count scaling)
   dmg: number;             // base contact damage
@@ -175,7 +185,7 @@ interface BossArch {
 
 const BOSS_ARCHS: BossArch[] = [
   {
-    type: 'eye', title: '☽  THE DEVOURER STIRS  ☾', color: '#c48cff',
+    type: 'eye', title: '☽  THE DEVOURER STIRS  ☾', name: 'THE DEVOURER', color: '#c48cff',
     hp: 46, dmg: 26, speed: 52, radius: 61,
     fire: {
       interval: 1.55, speed: 138,
@@ -183,7 +193,7 @@ const BOSS_ARCHS: BossArch[] = [
     },
   },
   {
-    type: 'golem', title: '☽  THE SUNKEN COLOSSUS WAKES  ☾', color: '#8fe8ff',
+    type: 'golem', title: '☽  THE SUNKEN COLOSSUS WAKES  ☾', name: 'THE SUNKEN COLOSSUS', color: '#8fe8ff',
     hp: 62, dmg: 34, speed: 34, radius: 72,
     fire: {
       // one signature attack: the double stone ring with a walking gap. The
@@ -194,7 +204,7 @@ const BOSS_ARCHS: BossArch[] = [
     },
   },
   {
-    type: 'siren', title: '☽  THE PALE CHOIR SINGS  ☾', color: '#7dc9ff',
+    type: 'siren', title: '☽  THE PALE CHOIR SINGS  ☾', name: 'THE PALE CHOIR', color: '#7dc9ff',
     hp: 34, dmg: 20, speed: 68, radius: 58,
     fire: {
       interval: 1.4, speed: 165,
@@ -202,7 +212,7 @@ const BOSS_ARCHS: BossArch[] = [
     },
   },
   {
-    type: 'shade', title: '☽  THE SHADE OF YESTERDAY SLIPS THROUGH  ☾', color: '#8a7bff',
+    type: 'shade', title: '☽  THE SHADE OF YESTERDAY SLIPS THROUGH  ☾', name: 'THE SHADE OF YESTERDAY', color: '#8a7bff',
     hp: 40, dmg: 24, speed: 80, radius: 55,
     fire: {
       interval: 1.7, speed: 140,
@@ -210,13 +220,43 @@ const BOSS_ARCHS: BossArch[] = [
     },
   },
   {
-    type: 'warlock', title: '☽  THE HOLLOW COURT CONVENES  ☾', color: '#d98cff',
+    type: 'warlock', title: '☽  THE HOLLOW COURT CONVENES  ☾', name: 'THE HOLLOW COURT', color: '#d98cff',
     hp: 52, dmg: 22, speed: 42, radius: 62,
     fire: {
       // 'volley' — the crown of charge-orbs discharges at the player — is the
       // court's signature; summons alone left it far softer than its peers
       interval: 1.7, speed: 148,
       patterns: (n) => n <= 1 ? ['volley', 'aimed', 'summon'] : n <= 3 ? ['volley', 'aimed', 'summon', 'ring'] : ['volley', 'aimed', 'ring', 'summon', 'spiral'],
+    },
+  },
+  {
+    type: 'moth', title: '☽  THE MOON MOTH DESCENDS  ☾', name: 'THE MOON MOTH', color: '#ffc9f5',
+    hp: 38, dmg: 22, speed: 74, radius: 56,
+    fire: {
+      // its wing-dust curls as it falls — every volley is a garden of bending
+      // trails (see the `curve` handling in the boss-projectile update)
+      interval: 1.5, speed: 150,
+      patterns: (n) => n <= 2 ? ['dust', 'wingbeat'] : ['dust', 'wingbeat', 'aimed'],
+    },
+  },
+  {
+    type: 'bat', title: '☽  THE STARVED FLOCK GATHERS  ☾', name: 'THE STARVED FLOCK', color: '#c48cff',
+    hp: 44, dmg: 24, speed: 78, radius: 58,
+    fire: {
+      // it scatters slow embers of hunger that hang for a breath, then every
+      // one of them remembers you at once (the `reaim` boss-projectile field)
+      interval: 1.6, speed: 150,
+      patterns: (n) => n <= 2 ? ['echo', 'burst'] : ['echo', 'burst', 'ring'],
+    },
+  },
+  {
+    type: 'snail', title: '☽  THE SPIRAL SOVEREIGN ADVANCES  ☾', name: 'THE SPIRAL SOVEREIGN', color: '#cbb6ff',
+    hp: 58, dmg: 32, speed: 42, radius: 66,
+    fire: {
+      // marching walls of blade-light with one walking breach — the whole
+      // screen becomes a corridor you must find and keep finding
+      interval: 2.3, speed: 105,
+      patterns: (n) => n <= 2 ? ['phalanx'] : ['phalanx', 'cross'],
     },
   },
 ];
@@ -1544,6 +1584,13 @@ export class Engine {
     return Math.max(0, (this.t - 420) / 60);
   }
 
+  // once the Other Dreamer has fallen the dream answers with heavier fire:
+  // every later nightmare's volleys thicken the longer the wake runs (a flat
+  // +20% the moment he falls, climbing to 2.6× over the following minutes)
+  wakeFury() {
+    return this.finaleWon ? Math.min(2.6, 1.2 + Math.max(0, this.t - FINALE_AT) / 150) : 1;
+  }
+
   // Beta players felt overwhelmed too quickly: the first minutes ramped a touch
   // too steeply. This eases early spawn pressure (fewer concurrent bodies, a
   // slightly slower tide) with the relief weighted toward the early minutes,
@@ -1653,12 +1700,14 @@ export class Engine {
     e.color = def.color;
     e.slow = 0; e.slowT = 0; e.hitFlash = 0;
     e.ccSat = 0; e.ccImmT = 0; e.rageT = 0;
-    e.chargeT = 0; e.chargeDmg = 0; e.brandT = 0; e.reactCd = 0;
+    e.chargeT = 0; e.chargeDmg = 0; e.brandT = 0; e.sporeT = 0; e.reactCd = 0;
     e.nbT = 0; e.nbDps = 0; e.nbPct = 0; e.nbTick = 0; e.nbAmp = 0; e.nbSpread = false; e.nbBurst = 0;
     e.animT = Math.random() * 10;
     e.seed = Math.random() * 1000;
     e.knbx = 0; e.knby = 0;
     e.goldT = 0; e.shootCd = -1; e.dmgTextT = 0;
+    e.bossName = arch ? arch.name : '';
+    e.hpLag = e.hp;
     // melee: bosses swing faster with more reach; start ready to strike on contact
     e.meleeBaseCd = def.meleeCd * (boss ? 0.6 : elite ? 0.85 : 1);
     e.meleeReach = def.meleeReach * (boss ? 2.4 : elite ? 1.4 : 1);
@@ -1724,7 +1773,7 @@ export class Engine {
     return e;
   }
 
-  private shootBossProj(x: number, y: number, ang: number, spd: number, r: number, dmg: number, life: number, color: string | null, accel = 0, maxSpd = 0) {
+  private shootBossProj(x: number, y: number, ang: number, spd: number, r: number, dmg: number, life: number, color: string | null, accel = 0, maxSpd = 0, curve = 0, reaimT = 0) {
     const bp = this.bossProjPool.acquire();
     bp.dead = false;
     bp.x = x; bp.y = y; bp.px = x; bp.py = y;
@@ -1732,6 +1781,7 @@ export class Engine {
     bp.vy = Math.sin(ang) * spd;
     bp.life = life; bp.r = r; bp.dmg = dmg; bp.color = color;
     bp.accel = accel; bp.maxSpd = maxSpd;
+    bp.curve = curve; bp.reaimT = reaimT;
     bp.reflected = false; bp.parryT = 0;
     this.bossProjectiles.push(bp);
   }
@@ -1762,7 +1812,7 @@ export class Engine {
     // the Other Dreamer hits harder, but his volleys are kept thin so the safe
     // zones and the veil, not a wall of bullets, are the real fight
     const nightmare = e.type === 'nightmare';
-    const dense = nightmare ? 0.75 : 1;
+    const dense = (nightmare ? 0.75 : 1) * (nightmare ? 1 : this.wakeFury());
     const dmg = (12 + n * 3 + this.endgame() * 4) * (nightmare ? 1.4 : 1);
     const shoot = (ang: number, spd: number, r = 6) => this.shootBossProj(e.x, e.y, ang, spd, r, dmg, 16, nightmare ? '#ff3d5e' : null);
     // the safe gap in ring volleys: first one opens straight at the player,
@@ -1813,7 +1863,7 @@ export class Engine {
       bf.hold = 1.1;
       this.shake = Math.min(10, this.shake + 6);
       audio.waveEvent();
-      const count = 18 + Math.min(10, n);
+      const count = Math.round((18 + Math.min(10, n)) * dense);
       const gapA = nextGap();
       const gapHalf = Math.max(0.34, 0.55 - n * 0.02);
       const edge = e.radius * 0.7;
@@ -1834,9 +1884,10 @@ export class Engine {
         shoot(baseA + rand(-0.45, 0.45), bf.speed * rand(1.05, 1.45), 5);
       }
     } else if (pat === 'gaze') {
-      // Devourer: the eye narrows — three piercing lances loosed in a rapid
+      // Devourer: the eye narrows — piercing lances loosed in a rapid
       // stream straight at you (staggered speeds so they arrive as a line)
-      for (let i = 0; i < 3; i++) {
+      const lances = Math.max(3, Math.round(3 * dense));
+      for (let i = 0; i < lances; i++) {
         shoot(baseA + rand(-0.04, 0.04), bf.speed * (1.7 + i * 0.18), 5);
       }
     } else if (pat === 'blink') {
@@ -1855,7 +1906,7 @@ export class Engine {
       // Hollow Court: the crown of charge-orbs above its head discharges — each
       // orb looses a tight fan at the player, the whole crown converging from
       // slightly different heights so sidestepping one stream isn't enough
-      const orbs = 5;
+      const orbs = Math.round(5 * dense);
       for (let i = 0; i < orbs; i++) {
         const oa = bf.spin * 2.4 + (i / orbs) * TAU;
         const ox = e.x + Math.cos(oa) * e.radius * 0.85;
@@ -1863,6 +1914,63 @@ export class Engine {
         const aim = Math.atan2(p.y - oy, p.x - ox);
         for (let j = -1; j <= 1; j++) {
           this.shootBossProj(ox, oy, aim + j * 0.09, bf.speed * (1.0 + Math.abs(j) * 0.12), 6, dmg, 16, '#d98cff');
+        }
+      }
+    } else if (pat === 'dust') {
+      // Moon Moth: wing-dust — paired curls that bow apart in flight, so the
+      // lattice between the trails keeps opening and closing lanes
+      const arms = Math.round((5 + Math.min(5, n)) * dense);
+      for (let i = 0; i < arms; i++) {
+        const a2 = bf.spin + (i / arms) * TAU;
+        this.shootBossProj(e.x, e.y, a2, bf.speed * 0.82, 6, dmg, 16, '#ffc9f5', 0, 0, 0.85);
+        this.shootBossProj(e.x, e.y, a2 + 0.16, bf.speed * 0.72, 6, dmg, 16, '#c48cff', 0, 0, -0.85);
+      }
+    } else if (pat === 'wingbeat') {
+      // Moon Moth: both wingtips loose a fan aimed at the dreamer — the two
+      // streams cross where you stood, so the answer is a sidestep, not a sprint
+      const per = Math.round((4 + Math.min(4, Math.floor(n / 2))) * dense);
+      for (const side of [-1, 1]) {
+        const wx = e.x + Math.cos(baseA + side * Math.PI / 2) * e.radius * 0.9;
+        const wy = e.y + Math.sin(baseA + side * Math.PI / 2) * e.radius * 0.9;
+        const aim = Math.atan2(p.y - wy, p.x - wx);
+        for (let i = 0; i < per; i++) {
+          const f = per > 1 ? i / (per - 1) - 0.5 : 0;
+          this.shootBossProj(wx, wy, aim + f * 0.5, bf.speed * (1.0 + Math.abs(f) * 0.3), 6, dmg, 16, '#ffc9f5');
+        }
+      }
+    } else if (pat === 'echo') {
+      // Starved Flock: slow embers of hunger scatter and hang in the air —
+      // then, one after another, every one of them remembers you (reaim)
+      const count = Math.round((9 + Math.min(9, n)) * dense);
+      for (let i = 0; i < count; i++) {
+        const a2 = rand(0, TAU);
+        this.shootBossProj(e.x, e.y, a2, bf.speed * rand(0.42, 0.58), 6, dmg, 14, '#c48cff', 0, 0, 0, 0.8 + i * 0.06);
+      }
+    } else if (pat === 'phalanx') {
+      // Spiral Sovereign: a marching wall of shell-spines, two ranks deep,
+      // with one breach. The first breach opens right where you stand; every
+      // later one walks sideways along the wall (bf.gapAng doubles as the
+      // breach's lateral offset for this pattern).
+      bf.hold = 1.0;
+      this.shake = Math.min(8, this.shake + 4);
+      audio.waveEvent();
+      const px2 = -Math.sin(baseA), py2 = Math.cos(baseA);
+      const spacing = 48;
+      const half = Math.round((7 + Math.min(5, n)) * Math.min(1.6, dense));
+      const edge = half * spacing - 70;
+      if (bf.gapAng == null) bf.gapAng = clamp((p.x - e.x) * px2 + (p.y - e.y) * py2, -edge, edge);
+      else bf.gapAng = clamp(bf.gapAng + bf.gapDir * 120, -edge, edge);
+      for (let rank = 0; rank < 2; rank++) {
+        const back = e.radius * 0.55 + rank * 52;
+        const spd = bf.speed * (0.6 + rank * 0.15);
+        for (let i = -half; i <= half; i++) {
+          const off = i * spacing + rank * spacing * 0.5;
+          if (Math.abs(off - bf.gapAng) < 68) continue; // the breach
+          this.shootBossProj(
+            e.x - Math.cos(baseA) * back + px2 * off,
+            e.y - Math.sin(baseA) * back + py2 * off,
+            baseA, spd, 8, dmg, 16, '#cbb6ff', 60, spd * 2.6,
+          );
         }
       }
     } else if (pat === 'summon') {
@@ -1943,7 +2051,8 @@ export class Engine {
         const p = this.player;
         const na = Math.atan2(p.y - e.y, p.x - e.x);
         const dmg = 12 + this.bossCount * 3 + this.endgame() * 4;
-        for (let i = 0; i < 6; i++) this.shootBossProj(e.x, e.y, na + (i - 2.5) * 0.14, bf.speed, 6, dmg, 16, null);
+        const fan = Math.round(6 * this.wakeFury());
+        for (let i = 0; i < fan; i++) this.shootBossProj(e.x, e.y, na + (i - (fan - 1) / 2) * 0.14, bf.speed, 6, dmg, 16, null);
       }
       return true;
     }
@@ -2098,11 +2207,12 @@ export class Engine {
     e.speed = 150; e.dmg = 0; e.radius = 14; e.xp = 4; e.color = '#ffd27a';
     e.slow = 0; e.slowT = 0; e.hitFlash = 0;
     e.ccSat = 0; e.ccImmT = 0; e.rageT = 0;
-    e.chargeT = 0; e.chargeDmg = 0; e.brandT = 0; e.reactCd = 0;
+    e.chargeT = 0; e.chargeDmg = 0; e.brandT = 0; e.sporeT = 0; e.reactCd = 0;
     e.nbT = 0; e.nbDps = 0; e.nbPct = 0; e.nbTick = 0; e.nbAmp = 0; e.nbSpread = false; e.nbBurst = 0;
     e.animT = Math.random() * 10;
     e.seed = Math.random() * 1000;
     e.knbx = 0; e.knby = 0; e.goldT = 12;
+    e.bossName = ''; e.hpLag = e.hp;
     e.shootCd = -1; e.dmgTextT = 0; e.ranged = null; e.bossFire = null;
     e.meleeCd = Infinity; e.meleeBaseCd = Infinity; e.meleeReach = 0; e.meleeAnim = 0;
     this.enemies.push(e);
@@ -2368,11 +2478,12 @@ export class Engine {
     e.color = '#ff3d5e';
     e.slow = 0; e.slowT = 0; e.hitFlash = 0;
     e.ccSat = 0; e.ccImmT = 0; e.rageT = 0;
-    e.chargeT = 0; e.chargeDmg = 0; e.brandT = 0; e.reactCd = 0;
+    e.chargeT = 0; e.chargeDmg = 0; e.brandT = 0; e.sporeT = 0; e.reactCd = 0;
     e.nbT = 0; e.nbDps = 0; e.nbPct = 0; e.nbTick = 0; e.nbAmp = 0; e.nbSpread = false; e.nbBurst = 0;
     e.animT = Math.random() * 10;
     e.seed = Math.random() * 1000;
     e.knbx = 0; e.knby = 0; e.goldT = 0;
+    e.bossName = ''; e.hpLag = e.hp; // his plate is his own (see drawFinaleBossBar)
     e.shootCd = -1; e.dmgTextT = 0;
     e.meleeBaseCd = 0.55; e.meleeReach = 26; e.meleeCd = 0.8; e.meleeAnim = 0;
     e.ranged = null;
@@ -3148,7 +3259,7 @@ export class Engine {
           w.y = w.sy + (tgt.y - w.sy) * f * f;
           if (Math.random() < 0.8) this.particles.spawn({ x: w.x, y: w.y, vx: rand(-15, 15), vy: rand(-15, 15), life: 0.3, size: rand(2, 4.5), endSize: 0.5, color: '#8cf7e2', color2: '#eafffb', mode: 'glow' });
           if (w.dartT <= 0) {
-            this.damageEnemy(tgt, dmg, '#8cf7e2');
+            this.damageEnemy(tgt, dmg, '#8cf7e2', 'nature');
             audio.wispDart(this.panOf(w.x));
             for (let k = 0; k < 7; k++) this.particles.spawn({ x: w.x, y: w.y, vx: rand(-150, 150), vy: rand(-150, 150), life: rand(0.2, 0.45), size: rand(2, 4), color: '#8cf7e2', mode: 'star', rotV: rand(-6, 6), drag: 0.86 });
             w.state = 2; w.dartT = 0.3;
@@ -3242,6 +3353,7 @@ export class Engine {
           pr.turn = st.special!.seek ? 10.5 : 7.5;
           this.setProjTarget(pr, target);
           pr.splinter = !!st.evolved;
+          pr.evolved = !!st.evolved;
           pr.pierce = st.special!.pierce || 0;
           this.projectiles.push(pr);
         }
@@ -3268,6 +3380,7 @@ export class Engine {
           pr.range = st.radius! * this.aoeMul(); // blast radius stored in range
           pr.r = 9;
           pr.life = 1;
+          pr.evolved = !!st.evolved;
           if (burnPct) {
             pr.hasBurn = true;
             pr.burnC1 = '#ff8c5a'; pr.burnC2 = '#ffd27a';
@@ -3379,6 +3492,7 @@ export class Engine {
           pr.dmg = st.damage! * this.dmgMul();
           pr.range = st.radius! * this.aoeMul();
           pr.life = 1;
+          pr.evolved = !!st.evolved;
           pr.stun = !!st.special!.stun;
           if (st.evolved) {
             pr.hasBurn = true;
@@ -3405,6 +3519,7 @@ export class Engine {
           pr.r = 12 * (st.special!.big ? 1.4 : 1);
           pr.hit = maskPool.acquire().begin();
           pr.chill = !!st.special!.chill;
+          pr.evolved = !!st.evolved;
           this.projectiles.push(pr);
         }
         break;
@@ -3869,6 +3984,8 @@ export class Engine {
       e.chargeDmg = Math.max(e.chargeDmg, dmg * 0.35);
     } else if (element === 'light') {
       e.brandT = this.markDur(3.5);
+    } else if (element === 'nature') {
+      e.sporeT = this.markDur(4);
     }
     if (crit && this.relics.has('moonsickle')) e.brandT = this.markDur(3.5);
     // reactions (per-enemy cooldown so dense builds don't strobe) — lethal
@@ -3881,6 +3998,17 @@ export class Engine {
         e.brandT = 0;
         e.reactCd = this.t + 1.0;
         this.react('eclipse', e, dmg);
+      } else if (element === 'frost' && e.sporeT > 0) {
+        e.sporeT = 0;
+        e.reactCd = this.t + 1.0;
+        this.react('overgrow', e, dmg);
+      } else if (element === 'arcane') {
+        // UNRAVEL: raw magic sets every mark the foe carries ringing at once
+        const marks = (e.slowT > 0 ? 1 : 0) + (e.chargeT > 0 ? 1 : 0) + (e.brandT > 0 ? 1 : 0) + (e.sporeT > 0 ? 1 : 0);
+        if (marks > 0) {
+          e.reactCd = this.t + 1.0;
+          this.react('unravel', e, dmg * marks);
+        }
       }
     }
     // Floating damage numbers, throttled per-enemy (see original notes)
@@ -3901,9 +4029,48 @@ export class Engine {
 
   // A resonance reaction blooming off enemy `e`, seeded by the hit that
   // triggered it. Prism Heart makes every reaction half again as strong.
-  private react(kind: 'shatter' | 'eclipse', e: Enemy, trig: number) {
+  private react(kind: 'shatter' | 'eclipse' | 'overgrow' | 'unravel', e: Enemy, trig: number) {
     codex.discoverReaction(kind);
     const mul = this.relics.has('prismheart') ? 1.5 : 1;
+    if (kind === 'overgrow') {
+      // OVERGROWTH: frozen brambles burst from the spores — a bloom of icy
+      // thorns that wounds the crowd and leaves it deeply chilled
+      const R = 100 * this.aoeMul();
+      const dmg = trig * 0.8 * mul;
+      audio.explode(this.panOf(e.x));
+      this.spawnText(e.x, e.y - e.radius - 22, 'OVERGROWTH', '#7dffb0', 0.9, -42, 15);
+      this.particles.spawn({ x: e.x, y: e.y, life: 0.42, size: R * 1.1, color: '#7dffb0', mode: 'ring' });
+      for (let k = 0; k < 24; k++) {
+        const a = rand(0, TAU);
+        this.particles.spawn({ x: e.x, y: e.y, vx: Math.cos(a) * rand(90, 320), vy: Math.sin(a) * rand(90, 320) - 30, life: rand(0.35, 0.75), size: rand(3, 7), endSize: 1, color: Math.random() < 0.5 ? '#7dffb0' : '#bff1ff', color2: '#e8fbff', mode: Math.random() < 0.5 ? 'petal' : 'shard', rotV: rand(-8, 8), drag: 0.89 });
+      }
+      this.grid.queryCircle(e.x, e.y, R + 60, (o) => {
+        if (o === e) return;
+        if (dist2(e.x, e.y, o.x, o.y) < (R + o.radius) ** 2) {
+          this.damageEnemy(o, dmg, '#7dffb0', 'cosmic');
+          if (!o.dead && !o.boss) { o.slow = Math.max(o.slow, 0.55); o.slowT = Math.max(o.slowT, 1.6); }
+        }
+      });
+      return;
+    }
+    if (kind === 'unravel') {
+      // UNRAVEL: the marks ring like struck glass — a burst of raw magic,
+      // already scaled by how many marks the foe carried (see damageEnemy)
+      const R = 80 * this.aoeMul();
+      const dmg = trig * 0.45 * mul;
+      audio.castArcane(this.panOf(e.x));
+      this.spawnText(e.x, e.y - e.radius - 22, 'UNRAVEL', '#d9beff', 0.9, -42, 15);
+      this.particles.spawn({ x: e.x, y: e.y, life: 0.38, size: R * 1.1, color: '#b48cff', mode: 'ring' });
+      for (let k = 0; k < 20; k++) {
+        const a = rand(0, TAU);
+        this.particles.spawn({ x: e.x, y: e.y, vx: Math.cos(a) * rand(70, 280), vy: Math.sin(a) * rand(70, 280), life: rand(0.3, 0.65), size: rand(2.5, 5.5), endSize: 0.5, color: '#b48cff', color2: '#e6d1ff', mode: Math.random() < 0.4 ? 'rune' : 'star', rotV: rand(-7, 7), drag: 0.88 });
+      }
+      this.grid.queryCircle(e.x, e.y, R + 60, (o) => {
+        if (o === e) return;
+        if (dist2(e.x, e.y, o.x, o.y) < (R + o.radius) ** 2) this.damageEnemy(o, dmg, '#d9beff', 'cosmic');
+      });
+      return;
+    }
     if (kind === 'shatter') {
       const R = 95 * this.aoeMul();
       const dmg = trig * 0.7 * mul;
@@ -4173,9 +4340,29 @@ export class Engine {
       // nothing queued from the rest of this frame may reopen a menu and unpause
       this.pendingLevels = 0;
       this.relicQueue = 0;
+      // the sim freezes here: a lingering hurt-flash would tint the whole death
+      // screen (and every return to it) red, so it dies with the dreamer
+      this.flash = null;
+      this.shake = 0;
       audio.death();
       this.hooks.onGameOver({ time: this.t, kills: this.kills, level: p.level, bonusDust: this.bonusDust, shards: this.shardsEarned, relics: [...this.relics], cleared: this.finaleWon });
     }
+  }
+
+  // Surrender: the dream ends where it stands, with the same rites as any
+  // death — the run's stardust and shards are still carried out.
+  abandonRun() {
+    const p = this.player;
+    if (p.dead || !this.inRun) return;
+    p.hp = 0;
+    p.dead = true;
+    this.paused = true;
+    this.pendingLevels = 0;
+    this.relicQueue = 0;
+    this.flash = null;
+    this.shake = 0;
+    audio.death();
+    this.hooks.onGameOver({ time: this.t, kills: this.kills, level: p.level, bonusDust: this.bonusDust, shards: this.shardsEarned, relics: [...this.relics], cleared: this.finaleWon });
   }
 
   explode(x: number, y: number, radius: number, dmg: number, pal: { ring: string; core: string; sparks: string[]; text: string; quiet?: boolean } | null = null, element: Element = 'fire') {
@@ -4355,7 +4542,13 @@ export class Engine {
       if (e.ccImmT <= 0 && e.ccSat > 0) e.ccSat = Math.max(0, e.ccSat - dt * CC_DECAY);
       e.chargeT = Math.max(0, e.chargeT - dt);
       e.brandT = Math.max(0, e.brandT - dt);
+      e.sporeT = Math.max(0, e.sporeT - dt);
       if (e.chargeT <= 0) e.chargeDmg = 0;
+      // the boss plate's chip trail chases the real health down (see render)
+      if (e.boss && e.type !== 'nightmare') {
+        if (e.hpLag > e.hp) e.hpLag = Math.max(e.hp, e.hpLag - Math.max(e.maxHp * 0.09, (e.hpLag - e.hp) * 2.4) * dt);
+        else e.hpLag = e.hp;
+      }
       // the Nightmare Brand collects its debt in slow red heartbeats
       if (e.nbT > 0) {
         e.nbT = Math.max(0, e.nbT - dt);
@@ -4520,6 +4713,28 @@ export class Engine {
         if (spd > 0 && spd < bp.maxSpd) {
           const k = Math.min(bp.maxSpd, spd + bp.accel * bdt) / spd;
           bp.vx *= k; bp.vy *= k;
+        }
+      }
+      // Moon Moth dust: the heading bows through flight, then the curl slowly
+      // unwinds — spent dust straightens and flies clean off the dream instead
+      // of looping forever where the moth loosed it
+      if (bp.curve !== 0 && !bp.reflected) {
+        const ca = Math.cos(bp.curve * bdt), sa = Math.sin(bp.curve * bdt);
+        const nvx = bp.vx * ca - bp.vy * sa;
+        bp.vy = bp.vx * sa + bp.vy * ca;
+        bp.vx = nvx;
+        bp.curve *= Math.pow(0.55, bdt);
+        if (Math.abs(bp.curve) < 0.04) bp.curve = 0;
+      }
+      // Starved Flock echoes: the hanging ember remembers you all at once
+      if (bp.reaimT > 0 && !bp.reflected) {
+        bp.reaimT -= bdt;
+        if (bp.reaimT <= 0) {
+          const spd = Math.hypot(bp.vx, bp.vy) * 2.4;
+          const ra = Math.atan2(p.y + PLAYER_HURT_DY - bp.y, p.x - bp.x);
+          bp.vx = Math.cos(ra) * spd;
+          bp.vy = Math.sin(ra) * spd;
+          this.particles.spawn({ x: bp.x, y: bp.y, life: 0.25, size: bp.r * 4, endSize: 1, color: '#c48cff', mode: 'ring' });
         }
       }
       bp.x += bp.vx * bdt;
@@ -4790,10 +5005,13 @@ export class Engine {
           continue;
         }
         audio.starPickup();
-        if (s.kind === 'heal') {
+        // a healing star found at full life pays out in essence instead of
+        // evaporating against a full heart
+        const kind = s.kind === 'heal' && p.hp >= p.maxHp ? 'gems' : s.kind;
+        if (kind === 'heal') {
           p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.35);
           this.spawnText(p.x, p.y - 44, '+life', '#7dffb0', 1, -40, 16);
-        } else if (s.kind === 'gems') {
+        } else if (kind === 'gems') {
           const v = Math.max(2, Math.round(3 * this.diff.hpMul));
           for (let k = 0; k < 10; k++) this.spawnGem(s.x + rand(-60, 60), s.y + rand(-60, 60), v, true, false, false, rand(0, TAU));
         } else {
@@ -4931,7 +5149,7 @@ export class Engine {
         this.particles.spawn({ x: pr.x + rand(-4, 4), y: pr.y + rand(-4, 4), vx: rand(-15, 15), vy: rand(-30, 10), life: rand(0.3, 0.6), size: rand(3, 7), endSize: 1, color: '#ffb3f2', color2: '#8a7bff', mode: 'glow' });
         if (f >= 1) {
           pr.life = 0;
-          this.explode(pr.tx, pr.ty, pr.range, pr.dmg, { ring: '#ffb3f2', core: '#ffffff', sparks: ['#ffb3f2', '#c48cff', '#8a7bff'], text: '#ffc9f5' });
+          this.explode(pr.tx, pr.ty, pr.range, pr.dmg, { ring: '#ffb3f2', core: '#ffffff', sparks: ['#ffb3f2', '#c48cff', '#8a7bff'], text: '#ffc9f5' }, 'cosmic');
           // Meteoric Mass: the impact leaves survivors reeling
           if (pr.stun) {
             this.grid.queryCircle(pr.tx, pr.ty, pr.range + 60, (e) => {
@@ -5299,7 +5517,7 @@ export class Engine {
             if (Math.abs(d) > arc) return;
           }
           z.hit!.mark(e.slot);
-          this.damageEnemy(e, z.dmg, '#ffd9a0');
+          this.damageEnemy(e, z.dmg, '#ffd9a0', 'arcane');
           // The Last Hour / Struck Silver: the crescendo holds them still
           if (z.sleepDur > 0 && !e.boss && !e.dead && this.hardCC(e, CC_HIT)) {
             e.slow = 0.92;

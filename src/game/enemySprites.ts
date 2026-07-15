@@ -351,6 +351,204 @@ export const ENEMY_SPRITES: Record<string, EnemySpriteDef> = {
     }
   } },
 
+  // moth: a luminous dream-moth — two pairs of powdery wings on one wingbeat,
+  // eye-spots that catch the bloom, feathered antennae. Worn magnified by the
+  // Moon Moth boss, so the whole motion is baked across 24 soft frames.
+  moth: { half: 32, frames: 24, rate: 11, bob: (t) => Math.sin(t * 4.5) * 3, paint(ctx, ph) {
+    const a = ph * TAU;
+    const flap = Math.sin(a);
+    for (const side of [-1, 1]) {
+      ctx.save();
+      ctx.scale(side, 1);
+      ctx.rotate(-flap * 0.5);
+      // forewing
+      ctx.fillStyle = 'rgba(255,201,245,0.8)';
+      ctx.beginPath();
+      ctx.moveTo(3, -3);
+      ctx.quadraticCurveTo(18, -18, 27, -10);
+      ctx.quadraticCurveTo(24, -2, 15, 1);
+      ctx.quadraticCurveTo(8, 2, 3, 0);
+      ctx.closePath(); ctx.fill();
+      // hindwing, a shade deeper
+      ctx.fillStyle = 'rgba(196,140,255,0.7)';
+      ctx.beginPath();
+      ctx.moveTo(3, 2);
+      ctx.quadraticCurveTo(16, 6, 18, 15);
+      ctx.quadraticCurveTo(10, 16, 5, 10);
+      ctx.quadraticCurveTo(2, 6, 3, 2);
+      ctx.closePath(); ctx.fill();
+      // the eye-spot: a dark iris ringed in pale light
+      softGlow(ctx, 17, -8, 6, 'rgba(255,240,252,0.65)');
+      ctx.fillStyle = '#3d1f4d';
+      ctx.beginPath(); ctx.arc(17, -8, 2.6, 0, TAU); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,235,250,0.8)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(17, -8, 3.8, 0, TAU); ctx.stroke();
+      // wing veins
+      ctx.strokeStyle = 'rgba(255,220,248,0.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(4, -2); ctx.lineTo(24, -11);
+      ctx.moveTo(4, 0); ctx.lineTo(14, 11);
+      ctx.stroke();
+      ctx.restore();
+    }
+    // furred body, glowing faintly from within
+    ctx.globalCompositeOperation = 'lighter';
+    softGlow(ctx, 0, 0, 9, 'rgba(255,201,245,0.55)');
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = linGrad(ctx, 0, -10, 0, 12, '#f4dcff', '#8a5cd9');
+    ctx.beginPath(); ctx.ellipse(0, 1, 4.2, 9.5, 0, 0, TAU); ctx.fill();
+    // feathered antennae, bowing with the beat
+    ctx.strokeStyle = '#ffd9f7';
+    ctx.lineWidth = 1.2;
+    ctx.lineCap = 'round';
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(s * 1.5, -8);
+      ctx.quadraticCurveTo(s * 5, -14 - flap, s * 8, -15 - flap * 1.5);
+      ctx.stroke();
+    }
+    // small sleepy eyes
+    ctx.fillStyle = '#2a1040';
+    ctx.beginPath();
+    ctx.ellipse(-1.8, -6, 1, 1.6, 0, 0, TAU);
+    ctx.ellipse(1.8, -6, 1, 1.6, 0, 0, TAU);
+    ctx.fill();
+  } },
+
+  // jelly: a drifting dream-medusa — a translucent bell that pulses on the
+  // loop, a slow inner heart-light, and trailing tentacles that sway.
+  jelly: { half: 34, frames: 24, rate: 3, bob: (t) => Math.sin(t * 2.2) * 4, paint(ctx, ph) {
+    const a = ph * TAU;
+    const pulse = Math.sin(a);             // one full bell-pulse per loop
+    const bw = 15 + pulse * 1.8;           // bell width breathes
+    const bh = 12 - pulse * 1.2;           // and height counter-breathes
+    // trailing tentacles, waving out of phase
+    ctx.lineCap = 'round';
+    for (let i = -2; i <= 2; i++) {
+      const rx = i * 5;
+      ctx.strokeStyle = i % 2 ? 'rgba(159,220,255,0.55)' : 'rgba(125,201,255,0.4)';
+      ctx.lineWidth = i % 2 ? 1.8 : 1.2;
+      ctx.beginPath();
+      ctx.moveTo(rx * 0.8, 6);
+      ctx.quadraticCurveTo(
+        rx + Math.sin(a + i * 1.7) * 3.5, 14,
+        rx + Math.sin(a * 1 + i * 2.4) * 5, 22 + (i % 2 ? 3 : 0) - pulse * 1.5,
+      );
+      ctx.stroke();
+    }
+    // the bell: translucent glass over a deep-water gradient
+    ctx.fillStyle = linGrad(ctx, 0, -12, 0, 8, 'rgba(220,245,255,0.85)', 'rgba(60,110,180,0.55)');
+    ctx.beginPath();
+    ctx.moveTo(-bw, 3);
+    ctx.quadraticCurveTo(-bw - 1, -bh, 0, -bh - 4);
+    ctx.quadraticCurveTo(bw + 1, -bh, bw, 3);
+    // scalloped hem, rippling with the pulse
+    for (let i = 0; i <= 6; i++) {
+      const fr = i / 6;
+      ctx.lineTo(bw - fr * bw * 2, 3 + Math.sin(a + fr * 9) * 1.6 + (i % 2) * 2);
+    }
+    ctx.closePath(); ctx.fill();
+    // glass sheen on the crown
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.beginPath(); ctx.ellipse(-4, -bh + 1, 6, 2.6, -0.4, 0, TAU); ctx.fill();
+    // the heart-light: a slow lantern inside the bell
+    ctx.globalCompositeOperation = 'lighter';
+    softGlow(ctx, 0, -4, 8 + pulse * 2, 'rgba(159,220,255,0.8)');
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = '#eaf9ff';
+    ctx.beginPath(); ctx.arc(0, -4, 2.6 + pulse * 0.5, 0, TAU); ctx.fill();
+    // faint spots along the bell
+    ctx.fillStyle = 'rgba(230,250,255,0.5)';
+    for (const [sx, sy] of [[-9, -6], [8, -7], [-3, -11]]) {
+      ctx.beginPath(); ctx.arc(sx, sy, 1.1, 0, TAU); ctx.fill();
+    }
+  } },
+
+  // snail: a dream-snail — a drowsy foot of violet mist under a nacreous
+  // spiral shell, sleepy eye-stalks swaying as it inches along. Slow, armoured,
+  // heavy. Worn magnified by the Spiral Sovereign.
+  snail: { half: 34, frames: 24, rate: 2.5, bob: NO_BOB, paint(ctx, ph) {
+    const a = ph * TAU;
+    const crawl = Math.sin(a);               // one slow inch-forward per loop
+    const stretch = 1 + crawl * 0.07;        // the foot lengthens, the shell settles
+    // dream-slime left glistening behind it
+    ctx.fillStyle = 'rgba(155,130,220,0.22)';
+    ctx.beginPath(); ctx.ellipse(-14, 15, 11, 3, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(200,180,255,0.35)';
+    for (const [bx, by] of [[-19, 14.5], [-11, 15.5], [-15, 16]]) {
+      ctx.beginPath(); ctx.arc(bx + crawl * 1.5, by, 1.1, 0, TAU); ctx.fill();
+    }
+    // the foot: a soft violet slug-body, nose lifting as it stretches
+    ctx.fillStyle = linGrad(ctx, 0, 0, 0, 17, '#a48ede', '#4a3a7e');
+    ctx.beginPath();
+    ctx.moveTo(-13, 15);
+    ctx.quadraticCurveTo(-15, 9, -10, 7);
+    ctx.quadraticCurveTo(0, 4, 8 * stretch, 4);
+    ctx.quadraticCurveTo(15 * stretch, 5 - crawl * 1.5, 16.5 * stretch, 9 - crawl * 2);
+    ctx.quadraticCurveTo(17 * stretch, 13, 13 * stretch, 15);
+    ctx.closePath(); ctx.fill();
+    // foot ripples — the crawling wave read along the skirt
+    ctx.strokeStyle = 'rgba(70,50,120,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < 4; i++) {
+      const rx = -8 + i * 6 + crawl * 2;
+      ctx.moveTo(rx, 15);
+      ctx.quadraticCurveTo(rx + 1.5, 11.5, rx, 9);
+    }
+    ctx.stroke();
+    // sleepy eye-stalks swaying out of phase
+    ctx.strokeStyle = '#b6a2e8';
+    ctx.lineWidth = 1.8;
+    ctx.lineCap = 'round';
+    for (const [s2, phz] of [[-1, 0], [1, 1.2]] as [number, number][]) {
+      const lean = Math.sin(a + phz) * 1.6;
+      const tipX = (11 + s2 * 3.4) * stretch + lean;
+      const tipY = -3 - s2 * 1.5;
+      ctx.beginPath();
+      ctx.moveTo((10 + s2 * 2) * stretch, 6);
+      ctx.quadraticCurveTo((12 + s2 * 2) * stretch + lean * 0.5, 1, tipX, tipY);
+      ctx.stroke();
+      // a drowsy half-lidded eye at each tip
+      softGlow(ctx, tipX, tipY, 4.5, 'rgba(230,209,255,0.6)');
+      ctx.fillStyle = '#efe6ff';
+      ctx.beginPath(); ctx.arc(tipX, tipY, 2.3, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#241640';
+      const lid = 0.55 + Math.sin(a * 1.3 + phz) * 0.35;
+      ctx.beginPath(); ctx.ellipse(tipX, tipY + 0.4, 1.2, 1.5 * Math.max(0.15, lid), 0, 0, TAU); ctx.fill();
+    }
+    // the shell: a great nacre spiral, settling against the crawl
+    ctx.save();
+    ctx.translate(-3, -6 + crawl * 0.8);
+    ctx.rotate(-0.12 + crawl * 0.03);
+    ctx.fillStyle = linGrad(ctx, -14, -14, 10, 12, '#e4d8fa', '#5a4a96');
+    ctx.beginPath(); ctx.arc(0, 0, 14.5, 0, TAU); ctx.fill();
+    // shell rim
+    ctx.strokeStyle = 'rgba(30,18,58,0.7)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.arc(0, 0, 14.5, 0, TAU); ctx.stroke();
+    // the glowing spiral, wound to a bright dreaming core
+    ctx.strokeStyle = 'rgba(255,214,236,0.85)';
+    ctx.lineWidth = 1.7;
+    ctx.beginPath();
+    for (let t2 = 0; t2 <= 4.6 * Math.PI; t2 += 0.12) {
+      const r = 1.6 + t2 * 0.86;
+      const x = Math.cos(t2 + 0.6) * r, y = Math.sin(t2 + 0.6) * r;
+      if (t2 === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    // star-specks caught in the nacre
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    for (const [sx, sy, sr] of [[-7, -6, 1.1], [6, -8, 0.9], [8, 5, 1.2], [-4, 8, 0.8]]) {
+      ctx.beginPath(); ctx.arc(sx, sy, sr, 0, TAU); ctx.fill();
+    }
+    // the core breathes with the dream inside
+    softGlow(ctx, 1.5, 1, 6 + Math.sin(a * 1.3) * 1.5, 'rgba(255,214,236,0.75)');
+    ctx.restore();
+  } },
+
   warlock: { half: 26, frames: 1, rate: 3, bob: (t) => Math.sin(t * 3) * 2, paint(ctx, _ph) {
     ctx.fillStyle = linGrad(ctx, 0, -20, 0, 16, '#7a3aa8', '#2a1040');
     ctx.beginPath();

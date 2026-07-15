@@ -571,11 +571,25 @@ for (let i = 0; i < NSPOKE; i++) {
   const cdef = th.clusters[(i >> 1) % th.clusters.length];
   wheel(`rA${i}`, spokeAngle(i, 3) + 11.25, 284, 35, 5, cdef);
 }
-// band 3 (between rings B and C)
+// band 3 (between rings B and C). Two wheels in this band would repeat their
+// sector's band-2 heart (each theme spans two arcs, so its cluster pick lands
+// twice) — those duplicates give way to rare reroll wheels instead.
+const REROLL_WHEELS: Record<number, ClusterDef> = {
+  5: { // was the second Nebular Heart (Breadth)
+    name: 'Kaleidoscope Turn',
+    notable: S('Kaleidoscope Turn', 'You may reroll one more set of level-up choices each dream', { reroll: 1 }),
+    smalls: [S('Turning Facet', '+4% area of effect', { aoe: 4 }), S('Second Glance', '+4% spell damage', { dmg: 4 }), S('Soft Nebula', '+4% area of effect', { aoe: 4 })],
+  },
+  13: { // was the second Heart of the Dream (Roots)
+    name: 'Recurring Dream',
+    notable: S('Recurring Dream', 'You may reroll one more set of level-up choices each dream', { reroll: 1 }),
+    smalls: [S('Familiar Path', '+10 max life', { hp: 10 }), S('Again the Door', '+8 max life', { hp: 8 }), S('Warm Blood', '+8 max life', { hp: 8 })],
+  },
+};
 for (let i = 0; i < NSPOKE; i++) {
   if (i % 4 === 3) continue; // no ring B here (the spell-slot chains live in these gaps)
   const th = themeOf(i);
-  const cdef = th.clusters[((i >> 1) + 1) % th.clusters.length];
+  const cdef = REROLL_WHEELS[i] || th.clusters[((i >> 1) + 1) % th.clusters.length];
   wheel(`rB${i}-${i % 2}`, spokeAngle(i, 6) + 11.25, 420, 40, 6, cdef);
 }
 

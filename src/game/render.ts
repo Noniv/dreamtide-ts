@@ -359,6 +359,10 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
     }
   }
 
+  // living rotation bosses wear screen-space plates in the band under the
+  // clock; the event banner drops below whatever band they consume
+  const plateBand = drawBossPlates(eng, octx, vt);
+
   // event banner — sits BELOW the HUD's clock/kill-counter block, and follows
   // the DOM UI's --ui-scale so it stays clear of the (zoomed) HUD and keeps
   // its proportions on high-res displays (the canvas itself is never zoomed)
@@ -379,9 +383,10 @@ export function renderFrame(eng: Engine, alpha: number, rdt: number) {
     octx.fillStyle = b.color;
     octx.shadowColor = b.color;
     octx.shadowBlur = (18 + (b.size > 24 ? 14 : 0)) * uiS;
-    // the Other Dreamer's plate owns the band under the clock — banners drop
-    // below it while he lives, so his name/state never collide with an event
-    const plated = eng.finale.phase === 'boss' ? 62 : 0;
+    // the Other Dreamer's plate (or the rotation bosses' plates) own the band
+    // under the clock — banners drop below them, so a boss's name/state never
+    // collides with an event caption
+    const plated = eng.finale.phase === 'boss' ? 62 : plateBand;
     octx.fillText(b.str, eng.perf.viewW / 2, (176 + plated + ((b.size || 24) - 24) * 0.6) * uiS);
     octx.restore();
   }
@@ -1008,6 +1013,105 @@ function drawFinaleBossBar(eng: Engine, octx: CanvasRenderingContext2D, vt: numb
   octx.restore();
 }
 
+// The rotation nightmares' plates: smaller, quieter cousins of the Other
+// Dreamer's slab — the same chamfered dream-glass language, one per living
+// boss, stacked in the band under the clock. Each carries the boss's own
+// colour, a pale chip trail behind heavy hits, and a rail that bleeds toward
+// angry red as the enrage builds. Returns the vertical band consumed (in
+// pre-ui-scale px) so the event banner can drop below it.
+const _plateBosses: Enemy[] = [];
+function drawBossPlates(eng: Engine, octx: CanvasRenderingContext2D, vt: number): number {
+  if (eng.finale.phase === 'boss') return 0; // the Other Dreamer owns the band
+  const bosses = _plateBosses;
+  bosses.length = 0;
+  for (const e of eng.enemies) {
+    if (e.boss && !e.dead && e.type !== 'nightmare') bosses.push(e);
+  }
+  if (!bosses.length) return 0;
+  bosses.sort((a, b) => a.uid - b.uid); // stable stacking: eldest on top
+  const shown = Math.min(3, bosses.length);
+  const uiS = uiScale();
+  octx.save();
+  octx.scale(1 / eng.viewScale, 1 / eng.viewScale);
+  const W = eng.perf.viewW;
+  const ls = (v: string) => { try { (octx as unknown as { letterSpacing: string }).letterSpacing = v; } catch { /* older engines */ } };
+  for (let i = 0; i < shown; i++) {
+    const e = bosses[i];
+    const frac = Math.max(0, e.hp) / e.maxHp;
+    const lag = Math.max(frac, Math.min(1, e.hpLag / e.maxHp));
+    const [cr, cg, cb] = rgb(e.color);
+    const rage = clamp((e.rageT - BOSS_RAGE_START) / BOSS_RAGE_FULL, 0, 1);
+    const beat = 0.5 + 0.5 * Math.sin(vt * (2.6 + rage * 6) + i * 1.7);
+    // the rail bleeds toward red as the fury builds (same tell as the corona)
+    const rr = lerp(cr, 1, rage * 0.7), rg = lerp(cg, 0.2, rage * 0.6), rb = lerp(cb, 0.25, rage * 0.6);
+    const bw = Math.min(W * 0.52, 580 * uiS);
+    const bh = 22 * uiS;
+    const bx = (W - bw) / 2;
+    const by = (104 + i * 38) * uiS;
+    const cut = bh * 0.55;
+    platePath(octx, bx, by, bw, bh, cut);
+    octx.fillStyle = 'rgba(6,4,12,0.85)';
+    octx.fill();
+    // ---- fill, chip trail, scanlines and sheen live inside the slab
+    octx.save();
+    platePath(octx, bx, by, bw, bh, cut);
+    octx.clip();
+    if (lag > frac) {
+      octx.fillStyle = 'rgba(255,235,240,0.4)';
+      octx.fillRect(bx + bw * frac, by, bw * (lag - frac), bh);
+    }
+    const g = octx.createLinearGradient(bx, by, bx, by + bh);
+    g.addColorStop(0, `rgba(${Math.round(255 * (cr + (1 - cr) * 0.25))},${Math.round(255 * (cg + (1 - cg) * 0.25))},${Math.round(255 * (cb + (1 - cb) * 0.25))},1)`);
+    g.addColorStop(0.5, `rgba(${Math.round(255 * cr * 0.72)},${Math.round(255 * cg * 0.72)},${Math.round(255 * cb * 0.72)},1)`);
+    g.addColorStop(1, `rgba(${Math.round(255 * cr * 0.28)},${Math.round(255 * cg * 0.28)},${Math.round(255 * cb * 0.28)},1)`);
+    octx.fillStyle = g;
+    octx.fillRect(bx - cut, by, cut + bw * frac, bh);
+    octx.fillStyle = 'rgba(0,0,0,0.14)';
+    for (let yy = by; yy < by + bh; yy += 3 * uiS) octx.fillRect(bx - cut, yy, bw + cut * 2, 1 * uiS);
+    const sheen = octx.createLinearGradient(bx, by, bx, by + bh * 0.5);
+    sheen.addColorStop(0, 'rgba(255,255,255,0.16)');
+    sheen.addColorStop(1, 'rgba(255,255,255,0)');
+    octx.fillStyle = sheen;
+    octx.fillRect(bx - cut, by, bw + cut * 2, bh * 0.5);
+    octx.restore();
+    // ---- notches and the rail
+    octx.fillStyle = 'rgba(0,0,0,0.45)';
+    for (let k = 1; k < 10; k++) octx.fillRect(bx + (bw * k) / 10, by, 1 * uiS, bh);
+    platePath(octx, bx, by, bw, bh, cut);
+    octx.lineWidth = 2.6 * uiS;
+    octx.strokeStyle = 'rgba(8,2,10,0.95)';
+    octx.stroke();
+    octx.lineWidth = 1.2 * uiS;
+    octx.strokeStyle = `rgba(${Math.round(255 * rr)},${Math.round(255 * rg)},${Math.round(255 * rb)},${0.65 + 0.3 * beat})`;
+    octx.shadowColor = e.color;
+    octx.shadowBlur = (6 + 5 * beat + rage * 8) * uiS;
+    octx.stroke();
+    octx.shadowBlur = 0;
+    // ---- name inside-left, remains inside-right — nothing outside the slab,
+    // so stacked plates never collide with each other or the clock above.
+    // Both are cut against the fill with a heavy dark outline so they stay
+    // legible whether they sit on the bright fill or the dark backing.
+    const textY = by + bh * 0.5 + 4.2 * uiS;
+    octx.lineJoin = 'round';
+    octx.lineWidth = 3.2 * uiS;
+    octx.strokeStyle = 'rgba(8,4,16,0.9)';
+    octx.textAlign = 'left';
+    octx.font = `700 ${12 * uiS}px Cinzel, 'Palatino Linotype', serif`;
+    ls('0.18em');
+    octx.strokeText(e.bossName || 'A NIGHTMARE', bx + 12 * uiS, textY);
+    octx.fillStyle = '#ffffff';
+    octx.fillText(e.bossName || 'A NIGHTMARE', bx + 12 * uiS, textY);
+    ls('0px');
+    octx.textAlign = 'right';
+    octx.font = `700 ${12 * uiS}px Cinzel, 'Palatino Linotype', serif`;
+    octx.strokeText(`${Math.ceil(frac * 100)}%`, bx + bw - 10 * uiS, textY);
+    octx.fillStyle = '#ffffff';
+    octx.fillText(`${Math.ceil(frac * 100)}%`, bx + bw - 10 * uiS, textY);
+  }
+  octx.restore();
+  return shown * 38 + 12;
+}
+
 // The collapse's doom shading: everything unsafe reddens toward the eruption,
 // with the golden calm cut out of the wash. Composited on a cached quarter-res
 // canvas (the shapes are soft — upscaling is invisible) so destination-out
@@ -1183,14 +1287,16 @@ function emitZone(sh: ShapeList, q: QuadList, eng: Engine, z: Zone, alpha: numbe
     sh.push(SHAPE_DISC, x, y, 0, zr, 0.55, 1.1, 0, 0.030, 0.012, 0.085, 0.92 * fade, 0.14, 0.055, 0.26, false);
     // three spiral arms twisting into the core
     sh.push(SHAPE_SPIRAL, x, y, z.spin, zr * 0.97, 3, -2.74, 5.5, 0.62, 0.37, 1, 0.85 * fade, 0.24, 0.13, 0.42);
-    // pulsing event-horizon ring
+    // pulsing event-horizon ring (the Event Horizon evolution gilds it)
     const hr = zr * 0.32 + Math.sin(vt * 6) * 2;
-    sh.push(SHAPE_RING, x, y, 0, hr, 1.7, 7, 0, 1, 0.60, 0.84, 0.9 * fade, 0.30, 0.14, 0.24);
+    if (z.evolved) sh.push(SHAPE_RING, x, y, 0, hr, 1.7, 7, 0, 1, 0.82, 0.48, 0.9 * fade, 0.32, 0.22, 0.10);
+    else sh.push(SHAPE_RING, x, y, 0, hr, 1.7, 7, 0, 1, 0.60, 0.84, 0.9 * fade, 0.30, 0.14, 0.24);
   } else if (z.kind === 'nebula') {
     // a soft violet body with living colour lobes — all soft edges, no
     // outlines (they broke the dream theme)
     const fade = Math.max(0, Math.min(1, lifeI * 1.5, (z.maxLife - lifeI) * 2)) * 0.8;
-    sh.push(SHAPE_DISC, x, y, 0, zr, 0.72, 0.55, 0, 0.62, 0.43, 0.90, 0.30 * fade, 0.50, 0.33, 0.80);
+    if (z.evolved) sh.push(SHAPE_DISC, x, y, 0, zr, 0.72, 0.55, 0, 0.92, 0.52, 0.72, 0.30 * fade, 0.70, 0.36, 0.52);
+    else sh.push(SHAPE_DISC, x, y, 0, zr, 0.72, 0.55, 0, 0.62, 0.43, 0.90, 0.30 * fade, 0.50, 0.33, 0.80);
     // slow internal lobes give the cloud living depth
     for (let i = 0; i < 3; i++) {
       const aa = z.seed + i * 2.1 + vt * 0.3;
@@ -1307,7 +1413,8 @@ function emitZone(sh: ShapeList, q: QuadList, eng: Engine, z: Zone, alpha: numbe
       const sx2 = bxp - ty * wig; // offset along the local perpendicular (-ty,tx)
       const sy2 = byp + tx * wig;
       const r2 = zr * g * (1 - f * 0.55);
-      sh.push(SHAPE_DISC, sx2, sy2, 0, r2, 0.72, 0.95, 0, 0.35, 0.84, 0.79, (0.42 - f * 0.22) * fade, 0.10, 0.28, 0.38);
+      if (z.evolved) sh.push(SHAPE_DISC, sx2, sy2, 0, r2, 0.72, 0.95, 0, 0.38, 0.62, 0.98, (0.42 - f * 0.22) * fade, 0.10, 0.18, 0.44);
+      else sh.push(SHAPE_DISC, sx2, sy2, 0, r2, 0.72, 0.95, 0, 0.35, 0.84, 0.79, (0.42 - f * 0.22) * fade, 0.10, 0.28, 0.38);
     }
     // luminous head with a pale crest
     sh.push(SHAPE_DISC, x, y, 0, zr * g * 0.72, 0.6, 0.85, 0, 0.72, 1, 0.95, 0.5 * fade, 0.18, 0.45, 0.48);
@@ -1592,6 +1699,15 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
     q.push(true, ringE, x, y, brR / 30 * ringE.half, 0, 0.55, 1, 0.92, 0.6, 1);
     drawStats.enemyLiveOps++;
   }
+  // spore mark (nature): a soft green bloom-halo with a drifting petal mote
+  if (e.sporeT > 0) {
+    const breathe = 0.5 + 0.5 * Math.sin(vt * 5 + e.seed);
+    q.push(true, glowE, x, y - e.radius * 0.2, e.radius * 0.75 + 4, 0, 0.16 + 0.2 * breathe, 0.49, 1, 0.69, 1);
+    const petalE2 = q.uv('p:petal')!;
+    const pa = vt * 2.2 + e.seed;
+    q.push(true, petalE2, x + Math.cos(pa) * (e.radius + 7), y + Math.sin(pa) * (e.radius + 7) * 0.7 - 4, 4.5, pa, 0.7, 0.49, 1, 0.69, 1);
+    drawStats.enemyLiveOps++;
+  }
   // the Nightmare Brand: a red name written over the debtor. Everything scales
   // with the body so it reads just as loudly on a boss as on a wisp — a pulsing
   // target ring, a crosshair reaching past it, and a crooked rune above the head.
@@ -1668,6 +1784,14 @@ function emitEnemy(q: QuadList, shOver: ShapeList, eng: Engine, e: Enemy, alpha:
       const a = Math.atan2(eng.player.y - e.y, eng.player.x - e.x);
       eng.particles.spawn({ x: e.x, y: e.y - 4, vx: Math.cos(a) * 40 + (Math.random() * 30 - 15), vy: Math.sin(a) * 40 - 20, life: 0.5, size: 1.5 + Math.random() * 1.5, color: '#7dc9ff', mode: 'glow', drag: 0.95 });
     }
+    drawStats.enemyLiveOps++;
+  }
+  // jelly: the heart-light flares as its fan of slow orbs charges
+  if (e.type === 'jelly' && !e.boss && e.ranged && e.shootCd >= 0 && e.shootCd < 0.7) {
+    const charge = 1 - e.shootCd / 0.7;
+    const gy = y + bob * sc - 4 * sc;
+    q.push(true, glowE, x, gy, (8 + charge * 8 + Math.sin(vt * 18) * 2) * sc, 0, 0.4 + charge * 0.4, 0.62, 0.86, 1, 1);
+    q.push(true, glowE, x, gy, 3 * sc, 0, 0.9, 0.92, 0.98, 1, 1);
     drawStats.enemyLiveOps++;
   }
   // eye iris tracks the player (baked eyeball omits it)
@@ -1856,8 +1980,15 @@ function emitOrbitals(q: QuadList, eng: Engine, alpha: number, camX: number, cam
   const petalE = q.uv('petal')!;
   for (const o of eng.orbitals) {
     const x = lerp(o.px, o.x, alpha) - camX, y = lerp(o.py, o.y, alpha) - camY;
-    q.push(true, glowE, x, y, 14, 0, 0.8, 0.49, 1, 0.69, 1);     // green glow halo
-    q.push(false, petalE, x, y, petalE.half, o.a * 2, 1);         // spinning blossom
+    if (o.radF > 1) {
+      // the Wild Garden's outer ring waltzes in bloom-pink, so the evolution
+      // reads as a second, different garden rather than more of the same
+      q.push(true, glowE, x, y, 14, 0, 0.8, 1, 0.72, 0.9, 1);
+      q.push(false, petalE, x, y, petalE.half, o.a * 2, 1, 1, 0.55, 0.78, 0.5);
+    } else {
+      q.push(true, glowE, x, y, 14, 0, 0.8, 0.49, 1, 0.69, 1);   // green glow halo
+      q.push(false, petalE, x, y, petalE.half, o.a * 2, 1);       // spinning blossom
+    }
   }
 }
 
@@ -1868,17 +1999,27 @@ function emitFrostOrbs(q: QuadList, eng: Engine, alpha: number, camX: number, ca
   const glowE = q.uv('glow')!;
   const shardE = q.uv('shard')!;
   const s = eng.aoeMul(); // AoE fattens the ball, so the visual grows with the hitbox
+  // the Winterloom's crystallized orbs run paler — glassy white-violet ice
+  // instead of deep cyan, so the evolution reads at a glance
+  const evo = !!eng.player.spells.find((sp) => sp.id === 'frost')?.evolved;
   for (const o of eng.frostOrbs) {
     const x = lerp(o.px, o.x, alpha) - camX, y = lerp(o.py, o.y, alpha) - camY;
     const pulse = 0.85 + 0.15 * Math.sin(eng.vt * 3 + o.seed);
-    q.push(true, glowE, x, y, 26 * pulse * s, 0, 0.34, 0.42, 0.86, 1, 1); // cold aura
-    q.push(true, glowE, x, y, 13 * s, 0, 0.48, 0.58, 0.92, 1, 1);         // inner frost
-    q.push(true, glowE, x, y, 6 * s, 0, 0.6, 0.72, 0.95, 1, 1);           // translucent cyan core (no white-out)
+    if (evo) {
+      q.push(true, glowE, x, y, 26 * pulse * s, 0, 0.34, 0.62, 0.72, 1, 1);
+      q.push(true, glowE, x, y, 13 * s, 0, 0.5, 0.78, 0.84, 1, 1);
+      q.push(true, glowE, x, y, 6 * s, 0, 0.65, 0.92, 0.94, 1, 1);
+    } else {
+      q.push(true, glowE, x, y, 26 * pulse * s, 0, 0.34, 0.42, 0.86, 1, 1); // cold aura
+      q.push(true, glowE, x, y, 13 * s, 0, 0.48, 0.58, 0.92, 1, 1);         // inner frost
+      q.push(true, glowE, x, y, 6 * s, 0, 0.6, 0.72, 0.95, 1, 1);           // translucent cyan core (no white-out)
+    }
     // three ice facets orbiting the core, turning slowly
     for (let k = 0; k < 3; k++) {
       const fa = eng.vt * 1.1 + o.seed + (k / 3) * TAU;
       const fx = x + Math.cos(fa) * 11 * s, fy = y + Math.sin(fa) * 11 * s;
-      q.push(false, shardE, fx, fy, 6.5 * s, fa + Math.PI / 2, 0.78, 0.56, 0.91, 1, 1);
+      if (evo) q.push(false, shardE, fx, fy, 6.5 * s, fa + Math.PI / 2, 0.9, 0.82, 0.92, 1, 1);
+      else q.push(false, shardE, fx, fy, 6.5 * s, fa + Math.PI / 2, 0.78, 0.56, 0.91, 1, 1);
     }
   }
 }
@@ -1891,6 +2032,8 @@ function emitWisps(q: QuadList, eng: Engine, alpha: number, camX: number, camY: 
   const glowE = q.uv('glow')!;
   const starE = q.uv('p:star')!;
   const sparkE = q.uv('p:spark')!;
+  // the Choir Eternal sings in warm gold-white rather than spirit-teal
+  const evo = !!eng.player.spells.find((sp) => sp.id === 'wisps')?.evolved;
   for (const w of eng.wisps) {
     const x = lerp(w.px, w.x, alpha) - camX, y = lerp(w.py, w.y, alpha) - camY;
     const tw = 0.5 + 0.5 * Math.sin(eng.vt * 4 + w.seed);
@@ -1899,12 +2042,20 @@ function emitWisps(q: QuadList, eng: Engine, alpha: number, camX: number, camY: 
     const moving = dx * dx + dy * dy > 0.25;
     const ta = moving ? Math.atan2(dy, dx) + Math.PI : Math.PI / 2 + Math.sin(eng.vt * 2.6 + w.seed) * 0.35;
     const tlen = 9 + tw * 4 + (moving ? 6 : 0);
-    q.push(true, sparkE, x + Math.cos(ta) * tlen * 0.8, y + Math.sin(ta) * tlen * 0.8, tlen, ta, 0.4 + 0.2 * tw, 0.45, 1, 0.87, 1, 0.32);
-    // aura → inner glow → white-hot heart
-    q.push(true, glowE, x, y, 13 + tw * 4, 0, 0.55, 0.42, 1, 0.86, 1);
-    q.push(true, glowE, x, y, 6, 0, 0.9, 0.66, 1, 0.93, 1);
-    q.push(true, glowE, x, y, 3, 0, 1, 0.94, 1, 1, 1);
-    q.push(true, starE, x, y - 2, 5 + tw * 2, eng.vt * 1.5 + w.seed, 0.5 + 0.4 * tw, 0.62, 1, 0.92, 1);
+    if (evo) {
+      q.push(true, sparkE, x + Math.cos(ta) * tlen * 0.8, y + Math.sin(ta) * tlen * 0.8, tlen, ta, 0.4 + 0.2 * tw, 1, 0.88, 0.6, 1, 0.32);
+      q.push(true, glowE, x, y, 13 + tw * 4, 0, 0.55, 1, 0.86, 0.55, 1);
+      q.push(true, glowE, x, y, 6, 0, 0.9, 1, 0.93, 0.72, 1);
+      q.push(true, glowE, x, y, 3, 0, 1, 1, 0.99, 0.92, 1);
+      q.push(true, starE, x, y - 2, 5 + tw * 2, eng.vt * 1.5 + w.seed, 0.5 + 0.4 * tw, 1, 0.9, 0.62, 1);
+    } else {
+      q.push(true, sparkE, x + Math.cos(ta) * tlen * 0.8, y + Math.sin(ta) * tlen * 0.8, tlen, ta, 0.4 + 0.2 * tw, 0.45, 1, 0.87, 1, 0.32);
+      // aura → inner glow → white-hot heart
+      q.push(true, glowE, x, y, 13 + tw * 4, 0, 0.55, 0.42, 1, 0.86, 1);
+      q.push(true, glowE, x, y, 6, 0, 0.9, 0.66, 1, 0.93, 1);
+      q.push(true, glowE, x, y, 3, 0, 1, 0.94, 1, 1, 1);
+      q.push(true, starE, x, y - 2, 5 + tw * 2, eng.vt * 1.5 + w.seed, 0.5 + 0.4 * tw, 0.62, 1, 0.92, 1);
+    }
   }
 }
 
@@ -1913,12 +2064,17 @@ function emitProjectile(q: QuadList, eng: Engine, pr: Projectile, alpha: number,
   const ix = lerp(pr.px, pr.x, alpha), iy = lerp(pr.py, pr.y, alpha);
   const x = ix - camX, y = iy - camY;
   if (x < -80 || y < -80 || x > cam.w + 80 || y > cam.h + 80) return;
+  // evolved spells wear a slight recolour so the transcendent form reads at a
+  // glance: most turn gilded (the evolution gold), Night's Teeth turns crimson
+  const evo = pr.evolved;
   if (pr.kind === 'arcane') {
     const e = q.uv('proj:arcane')!;
-    q.push(true, e, x, y, e.half, Math.atan2(pr.vy, pr.vx), 1);
+    if (evo) q.push(true, e, x, y, e.half, Math.atan2(pr.vy, pr.vx), 1, 1, 0.86, 0.58, 1);
+    else q.push(true, e, x, y, e.half, Math.atan2(pr.vy, pr.vx), 1);
   } else if (pr.kind === 'ember') {
     const e = q.uv('proj:ember')!;
-    q.push(true, e, x, y, e.half, 0, 1);
+    if (evo) q.push(true, e, x, y, e.half, 0, 1, 1, 0.88, 0.62, 1);
+    else q.push(true, e, x, y, e.half, 0, 1);
   } else if (pr.kind === 'comet') {
     // landing marker: a soft contracting ring where the star will strike
     const f = Math.min(1, pr.t / pr.dur);
@@ -1930,24 +2086,33 @@ function emitProjectile(q: QuadList, eng: Engine, pr: Projectile, alpha: number,
     // comet trail: stretched spark streak behind the head
     const sparkE = q.uv('p:spark')!;
     q.push(true, sparkE, x - Math.cos(a) * 28, y - Math.sin(a) * 28, 42, a, 0.6, 0.66, 0.55, 1, 1, 0.22);
-    const e = q.uv('proj:arcane')!; // pink-tinted round head
-    q.push(true, e, x, y, 15, a, 1, 1, 0.7, 0.95, 1);
-    q.push(true, glowE, x, y, 19, 0, 0.4, 1, 0.70, 0.95, 1);
+    const e = q.uv('proj:arcane')!; // pink-tinted round head (gilded when evolved)
+    if (evo) {
+      q.push(true, e, x, y, 15, a, 1, 1, 0.86, 0.55, 1);
+      q.push(true, glowE, x, y, 19, 0, 0.4, 1, 0.84, 0.5, 1);
+    } else {
+      q.push(true, e, x, y, 15, a, 1, 1, 0.7, 0.95, 1);
+      q.push(true, glowE, x, y, 19, 0, 0.4, 1, 0.70, 0.95, 1);
+    }
   } else if (pr.kind === 'fang') {
     const e = q.uv('proj:fang')!;
     // art baked for the base hitbox (r=12); Maw of Night grows pr.r, so the
     // crescent must grow with it or the hitbox outruns the visual
-    q.push(false, e, x, y, e.half * (pr.r / 12), Math.atan2(pr.vy, pr.vx), 1);
+    if (evo) q.push(false, e, x, y, e.half * (pr.r / 12), Math.atan2(pr.vy, pr.vx), 1, 1, 0.24, 0.36, 0.4);
+    else q.push(false, e, x, y, e.half * (pr.r / 12), Math.atan2(pr.vy, pr.vx), 1);
   } else if (pr.kind === 'glaive') {
     // subtle icy halo kept small so the blade silhouette reads as a glaive
+    // (the Star Sovereign's halo and glint warm to gold)
     const glowE = q.uv('glow')!;
-    q.push(true, glowE, x, y, 21, 0, 0.28, 0.62, 0.85, 1);
+    if (evo) q.push(true, glowE, x, y, 21, 0, 0.28, 1, 0.84, 0.5);
+    else q.push(true, glowE, x, y, 21, 0, 0.28, 0.62, 0.85, 1);
     const e = q.uv('proj:glaive')!; // baked twin-bladed star-blade, spinning
     // drawn slightly under natural size: blade tips at ~23px sit closer to the
     // effective reach (r=14 + enemy radius) — full size read as misses; any
     // smaller and it blurs together with Arcane Missiles
     q.push(false, e, x, y, e.half * 0.78, pr.spin, 1);
-    q.push(true, e, x, y, e.half * 0.78, pr.spin, 0.18); // faint additive glint on the edge
+    if (evo) q.push(true, e, x, y, e.half * 0.78, pr.spin, 0.3, 1, 0.84, 0.5, 1);
+    else q.push(true, e, x, y, e.half * 0.78, pr.spin, 0.18); // faint additive glint on the edge
   } else if (pr.kind === 'iceshard') {
     // a slender crystal of cold, elongated along its flight
     const glowE = q.uv('glow')!;
@@ -2063,27 +2228,25 @@ function drawHealthBars(eng: Engine, octx: CanvasRenderingContext2D, camX: numbe
   const elig = _hpElig;
   elig.length = 0;
   for (const e of eng.enemies) {
-    if (e.dead || e.hp >= e.maxHp || !(e.elite || e.boss || e.maxHp > 40)) continue;
-    if (e.type === 'nightmare') continue; // the Other Dreamer wears his own plate
+    if (e.dead || e.hp >= e.maxHp || !(e.elite || e.maxHp > 40)) continue;
+    if (e.boss) continue; // every boss wears a screen-space plate instead
     const x = (lerp(e.px, e.x, alpha)) - camX, y = (lerp(e.py, e.y, alpha)) - camY;
     if (x < -100 || y < -100 || x > cam.w + 100 || y > cam.h + 100) continue;
     elig.push(e);
   }
   // only pay the sort when we actually exceed the cap
   if (elig.length > cap) {
-    elig.sort((a, b) => {
-      if (a.boss !== b.boss) return a.boss ? -1 : 1; // bosses always shown
-      return ((a.x - p.x) ** 2 + (a.y - p.y) ** 2) - ((b.x - p.x) ** 2 + (b.y - p.y) ** 2);
-    });
+    elig.sort((a, b) =>
+      ((a.x - p.x) ** 2 + (a.y - p.y) ** 2) - ((b.x - p.x) ** 2 + (b.y - p.y) ** 2));
     elig.length = cap;
   }
   for (const e of elig) {
     const x = (lerp(e.px, e.x, alpha)) - camX, y = (lerp(e.py, e.y, alpha)) - camY;
-    const bw = e.boss ? 90 : 30;
+    const bw = 30;
     const bx = x - bw / 2, by = y - e.radius - 14;
     octx.fillStyle = 'rgba(10,8,26,0.8)';
     octx.fillRect(bx - 1, by - 1, bw + 2, 6);
-    octx.fillStyle = e.boss ? '#ff9ad5' : '#7ff5ff';
+    octx.fillStyle = '#7ff5ff';
     octx.fillRect(bx, by, (bw * Math.max(0, e.hp)) / e.maxHp, 4);
   }
 }

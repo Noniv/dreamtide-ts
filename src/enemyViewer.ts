@@ -12,6 +12,10 @@ const NAMES: Record<string, string> = {
   golem: 'Golem',
   siren: 'Siren',
   warlock: 'Warlock',
+  moth: 'Lunar Moth',
+  jelly: 'Dream Jelly',
+  snail: 'Dream Snail',
+  nightmare: 'The Other Dreamer',
 };
 
 const CANVAS = 160;   // card canvas size in px

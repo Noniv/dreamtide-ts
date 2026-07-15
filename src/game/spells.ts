@@ -2,6 +2,8 @@
 // motion, sound and particle language. Most strike the horde; a few (kind:
 // 'defense') only shelter the dreamer. Cast logic lives in the engine.
 
+import type { Element } from './relics';
+
 export interface SpellStats {
   cooldown: number;
   damage?: number;
@@ -35,6 +37,9 @@ export interface SpellDef {
   id: string;
   name: string;
   school: string;
+  // the element every point of this spell's damage carries — it decides which
+  // Resonance mark it leaves and which reactions it can spark (see engine)
+  element: Element;
   color: string;
   color2: string;
   icon: string;
@@ -49,7 +54,7 @@ export interface SpellDef {
 
 export const SPELLS: Record<string, SpellDef> = {
   ember: {
-    id: 'ember', name: 'Emberfall', school: 'Pyromancy',
+    id: 'ember', name: 'Emberfall', school: 'Pyromancy', element: 'fire',
     color: '#ff8c5a', color2: '#ffd27a', icon: '🜂',
     desc: 'Lob embers that burst into blooms of fire.',
     maxLevel: 6,
@@ -62,7 +67,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: (lv) => (lv % 2 === 0 ? `+1 ember (${1 + Math.floor(lv / 2)} total), bigger bursts` : 'Faster casts, stronger embers'),
   },
   arcane: {
-    id: 'arcane', name: 'Arcane Missiles', school: 'Arcana',
+    id: 'arcane', name: 'Arcane Missiles', school: 'Arcana', element: 'arcane',
     color: '#b48cff', color2: '#e6d1ff', icon: '🜁',
     desc: 'Homing missiles that chase down the nearest foes.',
     maxLevel: 6,
@@ -75,7 +80,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: (lv) => (lv % 2 === 1 ? `+1 missile (${1 + Math.floor((lv + 1) / 2)} total)` : 'Faster, harder-hitting missiles'),
   },
   frost: {
-    id: 'frost', name: 'Rimeheart', school: 'Cryomancy',
+    id: 'frost', name: 'Rimeheart', school: 'Cryomancy', element: 'frost',
     color: '#8fe8ff', color2: '#e8fbff', icon: '🜄',
     desc: 'A slow orb of condensed cold drifts around you at medium range, damaging and chilling all it grazes.',
     maxLevel: 6,
@@ -91,7 +96,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: (lv) => (lv === 3 ? 'A second orb of cold joins the orbit' : 'A colder, heavier, harder-hitting orb'),
   },
   storm: {
-    id: 'storm', name: 'Stormcall', school: 'Tempestry',
+    id: 'storm', name: 'Stormcall', school: 'Tempestry', element: 'storm',
     color: '#7ad7ff', color2: '#ffffff', icon: '🜃',
     desc: 'Lightning that arcs from one foe to the next.',
     maxLevel: 6,
@@ -104,7 +109,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: (lv) => `+1 chain (${2 + lv} total), faster casts`,
   },
   void: {
-    id: 'void', name: 'Void Rift', school: 'Umbramancy',
+    id: 'void', name: 'Void Rift', school: 'Umbramancy', element: 'shadow',
     color: '#9a5cff', color2: '#2b1050', icon: '🜏',
     desc: 'Tear a rift that pulls enemies in and burns them.',
     maxLevel: 6,
@@ -118,7 +123,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: () => 'Wider rift, stronger pull, more damage',
   },
   petals: {
-    id: 'petals', name: 'Petal Waltz', school: 'Verdancy',
+    id: 'petals', name: 'Petal Waltz', school: 'Verdancy', element: 'nature',
     color: '#7dffb0', color2: '#ffd1ec', icon: '🜍',
     desc: 'Petals orbit you, cutting any foe they touch.',
     maxLevel: 6,
@@ -132,7 +137,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: (lv) => `+1 petal (${2 + lv} total), faster spin`,
   },
   moon: {
-    id: 'moon', name: 'Moonlance', school: 'Lunamancy',
+    id: 'moon', name: 'Moonlance', school: 'Lunamancy', element: 'light',
     color: '#fff3b8', color2: '#bcd9ff', icon: '☾',
     desc: 'A lance of moonlight that pierces everything in a line.',
     maxLevel: 6,
@@ -146,7 +151,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: (lv) => (lv === 4 ? 'A second lance, opposite the first' : 'Longer, wider lance'),
   },
   starfall: {
-    id: 'starfall', name: 'Starfall', school: 'Cosmology',
+    id: 'starfall', name: 'Starfall', school: 'Cosmology', element: 'cosmic',
     color: '#ffb3f2', color2: '#8a7bff', icon: '✧',
     desc: 'Stars fall from the sky and burst where they land.',
     maxLevel: 6,
@@ -159,7 +164,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: (lv) => (lv % 2 === 0 ? `+1 star (${1 + Math.floor(lv / 2)} total)` : 'Harder-hitting stars'),
   },
   umbra: {
-    id: 'umbra', name: 'Shadowfang', school: 'Umbramancy',
+    id: 'umbra', name: 'Shadowfang', school: 'Umbramancy', element: 'shadow',
     color: '#8a5cd9', color2: '#20123d', icon: '🜚',
     desc: 'Crescents of shadow that scythe through the horde.',
     maxLevel: 6,
@@ -172,7 +177,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: (lv) => (lv % 2 === 1 ? `+1 crescent (${1 + Math.floor((lv + 1) / 2)} total)` : 'Faster, sharper crescents'),
   },
   glaive: {
-    id: 'glaive', name: 'Astral Glaive', school: 'Astromancy',
+    id: 'glaive', name: 'Astral Glaive', school: 'Astromancy', element: 'cosmic',
     color: '#9fd8ff', color2: '#e8f6ff', icon: '✵',
     desc: 'A starlight blade flies out and boomerangs back, cutting all it passes.',
     maxLevel: 6,
@@ -186,7 +191,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: (lv) => (lv === 3 ? 'A second glaive takes wing' : lv === 6 ? 'A third glaive takes wing' : 'Longer flight, sharper edge'),
   },
   nebula: {
-    id: 'nebula', name: 'Nebula Bloom', school: 'Cosmology',
+    id: 'nebula', name: 'Nebula Bloom', school: 'Cosmology', element: 'cosmic',
     color: '#c48cff', color2: '#ff9ad5', icon: '❋',
     desc: 'A drifting star-cloud that damages everything inside it.',
     maxLevel: 6,
@@ -199,7 +204,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: () => 'Bigger, longer-lasting cloud',
   },
   sigil: {
-    id: 'sigil', name: 'Sigil of Sleep', school: 'Oneiromancy',
+    id: 'sigil', name: 'Sigil of Sleep', school: 'Oneiromancy', element: 'light',
     color: '#ffd27a', color2: '#b48cff', icon: '✪',
     desc: 'Plant a rune that arms, then bursts for heavy damage; survivors are left asleep.',
     maxLevel: 6,
@@ -212,7 +217,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: () => 'More damage, longer sleep',
   },
   lantern: {
-    id: 'lantern', name: 'Soul Lanterns', school: 'Spiritism',
+    id: 'lantern', name: 'Soul Lanterns', school: 'Spiritism', element: 'light',
     color: '#a8ffe8', color2: '#4ad9c4', icon: 'ϟ',
     desc: 'Hang lanterns that pulse, damaging foes beneath them.',
     maxLevel: 6,
@@ -226,7 +231,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: (lv) => (lv % 2 === 0 ? `+1 lantern (${1 + Math.floor(lv / 2)} total)` : 'Brighter, longer-lasting lanterns'),
   },
   nova: {
-    id: 'nova', name: 'Twilight Nova', school: 'Duskweaving',
+    id: 'nova', name: 'Twilight Nova', school: 'Duskweaving', element: 'shadow',
     color: '#ff9ad5', color2: '#5a2a6e', icon: '◈',
     desc: 'A blast of dusk that damages nearby foes and hurls them back.',
     maxLevel: 6,
@@ -239,7 +244,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: () => 'Wider blast, harder knockback',
   },
   wisps: {
-    id: 'wisps', name: 'Wisp Choir', school: 'Spiritism',
+    id: 'wisps', name: 'Wisp Choir', school: 'Spiritism', element: 'nature',
     color: '#8cf7e2', color2: '#35c9b8', icon: '⁂',
     desc: 'Wisps trail behind you and dart at foes that come near.',
     maxLevel: 6,
@@ -252,7 +257,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: (lv) => (lv % 2 === 0 ? `+1 wisp (${3 + Math.floor(lv / 2)} total)` : 'Faster, harder darts'),
   },
   serpent: {
-    id: 'serpent', name: 'Dream Serpent', school: 'Thalassomancy',
+    id: 'serpent', name: 'Dream Serpent', school: 'Thalassomancy', element: 'frost',
     color: '#5ad7c9', color2: '#1e4d6e', icon: '∿',
     desc: 'A serpent of water winds through the horde, biting all it passes.',
     maxLevel: 6,
@@ -267,7 +272,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: () => 'A longer, thicker, harder-hitting serpent',
   },
   chime: {
-    id: 'chime', name: 'Chime of Hours', school: 'Chronomancy',
+    id: 'chime', name: 'Chime of Hours', school: 'Chronomancy', element: 'arcane',
     color: '#ffd9a0', color2: '#b08a4a', icon: 'Ω',
     desc: 'A clock-hand of sound sweeps a wedge of the field each beat; every fourth beat the whole hour tolls at once.',
     maxLevel: 6,
@@ -279,7 +284,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: (lv) => (lv === 3 ? 'Faster beat' : 'Wider sweep, harder tolls'),
   },
   eye: {
-    id: 'eye', name: 'Sleepless Eye', school: 'Oneiromancy',
+    id: 'eye', name: 'Sleepless Eye', school: 'Oneiromancy', element: 'light',
     color: '#fff7c9', color2: '#ffb3f2', icon: '☉',
     desc: 'An eye opens above you and sweeps a beam across the field.',
     maxLevel: 6,
@@ -294,7 +299,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: (lv) => (lv === 4 ? 'The beam sweeps half a turn farther' : 'Longer, wider beam'),
   },
   brand: {
-    id: 'brand', name: 'Nightmare Brand', school: 'Maleficy',
+    id: 'brand', name: 'Nightmare Brand', school: 'Maleficy', element: 'shadow',
     color: '#ff5a7a', color2: '#3d1020', icon: '⌖',
     desc: 'Brand the toughest foe: it takes damage over time, then bursts when it dies.',
     maxLevel: 6,
@@ -308,7 +313,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: (lv) => (lv === 3 || lv === 6 ? 'Brand one more foe at once' : 'Heavier damage, bigger burst'),
   },
   ward: {
-    id: 'ward', name: 'Somnal Ward', school: 'Aegis',
+    id: 'ward', name: 'Somnal Ward', school: 'Aegis', element: 'light',
     color: '#8fb8ff', color2: '#e6f0ff', icon: '⛨',
     desc: 'Glass wards circle you and soak damage; when they shatter, they knock foes back.',
     maxLevel: 6, kind: 'defense',
@@ -323,7 +328,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: (lv) => (lv % 2 === 0 ? 'Tougher glass, wider shatter' : 'Faster recharge, shorter downtime'),
   },
   hush: {
-    id: 'hush', name: 'Hush', school: 'Lullaby',
+    id: 'hush', name: 'Hush', school: 'Lullaby', element: 'arcane',
     color: '#b7a7ff', color2: '#e9dcff', icon: '☾',
     desc: 'A quiet aura slows nearby foes, and pulses outward now and then to push them back.',
     maxLevel: 6, kind: 'defense',
@@ -338,7 +343,7 @@ export const SPELLS: Record<string, SpellDef> = {
     levelText: (lv) => (lv % 2 === 0 ? 'Wider aura, stronger slow' : 'Deeper slow, faster pulses'),
   },
   prism: {
-    id: 'prism', name: 'Kaleidoscope', school: 'Chromamancy',
+    id: 'prism', name: 'Kaleidoscope', school: 'Chromamancy', element: 'cosmic',
     color: '#f4c9ff', color2: '#9fffe0', icon: '◭',
     desc: 'Hang a prism that fires rays at nearby foes until it fades.',
     maxLevel: 6,
