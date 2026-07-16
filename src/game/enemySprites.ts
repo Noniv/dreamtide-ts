@@ -871,8 +871,13 @@ export function paintWizardPreview(ctx: CanvasRenderingContext2D, size: number, 
   const s: WizardSkin = { ...DEFAULT_WIZARD_SKIN, ...skin };
   ctx.clearRect(0, 0, size, size);
   ctx.save();
-  const sc = size / (WIZARD_HALF * 2 - 12); // trim the padded margin so the figure fills the tile
-  ctx.setTransform(sc, 0, 0, sc, size / 2, size / 2);
+  // The painted figure spans y ∈ [-58, +10] and x ∈ [-16.5, +16.5] in the
+  // feet-anchored space paintWizard draws in; fit that box, visually centred.
+  // Compose with (not replace) the caller's transform, which carries the
+  // canvas devicePixelRatio scale.
+  const sc = size / 72;
+  ctx.translate(size / 2, size / 2 - (WIZARD_CY - 24) * sc);
+  ctx.scale(sc, sc);
   paintWizard(ctx, ph, s);
   ctx.restore();
 }

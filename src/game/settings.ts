@@ -52,6 +52,8 @@ export interface StoredSettings {
   devEndgame: boolean; // dev-only: start runs in the endgame test scenario
   devFinale: boolean;  // dev-only: start runs at 14:50, just before the finale
   devFreeTree: boolean; // dev-only: constellation nodes cost nothing
+  devNoToasts: boolean; // dev-only: suppress dream book discovery toasts
+  devBoss: string;      // dev-only: force every rotation boss to this archetype ('' = normal rotation)
 }
 
 const DEFAULTS: StoredSettings = {
@@ -63,6 +65,8 @@ const DEFAULTS: StoredSettings = {
   devEndgame: false,
   devFinale: false,
   devFreeTree: false,
+  devNoToasts: false,
+  devBoss: '',
 };
 
 // Whether the current display + OS are in HDR mode. `(dynamic-range: high)` is
@@ -105,6 +109,8 @@ class Settings {
   devEndgame = DEFAULTS.devEndgame;
   devFinale = DEFAULTS.devFinale;
   devFreeTree = DEFAULTS.devFreeTree;
+  devNoToasts = DEFAULTS.devNoToasts;
+  devBoss = DEFAULTS.devBoss;
 
   // resolved numeric knobs (recomputed whenever a preset changes)
   particleSoft = PARTICLE_SOFT.medium;
@@ -138,6 +144,8 @@ class Settings {
         if (typeof d.devEndgame === 'boolean') this.devEndgame = d.devEndgame;
         if (typeof d.devFinale === 'boolean') this.devFinale = d.devFinale;
         if (typeof d.devFreeTree === 'boolean') this.devFreeTree = d.devFreeTree;
+        if (typeof d.devNoToasts === 'boolean') this.devNoToasts = d.devNoToasts;
+        if (typeof d.devBoss === 'string') this.devBoss = d.devBoss;
       } else {
         const migrated = migrateRenderScale();
         if (migrated != null) this.resolution = migrated;
@@ -147,7 +155,7 @@ class Settings {
 
   private save() {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({ musicVol: this.musicVol, sfxVol: this.sfxVol, perf: this.perf, resolution: this.resolution, hdr: this.hdr, devEndgame: this.devEndgame, devFinale: this.devFinale, devFreeTree: this.devFreeTree } satisfies StoredSettings));
+      localStorage.setItem(STORE_KEY, JSON.stringify({ musicVol: this.musicVol, sfxVol: this.sfxVol, perf: this.perf, resolution: this.resolution, hdr: this.hdr, devEndgame: this.devEndgame, devFinale: this.devFinale, devFreeTree: this.devFreeTree, devNoToasts: this.devNoToasts, devBoss: this.devBoss } satisfies StoredSettings));
     } catch { /* private mode */ }
   }
 
@@ -173,6 +181,8 @@ class Settings {
   setDevEndgame(v: boolean) { this.devEndgame = v; this.save(); }
   setDevFinale(v: boolean) { this.devFinale = v; this.save(); }
   setDevFreeTree(v: boolean) { this.devFreeTree = v; this.save(); }
+  setDevNoToasts(v: boolean) { this.devNoToasts = v; this.save(); }
+  setDevBoss(v: string) { this.devBoss = v; this.save(); }
 
   // The engine registers this so a resolution change triggers a resize.
   bindResolution(cb: (scale: number) => void) { this.onResolutionChange = cb; }
@@ -200,6 +210,8 @@ class Settings {
     this.devEndgame = DEFAULTS.devEndgame;
     this.devFinale = DEFAULTS.devFinale;
     this.devFreeTree = DEFAULTS.devFreeTree;
+    this.devNoToasts = DEFAULTS.devNoToasts;
+    this.devBoss = DEFAULTS.devBoss;
     this.recompute();
     this.save();
     if (this.onResolutionChange) this.onResolutionChange(this.resolution);

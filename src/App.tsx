@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
-import { Engine, type HudState, type Choice } from './game/engine';
+import { Engine, BOSS_OPTIONS, type HudState, type Choice } from './game/engine';
 import { SPELLS, BOONS, GENERIC, EVOLVE } from './game/spells';
 import { RELICS, PACTS, ELEMENTS, type PactDef } from './game/relics';
 import { SpellIcon, HAS_ICON } from './game/spellIcons';
@@ -381,6 +381,7 @@ let _toastKey = 0;
 function DiscoveryToasts() {
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
   useEffect(() => codex.onDiscover((d) => {
+    if (settings.devNoToasts) return;
     const look = discoveryLook(d);
     if (!look) return;
     const entry: ToastEntry = { ...look, key: ++_toastKey };
@@ -659,6 +660,8 @@ function Settings({ onClose, extraClass }: { onClose: () => void; extraClass?: s
   const [dev, setDev] = useState(settings.devEndgame);
   const [devFin, setDevFin] = useState(settings.devFinale);
   const [devTree, setDevTree] = useState(settings.devFreeTree);
+  const [devQuiet, setDevQuiet] = useState(settings.devNoToasts);
+  const [devBoss, setDevBoss] = useState(settings.devBoss);
 
   const changeMusic = (v: number) => { settings.setMusicVol(v); audio.setMusicVolume(v); setMusic(v); };
   const changeSfx = (v: number) => { settings.setSfxVol(v); audio.setSfxVolume(v); setSfx(v); };
@@ -672,6 +675,8 @@ function Settings({ onClose, extraClass }: { onClose: () => void; extraClass?: s
   const changeDev = (v: boolean) => { settings.setDevEndgame(v); setDev(v); };
   const changeDevFin = (v: boolean) => { settings.setDevFinale(v); setDevFin(v); };
   const changeDevTree = (v: boolean) => { settings.setDevFreeTree(v); setDevTree(v); };
+  const changeDevQuiet = (v: boolean) => { settings.setDevNoToasts(v); setDevQuiet(v); };
+  const changeDevBoss = (v: string) => { settings.setDevBoss(v); setDevBoss(v); };
   const resetDefaults = () => {
     settings.resetDefaults();
     audio.setMusicVolume(settings.musicVol);
@@ -684,6 +689,8 @@ function Settings({ onClose, extraClass }: { onClose: () => void; extraClass?: s
     setDev(settings.devEndgame);
     setDevFin(settings.devFinale);
     setDevTree(settings.devFreeTree);
+    setDevQuiet(settings.devNoToasts);
+    setDevBoss(settings.devBoss);
   };
 
   return (
@@ -760,6 +767,17 @@ function Settings({ onClose, extraClass }: { onClose: () => void; extraClass?: s
             <label className="dev-toggle">
               <input type="checkbox" checked={devTree} onChange={(e) => changeDevTree(e.target.checked)} />
               ⚗ endless stardust — constellation nodes cost nothing to awaken
+            </label>
+            <label className="dev-toggle">
+              <input type="checkbox" checked={devQuiet} onChange={(e) => changeDevQuiet(e.target.checked)} />
+              ⚗ quiet discoveries — no dream book toasts during play
+            </label>
+            <label className="dev-toggle">
+              ⚗ forced nightmare — every boss in the rotation becomes
+              <select className="dev-select" value={devBoss} onChange={(e) => changeDevBoss(e.target.value)}>
+                <option value="">— normal rotation —</option>
+                {BOSS_OPTIONS.map((b) => <option key={b.type} value={b.type}>{b.name}</option>)}
+              </select>
             </label>
           </section>
         </div>

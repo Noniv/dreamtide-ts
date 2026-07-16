@@ -261,6 +261,10 @@ const BOSS_ARCHS: BossArch[] = [
   },
 ];
 
+// for the dev-only "force this boss" picker in settings
+export const BOSS_OPTIONS: { type: string; name: string }[] =
+  BOSS_ARCHS.map((a) => ({ type: a.type, name: a.name }));
+
 // ------------------------------------------------------- the fifteenth minute
 // At 15:00 the dream is interrupted: everything hostile is unmade, another
 // wizard — the player's own silhouette in dead colours — walks in, two lines
@@ -1656,8 +1660,12 @@ export class Engine {
 
   spawnEnemy(typeId: string, elite = false, boss = false): Enemy | null {
     if (this.freeSlots.length === 0) return null; // hard cap, never reached in practice
-    // bosses cycle through the three nightmares from a per-run random start
-    const arch = boss ? BOSS_ARCHS[(this.bossSeed + this.bossCount - 1 + BOSS_ARCHS.length * 8) % BOSS_ARCHS.length] : null;
+    // bosses cycle through the nightmares from a per-run random start; the
+    // dev "force this boss" setting pins every slot to one archetype instead
+    const arch = boss
+      ? BOSS_ARCHS.find((a) => a.type === settings.devBoss)
+        ?? BOSS_ARCHS[(this.bossSeed + this.bossCount - 1 + BOSS_ARCHS.length * 8) % BOSS_ARCHS.length]
+      : null;
     if (arch) typeId = arch.type;
     const def = ENEMY_TYPES[typeId] || ENEMY_TYPES.wisp;
     const d = this.diff;
@@ -2286,6 +2294,17 @@ export class Engine {
       this.bossProjPool.release(bp);
     }
     this.bossProjectiles.length = 0;
+    // the dream has no gifts left to give: every mote of essence and any
+    // fallen star / altar on the ground drifts up into the same hush
+    for (const g of this.gems) {
+      this.particles.spawn({ x: g.x, y: g.y, vx: rand(-14, 14), vy: -rand(20, 60), life: rand(0.5, 1.1), size: rand(2, 4), endSize: 0.5, color: '#b9e8ff', color2: '#0d0714', mode: 'glow', drag: 0.95 });
+      this.gemPool.release(g);
+    }
+    this.gems.length = 0;
+    for (const s of this.pickups) {
+      this.particles.spawn({ x: s.x, y: s.y, life: 0.45, size: 40, color: '#cdd8ff', mode: 'ring' });
+    }
+    this.pickups.length = 0;
     for (const z of this.zones) this.freeZone(z);
     this.zones.length = 0;
     for (const b of this.beams) {
@@ -2515,17 +2534,6 @@ export class Engine {
     this.shake = 18;
     this.setBanner('☽  THE OTHER DREAMER  ☾', '#ff3d5e', 4.6, 40);
     this.spawnText(e.x, e.y - 80, 'THE OTHER DREAMER', '#ff3d5e', 2.6, -12, 22);
-    // the dream has no gifts left to give: every mote of essence and any
-    // fallen star / altar left on the ground is swallowed as he takes the dream
-    for (const g of this.gems) {
-      this.particles.spawn({ x: g.x, y: g.y, vx: rand(-30, 30), vy: rand(-40, 20), life: rand(0.3, 0.6), size: rand(2, 4), color: '#3d0a1c', color2: '#ff2040', mode: 'glow', drag: 0.92 });
-      this.gemPool.release(g);
-    }
-    this.gems.length = 0;
-    for (const s of this.pickups) {
-      this.particles.spawn({ x: s.x, y: s.y, life: 0.4, size: 40, color: '#ff3d5e', mode: 'ring' });
-    }
-    this.pickups.length = 0;
   }
 
   // The Other Dreamer's turn, run in place of the plain boss bullet-hell:
@@ -4418,7 +4426,11 @@ export class Engine {
 
   // ================================================================ sim step
   private simStep(dt: number) {
-    this.t += dt;
+    // the run clock holds its breath for the whole fifteenth-minute scene —
+    // from the sweep through the fight and the wake-rite — and only ticks
+    // again once the dreamer chooses to dream on
+    const F = this.finale.phase;
+    if (F === 'none' || F === 'done') this.t += dt;
     this.computeWave();
     this.computeDifficulty();
     const p = this.player;

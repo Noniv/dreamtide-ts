@@ -2032,7 +2032,8 @@ function emitWisps(q: QuadList, eng: Engine, alpha: number, camX: number, camY: 
   const glowE = q.uv('glow')!;
   const starE = q.uv('p:star')!;
   const sparkE = q.uv('p:spark')!;
-  // the Choir Eternal sings in warm gold-white rather than spirit-teal
+  // the Choir Eternal sings in a silvered, near-white teal — the same spirit
+  // flame, transfigured — with a brighter halo and a keener star glint
   const evo = !!eng.player.spells.find((sp) => sp.id === 'wisps')?.evolved;
   for (const w of eng.wisps) {
     const x = lerp(w.px, w.x, alpha) - camX, y = lerp(w.py, w.y, alpha) - camY;
@@ -2043,11 +2044,11 @@ function emitWisps(q: QuadList, eng: Engine, alpha: number, camX: number, camY: 
     const ta = moving ? Math.atan2(dy, dx) + Math.PI : Math.PI / 2 + Math.sin(eng.vt * 2.6 + w.seed) * 0.35;
     const tlen = 9 + tw * 4 + (moving ? 6 : 0);
     if (evo) {
-      q.push(true, sparkE, x + Math.cos(ta) * tlen * 0.8, y + Math.sin(ta) * tlen * 0.8, tlen, ta, 0.4 + 0.2 * tw, 1, 0.88, 0.6, 1, 0.32);
-      q.push(true, glowE, x, y, 13 + tw * 4, 0, 0.55, 1, 0.86, 0.55, 1);
-      q.push(true, glowE, x, y, 6, 0, 0.9, 1, 0.93, 0.72, 1);
-      q.push(true, glowE, x, y, 3, 0, 1, 1, 0.99, 0.92, 1);
-      q.push(true, starE, x, y - 2, 5 + tw * 2, eng.vt * 1.5 + w.seed, 0.5 + 0.4 * tw, 1, 0.9, 0.62, 1);
+      q.push(true, sparkE, x + Math.cos(ta) * tlen * 0.8, y + Math.sin(ta) * tlen * 0.8, tlen, ta, 0.4 + 0.2 * tw, 0.62, 1, 0.9, 1, 0.32);
+      q.push(true, glowE, x, y, 14 + tw * 5, 0, 0.6, 0.56, 1, 0.9, 1);
+      q.push(true, glowE, x, y, 6, 0, 0.95, 0.82, 1, 0.96, 1);
+      q.push(true, glowE, x, y, 3, 0, 1, 0.97, 1, 1, 1);
+      q.push(true, starE, x, y - 2, 6 + tw * 2.5, eng.vt * 1.5 + w.seed, 0.55 + 0.4 * tw, 0.8, 1, 0.95, 1);
     } else {
       q.push(true, sparkE, x + Math.cos(ta) * tlen * 0.8, y + Math.sin(ta) * tlen * 0.8, tlen, ta, 0.4 + 0.2 * tw, 0.45, 1, 0.87, 1, 0.32);
       // aura → inner glow → white-hot heart
@@ -2064,17 +2065,26 @@ function emitProjectile(q: QuadList, eng: Engine, pr: Projectile, alpha: number,
   const ix = lerp(pr.px, pr.x, alpha), iy = lerp(pr.py, pr.y, alpha);
   const x = ix - camX, y = iy - camY;
   if (x < -80 || y < -80 || x > cam.w + 80 || y > cam.h + 80) return;
-  // evolved spells wear a slight recolour so the transcendent form reads at a
-  // glance: most turn gilded (the evolution gold), Night's Teeth turns crimson
+  // evolved spells stay in their spell's own palette but shift within it —
+  // deeper, hotter or paler — so the transcendent form reads without becoming
+  // a different spell: the Torrent runs electric white-violet, the Pyre sinks
+  // to coal-red, Cosmic Ruin to deep violet, Night's Teeth to a colder shadow,
+  // the Sovereign to silver starlight
   const evo = pr.evolved;
   if (pr.kind === 'arcane') {
     const e = q.uv('proj:arcane')!;
-    if (evo) q.push(true, e, x, y, e.half, Math.atan2(pr.vy, pr.vx), 1, 1, 0.86, 0.58, 1);
-    else q.push(true, e, x, y, e.half, Math.atan2(pr.vy, pr.vx), 1);
+    if (evo) {
+      const glowE = q.uv('glow')!;
+      q.push(true, glowE, x, y, 12, 0, 0.3, 0.71, 0.55, 1, 1);
+      q.push(true, e, x, y, e.half, Math.atan2(pr.vy, pr.vx), 1, 0.93, 0.85, 1, 0.7);
+    } else q.push(true, e, x, y, e.half, Math.atan2(pr.vy, pr.vx), 1);
   } else if (pr.kind === 'ember') {
     const e = q.uv('proj:ember')!;
-    if (evo) q.push(true, e, x, y, e.half, 0, 1, 1, 0.88, 0.62, 1);
-    else q.push(true, e, x, y, e.half, 0, 1);
+    if (evo) {
+      const glowE = q.uv('glow')!;
+      q.push(true, glowE, x, y, 14, 0, 0.3, 1, 0.42, 0.24, 1);
+      q.push(true, e, x, y, e.half, 0, 1, 1, 0.56, 0.32, 0.75);
+    } else q.push(true, e, x, y, e.half, 0, 1);
   } else if (pr.kind === 'comet') {
     // landing marker: a soft contracting ring where the star will strike
     const f = Math.min(1, pr.t / pr.dur);
@@ -2086,10 +2096,10 @@ function emitProjectile(q: QuadList, eng: Engine, pr: Projectile, alpha: number,
     // comet trail: stretched spark streak behind the head
     const sparkE = q.uv('p:spark')!;
     q.push(true, sparkE, x - Math.cos(a) * 28, y - Math.sin(a) * 28, 42, a, 0.6, 0.66, 0.55, 1, 1, 0.22);
-    const e = q.uv('proj:arcane')!; // pink-tinted round head (gilded when evolved)
+    const e = q.uv('proj:arcane')!; // pink-tinted round head (deep violet when evolved)
     if (evo) {
-      q.push(true, e, x, y, 15, a, 1, 1, 0.86, 0.55, 1);
-      q.push(true, glowE, x, y, 19, 0, 0.4, 1, 0.84, 0.5, 1);
+      q.push(true, e, x, y, 15, a, 1, 0.66, 0.56, 1, 1);
+      q.push(true, glowE, x, y, 19, 0, 0.4, 0.6, 0.5, 1, 1);
     } else {
       q.push(true, e, x, y, 15, a, 1, 1, 0.7, 0.95, 1);
       q.push(true, glowE, x, y, 19, 0, 0.4, 1, 0.70, 0.95, 1);
@@ -2098,20 +2108,23 @@ function emitProjectile(q: QuadList, eng: Engine, pr: Projectile, alpha: number,
     const e = q.uv('proj:fang')!;
     // art baked for the base hitbox (r=12); Maw of Night grows pr.r, so the
     // crescent must grow with it or the hitbox outruns the visual
-    if (evo) q.push(false, e, x, y, e.half * (pr.r / 12), Math.atan2(pr.vy, pr.vx), 1, 1, 0.24, 0.36, 0.4);
-    else q.push(false, e, x, y, e.half * (pr.r / 12), Math.atan2(pr.vy, pr.vx), 1);
+    const fa = Math.atan2(pr.vy, pr.vx);
+    if (evo) {
+      q.push(false, e, x, y, e.half * (pr.r / 12), fa, 1, 0.4, 0.22, 0.62, 0.55);
+      q.push(true, e, x, y, e.half * (pr.r / 12), fa, 0.3, 0.72, 0.5, 1, 1);
+    } else q.push(false, e, x, y, e.half * (pr.r / 12), fa, 1);
   } else if (pr.kind === 'glaive') {
     // subtle icy halo kept small so the blade silhouette reads as a glaive
-    // (the Star Sovereign's halo and glint warm to gold)
+    // (the Star Sovereign's halo and glint pale to silver starlight)
     const glowE = q.uv('glow')!;
-    if (evo) q.push(true, glowE, x, y, 21, 0, 0.28, 1, 0.84, 0.5);
+    if (evo) q.push(true, glowE, x, y, 23, 0, 0.4, 0.88, 0.95, 1);
     else q.push(true, glowE, x, y, 21, 0, 0.28, 0.62, 0.85, 1);
     const e = q.uv('proj:glaive')!; // baked twin-bladed star-blade, spinning
     // drawn slightly under natural size: blade tips at ~23px sit closer to the
     // effective reach (r=14 + enemy radius) — full size read as misses; any
     // smaller and it blurs together with Arcane Missiles
     q.push(false, e, x, y, e.half * 0.78, pr.spin, 1);
-    if (evo) q.push(true, e, x, y, e.half * 0.78, pr.spin, 0.3, 1, 0.84, 0.5, 1);
+    if (evo) q.push(true, e, x, y, e.half * 0.78, pr.spin, 0.34, 0.94, 0.98, 1, 1);
     else q.push(true, e, x, y, e.half * 0.78, pr.spin, 0.18); // faint additive glint on the edge
   } else if (pr.kind === 'iceshard') {
     // a slender crystal of cold, elongated along its flight

@@ -1637,6 +1637,15 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 }
 .dev-toggle:hover { color: rgba(205, 216, 255, 0.9); }
 .dev-toggle input { accent-color: #7ff5ff; cursor: var(--cursor-point); }
+.dev-select {
+  font-family: var(--flavor); font-style: italic; font-size: 14.5px;
+  color: rgba(205, 216, 255, 0.85);
+  background: rgba(13, 7, 20, 0.85);
+  border: 1px solid rgba(255, 154, 213, 0.3); border-radius: 6px;
+  padding: 3px 8px; cursor: var(--cursor-point);
+}
+.dev-select:hover { border-color: rgba(255, 154, 213, 0.55); }
+.dev-select option { font-style: normal; background: #0d0714; }
 
 /* ============================================================== dream book */
 /* the menu button's "new discoveries" pip */
@@ -1746,7 +1755,7 @@ button:focus-visible { filter: drop-shadow(0 0 10px rgba(255, 210, 122, 0.9)); }
 /* --- entry grid: spells, boons, relics, pacts, interactions */
 .book-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 14px; align-items: start;
+  gap: 14px; align-items: stretch;
 }
 .book-entry {
   --c: var(--arcane);
